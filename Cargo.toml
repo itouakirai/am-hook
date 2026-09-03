@@ -1,0 +1,32 @@
+[package]
+name = "am-hook"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "am_hook"
+path = "src/lib.rs"
+
+[[bin]]
+name = "am-hook"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+temari = { path = "crates/temari" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+regex = "1"
+bytes = "1"
+futures = "0.3"
+lru = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

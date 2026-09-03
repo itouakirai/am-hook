@@ -1,0 +1,40 @@
+
+使用Rust编程语言设计一个http反代hook程序，当监听用户指定的端口8888时，http://127.0.0.1:8888/后面跟的就是被反代的源地址，只处理源地址里有aod.itunes.apple.com/itunes-assets/字符的请求。根据源地址的特征分为下面三种，我们对此进行不同操作
+1.master m3u8类型
+特征：最末段为"P"+ 一段数字 + "_" + 非A开头的一段字符 + ".m3u8"
+可测试举例：
+http://127.0.0.1:8888/https://aod.itunes.apple.com/itunes-assets/HLSMusic211/v4/b8/1f/88/b81f88d2-1aaa-9931-89e4-c85f62cc52dd/P1263211745_default.m3u8
+操作：对源地址的m3u8进行请求，不改，原样返回
+2.media m3u8类型
+特征：最末段为"P"+ 一段数字 + "_A" + 一段数字 + "_" + 一段字符 + ".m3u8"
+
+可测试举例：
+http://127.0.0.1:8888/https://aod.itunes.apple.com/itunes-assets/HLSMusic211/v4/b8/1f/88/b81f88d2-1aaa-9931-89e4-c85f62cc52dd/P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8
+
+
+操作：对源地址的m3u8进行请求，先读，建议一行一行读，尝试寻找"#EXT-X-KEY:METHOD=SAMPLE-AES"开头的行，会找到类似下面的2行
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://itunes.apple.com/P000000000/s1/e1",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"
+#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://itunes.apple.com/p1263211745/c6",KEYFORMAT="com.apple.streamingkeydelivery",KEYFORMATVERSIONS="1"
+
+将请求的源地址里的"_A"后面的一段数字存为adamId，两个URI里忽略掉"skd://itunes.apple.com/P000000000/s1/e1"后将剩下的那个URI存进uri，再寻找"#EXT-X-MAP"开头的行，将该行里URI的值存为fileuri，并且这个media m3u8文件里存放的是一个加密的分段式fMP4，所以你还要将第一段frag的BYTERANGE记录下来,这很好找，第一个以"#EXT-X-BYTERANGE"开头的行就有该信息,如#EXT-X-BYTERANGE:1441673@1058 就存为range1="1441673@1058",最终以上面的链接为例会得到
+
+adamId="1468058171"
+uri="skd://itunes.apple.com/p1263211745/c6"
+template=""
+fileuri="P1263211745_A1468058171_audio_en_gr2768_mp4a-A6_m.mp4"
+range1="1441673@1058"
+
+补齐完所有信息后，把m3u8里的加密元数据清除，表明这是一个未加密的内容，最后将处理过的m3u8返回给用户。
+3. media file类型
+特征：将media m3u8类型末尾的".m3u8"替换为"_m.mp4"就是media file类型，有对应关系
+可测试举例：
+http://127.0.0.1:8888/https://aod.itunes.apple.com/itunes-assets/HLSMusic211/v4/b8/1f/88/b81f88d2-1aaa-9931-89e4-c85f62cc52dd/P1263211745_A1468058171_audio_en_gr2768_mp4a-A6_m.mp4
+
+补齐操作：先去内存里的已有的一堆结构体对应字段找和本请求链接最后一段一样的fileuri，如果存在则使用对应的结构体，如果不存在则将请求中的源地址里的"_m.mp4"替换为".m3u8"去进行类型二里的的操作进行补齐结构体。接下来是一个建议的全局操作
+全局操作：要有一个全局独立运行的函数实时监控已有的所有结构体，当结构体里的uri和adamId被补齐为非空时，则使用这两变量去用户设置的wrapper-lite的key接口获取解密模板
+以上面链接为例就是 http://127.0.0.1:12340/key?adamId=1468058171&uri=skd://itunes.apple.com/p1263211745/c6  这样会返回一个json，将json里的data里的内容存进对应结构体的template字段。接下来就开始一个关键的解密操作了。
+解密操作：浏览该解密库 https://github.com/WorldObservationLog/Temari ，使用该库对对应frag的sample进行解密并返回，所有media file的第一个frag里的sample要使用可本地固定的template，该template你去请求一次http://127.0.0.1:12340/key?adamId=0&uri=skd://itunes.apple.com/P000000000/s1/e1的到的就是，最好本地内嵌。而第一个frag的范围就是结构体里的range1字段。其他frag里sample就使用对应结构体里的template字段值进行解密，用户请求哪几部分你就解密对应的那几部分。用户停外面就停，全局存在结构体则继续缓存设定的时间在内存中，方便用户再次访问时及时进行解密并返回。并且解密的同时要将对应frag里的加密元数据清除，让用户接收到一个已解密的可在线播放的fmp4
+
+最终效果为用户在potplayer粘贴进media m3u8类型的url时， 可以进行完美播放，而在idm下载输入media file类型的url后就会下载到可离线播放的无加密内容，并可支持分段下载。
+
+我已提供好一个wrapper-lite可以给你测试 http://192.168.31.105:3001
