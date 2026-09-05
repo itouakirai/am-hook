@@ -6,6 +6,7 @@ pub mod mp4;
 pub mod proxy;
 pub mod state;
 pub mod wrapper;
+mod ui;
 
 use clap::Parser;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use crate::cli::Cli;
 use crate::proxy::handle_proxy;
 use crate::state::AppState;
+use crate::ui::{home_handler, master_handler, parse_handler, status_handler};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,10 +46,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 启动后台结构体监控与 TTL 淘汰任务
     tokio::spawn(monitor::run_background_monitor(state.clone()));
 
-    // 构建 Axum 路由（任意路径 fallback 均进入 handle_proxy）
+    // 构建路由：首页和解析接口优先，song 页与 hook 反代统一由 fallback 分流。
     let app = axum::Router::new()
+        .route("/", axum::routing::get(home_handler))
+        .route("/status", axum::routing::get(status_handler))
+        .route("/parse", axum::routing::post(parse_handler))
+        .route("/parse/:adam_id", axum::routing::get(master_handler))
         .fallback(handle_proxy)
         .with_state(state);
+
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     info!("am-hook listening on http://{}", listen_addr);

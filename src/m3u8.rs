@@ -1,6 +1,91 @@
 use regex::Regex;
 use crate::state::FragmentRange;
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MasterVariant {
+    pub uri: String,
+    pub file_uri: String,
+    pub group_id: String,
+    pub audio: String,
+    pub codecs: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedSongLink {
+    pub adam_id: String,
+}
+
+pub fn parse_song_link(url: &str) -> Result<String, String> {
+    let pattern = Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)")
+        .map_err(|e| e.to_string())?;
+    pattern
+        .captures(url.trim())
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
+        .ok_or_else(|| format!("Only Apple Music song links are supported: {url}"))
+}
+
+pub fn parse_master_variants(content: &str) -> Result<Vec<MasterVariant>, String> {
+    let attr_pattern = Regex::new(
+        r#"([A-Z0-9-]+)=("(?:[^"]*)"|[^,\r\n]+)"#,
+    )
+    .map_err(|e| e.to_string())?;
+    let media_pattern = Regex::new(r#"^#EXT-X-MEDIA:(.*)$"#).map_err(|e| e.to_string())?;
+    let stream_pattern = Regex::new(r#"^#EXT-X-STREAM-INF:(.*)$"#).map_err(|e| e.to_string())?;
+    let line_pattern = Regex::new(r#"^[^#\r\n].*\.m3u8$"#).map_err(|e| e.to_string())?;
+
+    let mut audio_groups = std::collections::HashMap::<String, String>::new();
+    let mut current_stream = None;
+    let mut variants = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(caps) = media_pattern.captures(line) {
+            let attrs = parse_hls_attributes(&caps[1], &attr_pattern);
+            if attrs.get("TYPE").map(String::as_str) == Some("AUDIO") {
+                if let Some(group_id) = attrs.get("GROUP-ID") {
+                    audio_groups.insert(group_id.clone(), attrs.get("NAME").cloned().unwrap_or_default());
+                }
+            }
+        } else if let Some(caps) = stream_pattern.captures(line) {
+            current_stream = Some(parse_hls_attributes(&caps[1], &attr_pattern));
+        } else if line_pattern.is_match(line) {
+            let attrs = current_stream.take().unwrap_or_default();
+            let group_id = attrs.get("AUDIO").cloned().unwrap_or_default();
+            let uri = line.to_string();
+            let file_uri = uri.replace(".m3u8", "_m.mp4");
+            variants.push(MasterVariant {
+                uri,
+                file_uri,
+                group_id: group_id.clone(),
+                audio: audio_groups.get(&group_id).cloned().unwrap_or_default(),
+                codecs: attrs.get("CODECS").cloned(),
+            });
+        }
+    }
+
+    if variants.is_empty() {
+        return Err("No variants found in master m3u8".to_string());
+    }
+    Ok(variants)
+}
+
+fn parse_hls_attributes(
+    input: &str,
+    pattern: &Regex,
+) -> std::collections::HashMap<String, String> {
+    let mut attrs = std::collections::HashMap::new();
+    for caps in pattern.captures_iter(input) {
+        let key = caps.get(1).map(|m| m.as_str()).unwrap_or_default().to_string();
+        let mut value = caps.get(2).map(|m| m.as_str()).unwrap_or_default().to_string();
+        if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+            value = value[1..value.len() - 1].to_string();
+        }
+        attrs.insert(key, value);
+    }
+    attrs
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedMediaM3u8 {
     pub adam_id: String,

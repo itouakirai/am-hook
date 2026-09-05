@@ -10,7 +10,8 @@ use regex::Regex;
 use tracing::{error, info, warn};
 
 use crate::embedded_template::get_fixed_template;
-use crate::m3u8::parse_and_clean_media_m3u8;
+use crate::m3u8::{parse_and_clean_media_m3u8, parse_song_link};
+use crate::ui::song_handler;
 use crate::mp4::{decrypt_fragment, patch_init_segment};
 use crate::state::{AppState, TrackContext};
 
@@ -22,7 +23,15 @@ pub async fn handle_proxy(
     headers: HeaderMap,
 ) -> Response<Body> {
     let raw_path = uri.path();
-    let raw_target = raw_path.strip_prefix('/').unwrap_or(raw_path);
+
+    let song_path = raw_path.strip_prefix('/').unwrap_or(raw_path);
+
+    // Apple Music 页面路径本身包含 "https://..."，先于 proxy fallback 交给 song UI。
+    if parse_song_link(song_path).is_ok() {
+        return song_handler(uri).await;
+    }
+
+    let raw_target = song_path;
 
     // 1. 规整化 URL 并附加 query 参数
     let mut target_url = normalize_upstream_url(raw_target);

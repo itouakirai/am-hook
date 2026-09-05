@@ -5,4 +5,5 @@ pub mod monitor;
 pub mod mp4;
 pub mod proxy;
 pub mod state;
+pub mod ui;
 pub mod wrapper;
