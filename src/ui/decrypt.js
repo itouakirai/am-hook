@@ -20,6 +20,13 @@
   /** 页面加载时清理超过该时长的残留临时文件（上次中断的下载等） */
   const STALE_MS = 60 * 60 * 1000;
 
+  /** 界面文案（i18n.js）；未加载时直接返回 key */
+  function t(key, vars) {
+    return global.AmI18n ? global.AmI18n.t(key, vars) : key;
+  }
+
+  const currentLang = () => (global.AmI18n ? global.AmI18n.lang : 'zh');
+
   /* ---------- Worker RPC ---------- */
 
   class WorkerClient {
@@ -35,14 +42,15 @@
         if (ok) p.resolve(result);
         else p.reject(Object.assign(new Error(error), { name: name || 'Error' }));
       };
-      this.worker.onerror = (e) => this.failAll(new Error(e.message || '解密 Worker 出错'));
+      this.worker.onerror = (e) => this.failAll(new Error(e.message || t('err.worker')));
     }
 
+    /** 每条消息都带上当前界面语言，Worker 据此返回对应语言的错误信息 */
     call(op, args = {}, transfer = []) {
       const id = ++this.seq;
       return new Promise((resolve, reject) => {
         this.pending.set(id, { resolve, reject });
-        this.worker.postMessage({ id, op, ...args }, transfer);
+        this.worker.postMessage({ id, op, lang: currentLang(), ...args }, transfer);
       });
     }
 
@@ -104,7 +112,7 @@
         if (!res.ok) {
           let msg = '';
           try { msg = JSON.parse(text).msg; } catch {}
-          throw new Error(`获取解密模板失败：${msg || `HTTP ${res.status}`}`);
+          throw new Error(t('err.template', { msg: msg || `HTTP ${res.status}` }));
         }
         return text;
       });
@@ -145,7 +153,7 @@
       } else if (line.startsWith('#EXT-X-MAP:')) {
         const uri = /URI="([^"]+)"/.exec(line);
         const range = /BYTERANGE="([^"]+)"/.exec(line);
-        if (!uri || !range) throw new Error('media m3u8 缺少 EXT-X-MAP BYTERANGE');
+        if (!uri || !range) throw new Error(t('err.m3u8Map'));
         init = { url: new URL(uri[1], playlistUrl).href, ...byterange(range[1], 0), init: true };
         next = init.end + 1;
       } else if (line.startsWith('#EXTINF:')) {
@@ -160,8 +168,8 @@
         pendingDuration = null;
       }
     }
-    if (!init || segments.length === 0) throw new Error('media m3u8 中没有可播放的分段');
-    if (segments.some((s) => s.key === 'track') && (!keyUri || !adamId)) throw new Error('media m3u8 缺少轨道密钥信息');
+    if (!init || segments.length === 0) throw new Error(t('err.m3u8Empty'));
+    if (segments.some((s) => s.key === 'track') && (!keyUri || !adamId)) throw new Error(t('err.m3u8Key'));
     return { url: init.url, adamId, keyUri, init, segments, duration, size: segments[segments.length - 1].end + 1 };
   }
 
@@ -180,7 +188,7 @@
     /** 从 CDN 获取并解析 media m3u8，同时预取轨道模板 */
     static async open(m3u8Url, signal) {
       const res = await fetch(m3u8Url, { signal });
-      if (!res.ok) throw new Error(`获取 media m3u8 失败（HTTP ${res.status}）`);
+      if (!res.ok) throw new Error(t('err.m3u8Http', { status: res.status }));
       const track = new Track(parseMediaPlaylist(await res.text(), res.url || m3u8Url));
       track.template().catch(() => {});
       return track;
@@ -200,11 +208,11 @@
       for (let attempt = 0; ; attempt++) {
         try {
           const res = await fetch(this.url, { headers: { Range: `bytes=${piece.start}-${piece.end}` }, signal });
-          if (!res.ok) throw new Error(`分段请求失败（HTTP ${res.status}）`);
+          if (!res.ok) throw new Error(t('err.segmentHttp', { status: res.status }));
           let buf = await res.arrayBuffer();
           // 上游忽略 Range 时自行截取
           if (res.status === 200 && buf.byteLength > length) buf = buf.slice(piece.start, piece.end + 1);
-          if (buf.byteLength !== length) throw new Error(`分段长度不符（${buf.byteLength}/${length}）`);
+          if (buf.byteLength !== length) throw new Error(t('err.segmentLength', { got: buf.byteLength, want: length }));
           return buf;
         } catch (err) {
           if (isAbort(err) || attempt >= 3) throw err;

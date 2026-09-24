@@ -18,9 +18,13 @@
       </a>
       <div class="topbar-right">
         <span class="status-pill" id="status"><span class="status-dot"></span><span>wrapper-lite</span></span>
+        <button class="btn lang-btn" type="button" data-lang-toggle>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>
+          <span class="lang-label"></span>
+        </button>
         <a class="btn" href="/">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-          主页
+          <span data-i18n="nav.home"></span>
         </a>
       </div>
     </header>
@@ -36,15 +40,15 @@
           <div class="song-actions">
             <button class="btn btn-primary" id="play-best" type="button" disabled>
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>
-              播放
+              <span data-i18n="song.play"></span>
             </button>
-            <button class="btn" id="vlc-best" type="button" disabled hidden title="用 VLC 播放最高音质">
+            <button class="btn" id="vlc-best" type="button" disabled hidden data-i18n-attr="title=song.vlcTitle">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 3h5l4.5 15H5z"/><path d="M7.6 10h8.8M6.4 14h11.2"/><path d="M3 21h18"/></svg>
-              VLC 播放
+              <span data-i18n="song.vlc"></span>
             </button>
             <button class="btn" id="reparse" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg>
-              重新解析
+              <span data-i18n="song.reparse"></span>
             </button>
             <a class="btn" id="apple-link" target="_blank" rel="noreferrer">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
@@ -59,7 +63,7 @@
 
       <section class="variants" id="variants" hidden>
         <div class="variants-head">
-          <h2 class="variants-title">可用音质</h2>
+          <h2 class="variants-title" data-i18n="song.variants"></h2>
           <span class="variants-count" id="count"></span>
         </div>
         <div id="variant-list"></div>
@@ -79,32 +83,36 @@
       </div>
     </div>
     <div class="player-center">
-      <button class="player-skip skip-back" type="button" aria-label="后退 10 秒">
+      <button class="player-skip skip-back" type="button" data-i18n-attr="aria-label=player.back,title=player.back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
       </button>
-      <button class="player-toggle" type="button" aria-label="播放"></button>
-      <button class="player-skip skip-fwd" type="button" aria-label="前进 10 秒">
+      <button class="player-toggle" type="button"></button>
+      <button class="player-skip skip-fwd" type="button" data-i18n-attr="aria-label=player.forward,title=player.forward">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
       </button>
       <span class="time time-cur">0:00</span>
-      <div class="seek" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+      <div class="seek" role="slider" tabindex="0" data-i18n-attr="aria-label=player.seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
         <div class="seek-track"><div class="seek-buffer"></div><div class="seek-fill"></div></div>
         <div class="seek-thumb"></div>
       </div>
       <span class="time time-total">0:00</span>
     </div>
     <div class="player-right">
-      <span class="badge player-mode" title="播放方式"></span>
-      <input class="volume" type="range" min="0" max="1" step="0.01" aria-label="音量">
+      <span class="badge player-mode" data-i18n-attr="title=player.mode"></span>
+      <input class="volume" type="range" min="0" max="1" step="0.01" data-i18n-attr="aria-label=player.volume">
     </div>
     <p class="player-msg" hidden></p>
   </div>
 
+  <script src="/assets/i18n.js"></script>
   <script src="/assets/decrypt.js"></script>
   <script src="/assets/player.js"></script>
   <script>
     const { AmPlayer, detectMode } = window.AmHook;
-    const { AmDecrypt } = window;
+    const { AmDecrypt, AmI18n } = window;
+    const { t } = AmI18n;
+    AmI18n.apply();
+    document.title = t('song.pageTitle');
     const songUrl = decodeURIComponent(location.pathname.slice(1));
     const linkMatch = songUrl.match(/music\.apple\.com\/([a-z]{2})\/song\/[^/?#]+\/(\d+)/i) || [];
     const country = (linkMatch[1] || 'us').toLowerCase();
@@ -142,11 +150,19 @@
       return node;
     }
 
+    /** message 可以是函数，切换语言时会重新求值 */
+    let alertState = null;
     function showAlert(kind, message) {
+      alertState = message ? { kind, message } : null;
+      renderAlert();
+    }
+
+    function renderAlert() {
       const a = $('alert');
-      a.className = `alert ${kind}`;
-      a.textContent = message;
-      a.hidden = !message;
+      a.hidden = !alertState;
+      if (!alertState) return;
+      a.className = `alert ${alertState.kind}`;
+      a.textContent = typeof alertState.message === 'function' ? alertState.message() : alertState.message;
     }
 
     function formatRate(bps) {
@@ -158,18 +174,18 @@
     function describe(v) {
       const g = v.group_id.toLowerCase();
       const tags = [];
-      if (g.includes('binaural')) tags.push('双耳');
-      if (g.includes('downmix')) tags.push('缩混');
+      if (g.includes('binaural')) tags.push(t('q.binaural'));
+      if (g.includes('downmix')) tags.push(t('q.downmix'));
       const variantRank = tags.length ? 1 : 0;
       if (g.includes('alac')) {
         const spec = [v.bit_depth && `${v.bit_depth}-bit`, v.sample_rate && `${(v.sample_rate / 1000).toFixed(1).replace(/\.0$/, '')} kHz`].filter(Boolean).join(' / ');
-        return { group: '无损', rank: 0, kbps: 0, name: `ALAC${spec ? ' · ' + spec : ''}`, badge: ['Lossless', 'accent'], tags, sub: variantRank };
+        return { group: t('q.lossless'), rank: 0, kbps: 0, name: `ALAC${spec ? ' · ' + spec : ''}`, badge: ['Lossless', 'accent'], tags, sub: variantRank };
       }
       if (g.includes('atmos')) {
         // GROUP-ID 形如 atmos-2768：首位是版本号，后三位才是码率（768 kbps）
         const raw = Number((g.match(/atmos-(\d+)/) || [])[1]) || 0;
         const kbps = raw >= 1000 ? raw % 1000 : raw;
-        return { group: '杜比全景声', rank: 1, kbps, name: `Dolby Atmos${kbps ? ' · ' + kbps + ' kbps' : ''}`, badge: ['Atmos', 'accent'], tags, sub: variantRank };
+        return { group: t('q.atmos'), rank: 1, kbps, name: `Dolby Atmos${kbps ? ' · ' + kbps + ' kbps' : ''}`, badge: ['Atmos', 'accent'], tags, sub: variantRank };
       }
       if (g.includes('he-')) {
         const kbps = Number((g.match(/stereo-(\d+)/) || [])[1]) || 0;
@@ -189,15 +205,16 @@
 
     let toastTimer;
     function toast(message) {
-      const t = $('toast');
-      t.textContent = message;
-      t.hidden = false;
+      const node = $('toast');
+      node.textContent = message;
+      node.hidden = false;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+      toastTimer = setTimeout(() => { node.hidden = true; }, 2600);
     }
 
-    function copy(text, what) {
-      const done = () => toast(`已复制${what}`);
+    /** doneKey：复制成功后提示的文案 key */
+    function copy(text, doneKey) {
+      const done = () => toast(t(doneKey));
       const fallback = () => {
         const area = el('textarea', { value: text });
         area.style.cssText = 'position:fixed;opacity:0';
@@ -223,7 +240,7 @@
     /* ---------- 浏览器端下载：直连 CDN + wasm 解密 + OPFS 暂存 ---------- */
     async function startDownload(v, fileName) {
       const id = v.group_id;
-      if (downloads.has(id)) { toast('该音质正在下载'); return; }
+      if (downloads.has(id)) { toast(t('dl.busy')); return; }
       const job = { ctl: new AbortController(), done: 0, total: 0 };
       downloads.set(id, job);
       renderDownload(id);
@@ -235,10 +252,11 @@
           signal: job.ctl.signal,
           onProgress: (done) => { job.done = done; renderDownload(id); },
         });
-        toast(`解密完成，已交给浏览器保存（${formatSize(result.size)}）`);
+        toast(t('dl.done', { size: formatSize(result.size) }));
       } catch (err) {
-        if (err && err.name === 'AbortError') toast('已取消下载');
-        else showAlert('error', `下载失败：${(err && err.message) || err}`);
+        const msg = (err && err.message) || String(err);
+        if (err && err.name === 'AbortError') toast(t('dl.cancelled'));
+        else showAlert('error', () => t('dl.failed', { msg }));
       } finally {
         downloads.delete(id);
         renderDownload(id);
@@ -254,13 +272,13 @@
       const ratio = job.total ? job.done / job.total : 0;
       r.progressFill.style.width = `${ratio * 100}%`;
       r.progressText.textContent = job.total
-        ? `浏览器解密下载中 ${Math.floor(ratio * 100)}% · ${formatSize(job.done)} / ${formatSize(job.total)}`
-        : '正在准备下载…';
+        ? t('dl.progress', { pct: Math.floor(ratio * 100), done: formatSize(job.done), total: formatSize(job.total) })
+        : t('dl.preparing');
     }
 
     function openInVlc(v) {
       location.href = vlcHref(v);
-      toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议');
+      toast(t('toast.vlc'));
     }
 
     /* ---------- 下拉菜单（单例，fixed 定位，避免被列表 overflow 裁剪） ---------- */
@@ -323,16 +341,15 @@
 
     function variantMenu(v, fileName) {
       const items = [
-        { icon: ICON.download, label: '下载解密文件', hint: `浏览器内解密 · ${fileName}`, onSelect: () => startDownload(v, fileName) },
+        { icon: ICON.download, label: t('menu.download'), hint: t('menu.downloadHint', { file: fileName }), onSelect: () => startDownload(v, fileName) },
       ];
       if (hook) {
         items.push(
-          { icon: ICON.server, label: '通过服务器下载', hint: '由服务端解密，消耗服务器流量', href: v.hookFileUrl, download: fileName },
+          { icon: ICON.server, label: t('menu.serverDownload'), hint: t('menu.serverDownloadHint'), href: v.hookFileUrl, download: fileName },
           '-',
-          { icon: ICON.vlc, label: '用 VLC 播放', hint: '所有音质均可播放', href: vlcHref(v),
-            onSelect: () => toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议') },
-          { icon: ICON.list, label: '复制 media m3u8 地址', hint: '可在 VLC「打开网络串流」中使用', onSelect: () => copy(v.hookM3u8Url, ' media m3u8 地址') },
-          { icon: ICON.file, label: '复制 media file 地址', hint: '用于 IDM 等下载工具', onSelect: () => copy(v.hookFileUrl, ' media file 地址') },
+          { icon: ICON.vlc, label: t('menu.vlc'), hint: t('menu.vlcHint'), href: vlcHref(v), onSelect: () => toast(t('toast.vlc')) },
+          { icon: ICON.list, label: t('menu.copyM3u8'), hint: t('menu.copyM3u8Hint'), onSelect: () => copy(v.hookM3u8Url, 'toast.copiedM3u8') },
+          { icon: ICON.file, label: t('menu.copyFile'), hint: t('menu.copyFileHint'), onSelect: () => copy(v.hookFileUrl, 'toast.copiedFile') },
         );
       }
       return items;
@@ -365,29 +382,30 @@
         }
         const playable = !!v.mode;
         const playBtn = el('button', { className: 'play-btn', type: 'button', innerHTML: ICON.play, disabled: !playable });
-        playBtn.setAttribute('aria-label', playable ? `播放 ${v.info.name}` : '当前浏览器不支持该编码');
-        playBtn.title = playable ? '在线播放' : `当前浏览器不支持 ${v.codecs}，${hook ? '可用 VLC 播放' : '可下载后用本地播放器播放'}`;
+        playBtn.setAttribute('aria-label', playable ? t('row.play', { name: v.info.name }) : t('row.unsupported'));
+        playBtn.title = playable ? t('row.playTitle')
+          : t('row.unsupportedTitle', { codecs: v.codecs, hint: t(hook ? 'player.hintVlc' : 'player.hintDownload') });
         playBtn.addEventListener('click', () => player.play(playItem(v)));
 
         const name = el('div', { className: 'variant-name' }, v.info.name,
           v.info.badge && el('span', { className: `badge ${v.info.badge[1]}`, textContent: v.info.badge[0] }),
-          ...v.info.tags.map((t) => el('span', { className: 'badge', textContent: t })),
-          el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: playable ? '浏览器可播' : (hook ? '需外部播放器' : '仅可下载') }));
+          ...v.info.tags.map((tag) => el('span', { className: 'badge', textContent: tag })),
+          el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: t(playable ? 'row.playable' : hook ? 'row.external' : 'row.downloadOnly') }));
         const detail = el('div', { className: 'variant-detail' },
-          [v.codecs, formatRate(v.bandwidth), v.channels && `声道 ${v.channels}`].filter(Boolean).join(' · ') + ' · ',
+          [v.codecs, formatRate(v.bandwidth), v.channels && t('row.channels', { n: v.channels })].filter(Boolean).join(' · ') + ' · ',
           el('code', { textContent: v.group_id }));
 
         const progressFill = el('div', { className: 'dl-fill' });
         const progressText = el('span', { className: 'dl-text' });
-        const cancel = el('button', { className: 'icon-btn dl-cancel', type: 'button', title: '取消下载', innerHTML: ICON.close });
-        cancel.setAttribute('aria-label', `取消下载 ${v.info.name}`);
+        const cancel = el('button', { className: 'icon-btn dl-cancel', type: 'button', title: t('row.cancel'), innerHTML: ICON.close });
+        cancel.setAttribute('aria-label', t('row.cancelAria', { name: v.info.name }));
         cancel.addEventListener('click', () => { const job = downloads.get(v.group_id); if (job) job.ctl.abort(); });
         const progress = el('div', { className: 'dl', hidden: true },
           el('div', { className: 'dl-bar' }, progressFill), progressText, cancel);
 
         const fileName = safeName(`${meta.artist ? meta.artist + ' - ' : ''}${meta.title || adamId} [${v.info.name.replace(/ · /g, ' ')}].m4a`);
-        const more = el('button', { className: 'icon-btn more-btn', type: 'button', title: '更多', innerHTML: ICON.more });
-        more.setAttribute('aria-label', `${v.info.name} 更多操作`);
+        const more = el('button', { className: 'icon-btn more-btn', type: 'button', title: t('row.more'), innerHTML: ICON.more });
+        more.setAttribute('aria-label', t('row.moreAria', { name: v.info.name }));
         more.setAttribute('aria-haspopup', 'menu');
         more.setAttribute('aria-expanded', 'false');
         more.addEventListener('click', () => openMenu(more, variantMenu(v, fileName)));
@@ -399,7 +417,7 @@
       }
       list.replaceChildren(...nodes);
       for (const id of downloads.keys()) renderDownload(id);
-      $('count').textContent = `${variants.length} 个音质 · ${variants.filter((v) => v.mode).length} 个可在浏览器播放`;
+      $('count').textContent = t('song.count', { total: variants.length, playable: variants.filter((v) => v.mode).length });
       $('variants').hidden = false;
       $('play-best').disabled = !variants.some((v) => v.mode);
       $('vlc-best').hidden = !hook;
@@ -432,11 +450,11 @@
 
     async function loadVariants() {
       $('reparse').disabled = true;
-      showAlert('info', '正在获取 master m3u8…');
+      showAlert('info', () => t('song.loading'));
       try {
         const res = await fetch(`/parse/${adamId}`);
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || `解析失败（HTTP ${res.status}）`);
+        if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || t('song.parseFailedHttp', { status: res.status }));
         const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
         hook = !!data.hook;
         variants = data.variants.map((v) => ({
@@ -452,7 +470,7 @@
         renderVariants();
         showAlert('', '');
       } catch (err) {
-        showAlert('error', err.message || '解析失败');
+        showAlert('error', err.message || t('song.parseFailed'));
       } finally {
         $('reparse').disabled = false;
       }
@@ -465,33 +483,35 @@
         try {
           const res = await fetch(`https://itunes.apple.com/lookup?id=${adamId}&country=${cc}&entity=song`, { signal: AbortSignal.timeout(8000) });
           if (!res.ok) continue;
-          const t = (await res.json()).results?.[0];
-          if (!t) continue;
+          const track = (await res.json()).results?.[0];
+          if (!track) continue;
           return {
             country: cc,
-            title: t.trackName || '',
-            artist: t.artistName || '',
-            album: t.collectionName || '',
+            title: track.trackName || '',
+            artist: track.artistName || '',
+            album: track.collectionName || '',
             // artworkUrl100 形如 .../100x100bb.jpg，换成大图
-            artwork: (t.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-            genre: t.primaryGenreName || '',
-            releaseDate: t.releaseDate || '',
-            durationMs: t.trackTimeMillis,
-            explicit: t.trackExplicitness === 'explicit',
-            url: t.trackViewUrl || '',
+            artwork: (track.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+            genre: track.primaryGenreName || '',
+            releaseDate: track.releaseDate || '',
+            durationMs: track.trackTimeMillis,
+            explicit: track.trackExplicitness === 'explicit',
+            url: track.trackViewUrl || '',
           };
         } catch {}
       }
       return {};
     }
 
-    async function loadMeta() {
-      meta = await lookupMeta();
-      const title = meta.title || `歌曲 ${adamId}`;
+    let metaLoaded = false;
+
+    function renderMeta() {
+      if (!metaLoaded) return;
+      const title = meta.title || t('song.fallbackTitle', { id: adamId });
       document.title = `${title} · am-hook`;
       $('title').textContent = title;
       $('title').classList.remove('skeleton');
-      $('subtitle').textContent = [meta.artist, meta.album].filter(Boolean).join(' — ') || '未能获取歌曲信息';
+      $('subtitle').textContent = [meta.artist, meta.album].filter(Boolean).join(' — ') || t('song.noMeta');
       $('subtitle').classList.remove('skeleton');
       const tags = [];
       if (meta.releaseDate) tags.push(meta.releaseDate.slice(0, 4));
@@ -499,9 +519,15 @@
       if (meta.durationMs) tags.push(window.AmHook.formatTime(meta.durationMs / 1000));
       if (meta.explicit) tags.push('E');
       tags.push(`ID ${adamId}`);
-      $('meta').replaceChildren(...tags.map((t) => el('span', { className: 'badge', textContent: t })));
-      if (meta.artwork) $('cover').replaceChildren(el('img', { src: meta.artwork, alt: `${title} 封面` }));
+      $('meta').replaceChildren(...tags.map((tag) => el('span', { className: 'badge', textContent: tag })));
+      if (meta.artwork) $('cover').replaceChildren(el('img', { src: meta.artwork, alt: t('song.coverAlt', { title }) }));
       if (meta.url) $('apple-link').href = meta.url;
+    }
+
+    async function loadMeta() {
+      meta = await lookupMeta();
+      metaLoaded = true;
+      renderMeta();
       if (rows.size) renderVariants(); // 下载文件名需要歌名
 
       try {
@@ -512,18 +538,29 @@
       } catch {}
     }
 
-    async function loadStatus() {
+    /** wrapper-lite 状态：null 表示检查中，否则为 { ok, regions } */
+    let wrapperStatus = null;
+
+    function renderStatus() {
       const pill = $('status');
+      pill.classList.toggle('ok', !!wrapperStatus && wrapperStatus.ok);
+      pill.classList.toggle('bad', !!wrapperStatus && !wrapperStatus.ok);
+      pill.lastElementChild.textContent = !wrapperStatus ? t('status.checking')
+        : !wrapperStatus.ok ? t('status.down')
+        : wrapperStatus.regions.length ? `wrapper-lite · ${wrapperStatus.regions.join(' / ').toUpperCase()}` : t('status.online');
+    }
+
+    async function loadStatus() {
+      renderStatus();
       try {
         const res = await fetch('/status');
         const data = await res.json();
         if (!res.ok || data.code !== 0) throw new Error();
-        pill.classList.add('ok');
-        pill.lastElementChild.textContent = `wrapper-lite · ${(data.regions || []).join(' / ').toUpperCase() || '在线'}`;
+        wrapperStatus = { ok: true, regions: (data.regions || []).map(String) };
       } catch {
-        pill.classList.add('bad');
-        pill.lastElementChild.textContent = 'wrapper-lite 不可用';
+        wrapperStatus = { ok: false, regions: [] };
       }
+      renderStatus();
     }
 
     $('reparse').addEventListener('click', loadVariants);
@@ -531,8 +568,21 @@
     // 下载在页面内进行，离开页面会中断
     addEventListener('beforeunload', (e) => { if (downloads.size) e.preventDefault(); });
 
+    // 切换语言：重绘所有动态生成的文字（播放、下载不受影响）
+    AmI18n.onChange(() => {
+      closeMenu(false);
+      if (!metaLoaded) document.title = t('song.pageTitle');
+      renderMeta();
+      if (variants.length) {
+        variants.forEach((v) => { v.info = describe(v); });
+        renderVariants();
+      }
+      renderAlert();
+      renderStatus();
+    });
+
     if (!adamId) {
-      showAlert('error', '无法从链接中识别歌曲 ID。');
+      showAlert('error', () => t('song.badId'));
     } else {
       loadMeta();
       loadVariants();

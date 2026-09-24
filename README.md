@@ -57,6 +57,7 @@ Box handling shared by both modes: FairPlay metadata boxes (`sinf`, `senc`, `sai
 
 Open `http://127.0.0.1:8888/` in a browser:
 
+- The UI is available in Chinese and English; the button in the top-right corner switches instantly (the choice is remembered, and the first visit follows the browser language). Playback and downloads in progress are not interrupted.
 - Paste a song link, an album share link with `?i=`, or a bare numeric song ID.
 - The song page parses every variant automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions) and shows artwork and track info (fetched by the browser directly from the iTunes Lookup API).
 - Each variant has a "more" menu:

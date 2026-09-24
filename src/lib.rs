@@ -24,6 +24,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/key", get(ui::key_handler))
         .route("/assets/app.css", get(ui::css_handler))
         .route("/assets/player.js", get(ui::player_js_handler))
+        .route("/assets/i18n.js", get(ui::i18n_js_handler))
         .route("/assets/decrypt.js", get(ui::decrypt_js_handler))
         .route("/assets/hook-worker.js", get(ui::worker_js_handler))
         .route("/assets/hook.wasm", get(ui::wasm_handler))

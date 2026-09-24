@@ -68,9 +68,18 @@
     return detectModes(codecs, audio, hook)[0] || null;
   }
 
+  /** 界面文案（i18n.js）；未加载时直接返回 key */
+  function t(key, vars) {
+    return global.AmI18n ? global.AmI18n.t(key, vars) : key;
+  }
+
   /** 不能在浏览器内播放时给用户的建议 */
   function fallbackHint(item) {
-    return item && item.hookM3u8Url ? '可点击该音质的 VLC 按钮用 VLC 播放' : '可下载解密文件后用本地播放器播放';
+    return t(item && item.hookM3u8Url ? 'player.hintVlc' : 'player.hintDownload');
+  }
+
+  function modeLabel(mode) {
+    return mode === 'direct' ? t('player.direct') : mode.toUpperCase();
   }
 
   class MseEngine {
@@ -122,7 +131,7 @@
       return new Promise((resolve, reject) => {
         if (gen !== this.generation || !this.sb) return reject(new DOMException('stale', 'AbortError'));
         const done = () => { this.sb.removeEventListener('error', fail); resolve(); };
-        const fail = () => { this.sb.removeEventListener('updateend', done); reject(new Error('SourceBuffer 追加失败，浏览器可能不支持该编码')); };
+        const fail = () => { this.sb.removeEventListener('updateend', done); reject(new Error(t('player.errorAppend'))); };
         this.sb.addEventListener('updateend', done, { once: true });
         this.sb.addEventListener('error', fail, { once: true });
         try {
@@ -235,6 +244,17 @@
         if (v >= 0 && v <= 1) this.audio.volume = v;
       } catch {}
       this.$('.volume').value = this.audio.volume;
+      if (global.AmI18n) global.AmI18n.onChange(() => this.renderLang());
+    }
+
+    /** 切换界面语言后重绘播放条上的文字 */
+    renderLang() {
+      this.renderToggle();
+      if (this.current) {
+        this.$('.player-mode').textContent = modeLabel(this.current.mode);
+        this.$('.player-title').textContent = this.current.title || t('player.unknownTitle');
+      }
+      this.renderError();
     }
 
     onChange(fn) { this.listeners.add(fn); }
@@ -285,7 +305,8 @@
       a.addEventListener('error', () => {
         // 尝试阶段的错误由 play() 统一处理（会自动换下一种播放方式）
         if (!this.attempting && this.current && this.current.mode !== 'mse' && this.audio.getAttribute('src')) {
-          this.showError(`播放出错，请换一个音质，或${fallbackHint(this.current)}。`);
+          const item = this.current;
+          this.showError(() => t('player.errorGeneric', { hint: fallbackHint(item) }));
         }
       });
 
@@ -319,7 +340,7 @@
       if (this.current && this.current.id === item.id) { this.toggle(); return; }
       const modes = detectModes(item.codecs, this.audio, !!item.hookM3u8Url);
       if (!modes.length) {
-        this.showError(`当前浏览器不支持 ${item.codecs} 编码，${fallbackHint(item)}。`);
+        this.showError(() => t('player.errorCodec', { codecs: item.codecs, hint: fallbackHint(item) }));
         return;
       }
       const token = ++this.playToken;
@@ -328,7 +349,7 @@
       this.root.hidden = false;
       document.body.classList.add('has-player');
       this.showError('');
-      this.$('.player-title').textContent = item.title || '未知歌曲';
+      this.$('.player-title').textContent = item.title || t('player.unknownTitle');
       this.$('.player-sub').textContent = [item.artist, item.label].filter(Boolean).join(' · ');
       this.$('.player-art').src = item.artwork || '';
       this.setLoading(true);
@@ -341,7 +362,7 @@
         if (token !== this.playToken) return;
         this.current.mode = mode;
         this.current.duration = 0;
-        this.$('.player-mode').textContent = { mse: 'MSE', hls: 'HLS', direct: '直连' }[mode];
+        this.$('.player-mode').textContent = modeLabel(mode);
         this.attempting = true;
         try {
           await this.tryMode(mode, item, resumeAt, token);
@@ -353,7 +374,7 @@
           if (token !== this.playToken) return;
           if (err && err.name === 'NotAllowedError') {
             this.setLoading(false);
-            this.showError('浏览器阻止了自动播放，请点击播放按钮。');
+            this.showError(() => t('player.errorAutoplay'));
             return;
           }
           lastError = err;
@@ -364,8 +385,8 @@
       this.teardown();
       failedCodecs.add(item.codecs);
       this.unsupportedListeners.forEach((fn) => fn(item.codecs));
-      this.showError(`当前浏览器无法播放 ${item.label || item.codecs}（${item.codecs}），${fallbackHint(item)}。`
-        + (lastError && lastError.message ? `（${lastError.message}）` : ''));
+      const detail = lastError && lastError.message ? ` (${lastError.message})` : '';
+      this.showError(() => t('player.errorFailed', { label: item.label || item.codecs, codecs: item.codecs, hint: fallbackHint(item) }) + detail);
       this.emit();
     }
 
@@ -414,7 +435,7 @@
       if (!a.paused) this.loading = false;
       const btn = this.$('.player-toggle');
       btn.innerHTML = waiting ? ICON_LOADING : (a.paused ? ICON_PLAY : ICON_PAUSE);
-      btn.setAttribute('aria-label', a.paused ? '播放' : '暂停');
+      btn.setAttribute('aria-label', t(a.paused ? 'player.play' : 'player.pause'));
     }
 
     renderProgress() {
@@ -451,15 +472,22 @@
       });
     }
 
+    /** msg 可以是函数，切换语言时重新求值 */
     showError(msg) {
-      const el = this.$('.player-msg');
-      el.textContent = msg;
-      el.hidden = !msg;
+      this.errorMsg = msg || null;
+      this.renderError();
       if (msg) {
         this.root.hidden = false;
         document.body.classList.add('has-player');
         this.setLoading(false);
       }
+    }
+
+    renderError() {
+      const el = this.$('.player-msg');
+      const msg = this.errorMsg;
+      el.textContent = typeof msg === 'function' ? msg() : (msg || '');
+      el.hidden = !msg;
     }
   }
 

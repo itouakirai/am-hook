@@ -1,0 +1,275 @@
+/*
+ * am-hook 界面语言（中文 / English）
+ *
+ *   t(key, vars)          取当前语言文案，{name} 占位符由 vars 替换
+ *   apply(root)           刷新静态文字：data-i18n（textContent）、data-i18n-html（innerHTML，仅限本文件内的可信文案）、
+ *                         data-i18n-attr="title=key,aria-label=key2"（属性）
+ *   setLang / toggle      切换语言并记住选择；onChange(fn) 在切换后回调，页面据此重绘动态内容
+ *   [data-lang-toggle]    页面上的切换按钮，自动绑定
+ * 初始语言：上次的选择，否则按浏览器语言（zh* 为中文，其余为英文）。
+ */
+(function (global) {
+  'use strict';
+
+  const STORAGE_KEY = 'am-hook:lang';
+
+  const dict = {
+    zh: {
+      'lang.button': 'EN',
+      'lang.title': 'Switch to English',
+
+      'status.checking': '检查 wrapper-lite…',
+      'status.online': 'wrapper-lite 在线',
+      'status.down': 'wrapper-lite 不可用',
+      'footer.tagline': 'am-hook · 浏览器端解密',
+      'footer.note': '仅供个人学习使用',
+      'nav.home': '主页',
+
+      'home.heading': '粘贴歌曲链接，解析音质并在线试听',
+      'home.intro': '支持 music.apple.com 的 song 链接、带 <code>?i=</code> 的专辑分享链接，或直接输入歌曲 ID。解析后可以直接在浏览器里播放，或下载解密后的文件。',
+      'home.inputLabel': '歌曲链接或 ID',
+      'home.submit': '解析',
+      'home.example': '示例：',
+      'home.recent': '最近解析',
+      'home.clear': '清空',
+      'home.invalid': '无法识别：请输入 song 链接、带 ?i= 的专辑链接或纯数字歌曲 ID。',
+
+      'song.pageTitle': 'am-hook · 音质解析',
+      'song.play': '播放',
+      'song.vlc': 'VLC 播放',
+      'song.vlcTitle': '用 VLC 播放最高音质',
+      'song.reparse': '重新解析',
+      'song.variants': '可用音质',
+      'song.count': '{total} 个音质 · {playable} 个可在浏览器播放',
+      'song.fallbackTitle': '歌曲 {id}',
+      'song.noMeta': '未能获取歌曲信息',
+      'song.coverAlt': '{title} 封面',
+      'song.badId': '无法从链接中识别歌曲 ID。',
+      'song.loading': '正在获取 master m3u8…',
+      'song.parseFailed': '解析失败',
+      'song.parseFailedHttp': '解析失败（HTTP {status}）',
+
+      'q.lossless': '无损',
+      'q.atmos': '杜比全景声',
+      'q.binaural': '双耳',
+      'q.downmix': '缩混',
+
+      'row.play': '播放 {name}',
+      'row.playTitle': '在线播放',
+      'row.unsupported': '当前浏览器不支持该编码',
+      'row.unsupportedTitle': '当前浏览器不支持 {codecs}，{hint}',
+      'row.playable': '浏览器可播',
+      'row.external': '需外部播放器',
+      'row.downloadOnly': '仅可下载',
+      'row.channels': '声道 {n}',
+      'row.more': '更多',
+      'row.moreAria': '{name} 更多操作',
+      'row.cancel': '取消下载',
+      'row.cancelAria': '取消下载 {name}',
+
+      'menu.download': '下载解密文件',
+      'menu.downloadHint': '浏览器内解密 · {file}',
+      'menu.serverDownload': '通过服务器下载',
+      'menu.serverDownloadHint': '由服务端解密，消耗服务器流量',
+      'menu.vlc': '用 VLC 播放',
+      'menu.vlcHint': '所有音质均可播放',
+      'menu.copyM3u8': '复制 media m3u8 地址',
+      'menu.copyM3u8Hint': '可在 VLC「打开网络串流」中使用',
+      'menu.copyFile': '复制 media file 地址',
+      'menu.copyFileHint': '用于 IDM 等下载工具',
+
+      'toast.copiedM3u8': '已复制 media m3u8 地址',
+      'toast.copiedFile': '已复制 media file 地址',
+      'toast.vlc': '正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议',
+
+      'dl.busy': '该音质正在下载',
+      'dl.preparing': '正在准备下载…',
+      'dl.progress': '浏览器解密下载中 {pct}% · {done} / {total}',
+      'dl.done': '解密完成，已交给浏览器保存（{size}）',
+      'dl.cancelled': '已取消下载',
+      'dl.failed': '下载失败：{msg}',
+
+      'player.back': '后退 10 秒',
+      'player.forward': '前进 10 秒',
+      'player.play': '播放',
+      'player.pause': '暂停',
+      'player.seek': '播放进度',
+      'player.mode': '播放方式',
+      'player.volume': '音量',
+      'player.unknownTitle': '未知歌曲',
+      'player.direct': '直连',
+      'player.hintVlc': '可点击该音质的 VLC 按钮用 VLC 播放',
+      'player.hintDownload': '可下载解密文件后用本地播放器播放',
+      'player.errorGeneric': '播放出错，请换一个音质，或{hint}。',
+      'player.errorCodec': '当前浏览器不支持 {codecs} 编码，{hint}。',
+      'player.errorFailed': '当前浏览器无法播放 {label}（{codecs}），{hint}。',
+      'player.errorAutoplay': '浏览器阻止了自动播放，请点击播放按钮。',
+      'player.errorAppend': 'SourceBuffer 追加失败，浏览器可能不支持该编码',
+
+      'err.worker': '解密 Worker 出错',
+      'err.template': '获取解密模板失败：{msg}',
+      'err.m3u8Http': '获取 media m3u8 失败（HTTP {status}）',
+      'err.m3u8Map': 'media m3u8 缺少 EXT-X-MAP BYTERANGE',
+      'err.m3u8Empty': 'media m3u8 中没有可播放的分段',
+      'err.m3u8Key': 'media m3u8 缺少轨道密钥信息',
+      'err.segmentHttp': '分段请求失败（HTTP {status}）',
+      'err.segmentLength': '分段长度不符（{got}/{want}）',
+    },
+    en: {
+      'lang.button': '中文',
+      'lang.title': '切换到中文',
+
+      'status.checking': 'Checking wrapper-lite…',
+      'status.online': 'wrapper-lite online',
+      'status.down': 'wrapper-lite unavailable',
+      'footer.tagline': 'am-hook · in-browser decryption',
+      'footer.note': 'For personal study only',
+      'nav.home': 'Home',
+
+      'home.heading': 'Paste a song link to list its qualities and play it',
+      'home.intro': 'Accepts music.apple.com song links, album share links with <code>?i=</code>, or a bare song ID. Then play it right in the browser or download the decrypted file.',
+      'home.inputLabel': 'Song link or ID',
+      'home.submit': 'Parse',
+      'home.example': 'Example: ',
+      'home.recent': 'Recent',
+      'home.clear': 'Clear',
+      'home.invalid': 'Unrecognized input: enter a song link, an album link with ?i=, or a numeric song ID.',
+
+      'song.pageTitle': 'am-hook · Audio qualities',
+      'song.play': 'Play',
+      'song.vlc': 'Play in VLC',
+      'song.vlcTitle': 'Play the highest quality in VLC',
+      'song.reparse': 'Reparse',
+      'song.variants': 'Available qualities',
+      'song.count': '{total} qualities · {playable} playable in browser',
+      'song.fallbackTitle': 'Song {id}',
+      'song.noMeta': 'Song info unavailable',
+      'song.coverAlt': '{title} cover',
+      'song.badId': 'Could not find a song ID in the link.',
+      'song.loading': 'Fetching master m3u8…',
+      'song.parseFailed': 'Parse failed',
+      'song.parseFailedHttp': 'Parse failed (HTTP {status})',
+
+      'q.lossless': 'Lossless',
+      'q.atmos': 'Dolby Atmos',
+      'q.binaural': 'Binaural',
+      'q.downmix': 'Downmix',
+
+      'row.play': 'Play {name}',
+      'row.playTitle': 'Play in browser',
+      'row.unsupported': 'Codec not supported by this browser',
+      'row.unsupportedTitle': 'This browser can\'t decode {codecs}; {hint}',
+      'row.playable': 'Plays in browser',
+      'row.external': 'External player',
+      'row.downloadOnly': 'Download only',
+      'row.channels': '{n} ch',
+      'row.more': 'More',
+      'row.moreAria': 'More actions for {name}',
+      'row.cancel': 'Cancel download',
+      'row.cancelAria': 'Cancel download of {name}',
+
+      'menu.download': 'Download decrypted file',
+      'menu.downloadHint': 'Decrypted in the browser · {file}',
+      'menu.serverDownload': 'Download via server',
+      'menu.serverDownloadHint': 'Decrypted by the server; uses server bandwidth',
+      'menu.vlc': 'Play in VLC',
+      'menu.vlcHint': 'Plays every quality',
+      'menu.copyM3u8': 'Copy media m3u8 URL',
+      'menu.copyM3u8Hint': 'For VLC\'s "Open Network Stream"',
+      'menu.copyFile': 'Copy media file URL',
+      'menu.copyFileHint': 'For download managers such as IDM',
+
+      'toast.copiedM3u8': 'Copied media m3u8 URL',
+      'toast.copiedFile': 'Copied media file URL',
+      'toast.vlc': 'Opening VLC… If nothing happens, make sure VLC is installed and handles vlc:// links',
+
+      'dl.busy': 'This quality is already downloading',
+      'dl.preparing': 'Preparing download…',
+      'dl.progress': 'Decrypting in browser {pct}% · {done} / {total}',
+      'dl.done': 'Decrypted and handed to the browser to save ({size})',
+      'dl.cancelled': 'Download cancelled',
+      'dl.failed': 'Download failed: {msg}',
+
+      'player.back': 'Back 10 seconds',
+      'player.forward': 'Forward 10 seconds',
+      'player.play': 'Play',
+      'player.pause': 'Pause',
+      'player.seek': 'Playback position',
+      'player.mode': 'Playback method',
+      'player.volume': 'Volume',
+      'player.unknownTitle': 'Unknown song',
+      'player.direct': 'Direct',
+      'player.hintVlc': 'use that quality\'s VLC option to play it in VLC',
+      'player.hintDownload': 'download the decrypted file and play it locally',
+      'player.errorGeneric': 'Playback failed. Try another quality, or {hint}.',
+      'player.errorCodec': 'This browser can\'t decode {codecs}; {hint}.',
+      'player.errorFailed': 'This browser can\'t play {label} ({codecs}); {hint}.',
+      'player.errorAutoplay': 'The browser blocked autoplay. Press play to start.',
+      'player.errorAppend': 'SourceBuffer append failed; the browser may not support this codec',
+
+      'err.worker': 'Decryption worker error',
+      'err.template': 'Failed to get the decryption template: {msg}',
+      'err.m3u8Http': 'Failed to fetch media m3u8 (HTTP {status})',
+      'err.m3u8Map': 'media m3u8 has no EXT-X-MAP BYTERANGE',
+      'err.m3u8Empty': 'media m3u8 has no playable segments',
+      'err.m3u8Key': 'media m3u8 is missing the track key',
+      'err.segmentHttp': 'Segment request failed (HTTP {status})',
+      'err.segmentLength': 'Segment length mismatch ({got}/{want})',
+    },
+  };
+
+  function detect() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && dict[saved]) return saved;
+    } catch {}
+    const prefs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+    return /^zh\b/i.test(prefs[0] || '') ? 'zh' : 'en';
+  }
+
+  let lang = detect();
+  const listeners = new Set();
+
+  function t(key, vars) {
+    const s = dict[lang][key] ?? dict.zh[key] ?? key;
+    return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] ?? m)) : s;
+  }
+
+  function apply(root = document) {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    root.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
+    root.querySelectorAll('[data-i18n-attr]').forEach((el) => {
+      for (const pair of el.dataset.i18nAttr.split(',')) {
+        const [attr, key] = pair.split('=').map((s) => s.trim());
+        el.setAttribute(attr, t(key));
+      }
+    });
+    root.querySelectorAll('[data-lang-toggle]').forEach((btn) => {
+      btn.querySelector('.lang-label').textContent = t('lang.button');
+      btn.title = t('lang.title');
+      btn.setAttribute('aria-label', t('lang.title'));
+    });
+  }
+
+  function setLang(next) {
+    if (!dict[next] || next === lang) return;
+    lang = next;
+    try { localStorage.setItem(STORAGE_KEY, lang); } catch {}
+    apply();
+    listeners.forEach((fn) => fn(lang));
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('[data-lang-toggle]')) setLang(lang === 'zh' ? 'en' : 'zh');
+  });
+
+  global.AmI18n = {
+    t,
+    apply,
+    setLang,
+    toggle: () => setLang(lang === 'zh' ? 'en' : 'zh'),
+    onChange: (fn) => listeners.add(fn),
+    get lang() { return lang; },
+  };
+})(typeof window !== 'undefined' ? window : globalThis);

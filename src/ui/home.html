@@ -17,48 +17,57 @@
         <span class="brand-name">am-hook</span>
       </a>
       <div class="topbar-right">
-        <span class="status-pill" id="status" aria-live="polite"><span class="status-dot"></span><span>检查 wrapper-lite…</span></span>
+        <span class="status-pill" id="status" aria-live="polite"><span class="status-dot"></span><span>wrapper-lite</span></span>
+        <button class="btn lang-btn" type="button" data-lang-toggle>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>
+          <span class="lang-label"></span>
+        </button>
       </div>
     </header>
 
     <main class="hero">
       <p class="eyebrow">APPLE MUSIC</p>
-      <h1>粘贴歌曲链接，解析音质并在线试听</h1>
-      <p class="hero-text">支持 music.apple.com 的 song 链接、带 <code>?i=</code> 的专辑分享链接，或直接输入歌曲 ID。解析后可复制 media m3u8 / media file 地址，或直接在浏览器里播放。</p>
+      <h1 data-i18n="home.heading"></h1>
+      <p class="hero-text" data-i18n-html="home.intro"></p>
 
       <form class="search" id="form" novalidate>
         <label class="search-field">
-          <span class="sr-only">歌曲链接或 ID</span>
+          <span class="sr-only" data-i18n="home.inputLabel"></span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1L13 19"/></svg>
           <input id="input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
                  placeholder="https://music.apple.com/cn/song/…/1468058171" aria-describedby="error">
         </label>
         <button class="btn btn-primary btn-lg" type="submit">
-          解析
+          <span data-i18n="home.submit"></span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
         </button>
       </form>
       <div class="alert error" id="error" hidden></div>
-      <p class="hint">示例：<code>https://music.apple.com/cn/album/lover/1468058165?i=1468058171</code></p>
+      <p class="hint"><span data-i18n="home.example"></span><code>https://music.apple.com/cn/album/lover/1468058165?i=1468058171</code></p>
 
       <section class="recent" id="recent" hidden>
         <div class="section-head">
-          <h2 class="section-title">最近解析</h2>
-          <button class="link-btn" id="clear-recent" type="button">清空</button>
+          <h2 class="section-title" data-i18n="home.recent"></h2>
+          <button class="link-btn" id="clear-recent" type="button" data-i18n="home.clear"></button>
         </div>
         <div class="recent-list" id="recent-list"></div>
       </section>
     </main>
 
     <footer class="footer">
-      <span>am-hook · 浏览器端解密</span>
-      <span>仅供个人学习使用</span>
+      <span data-i18n="footer.tagline"></span>
+      <span data-i18n="footer.note"></span>
     </footer>
   </div>
 
+  <script src="/assets/i18n.js"></script>
   <script>
+    const { t } = window.AmI18n;
+    AmI18n.apply();
     const input = document.getElementById('input');
     const errorEl = document.getElementById('error');
+    /** wrapper-lite 状态：null 表示检查中，否则为 { ok, regions } */
+    let wrapperStatus = null;
 
     /** 把各种输入规整为 song 页面路径：/https://music.apple.com/{cc}/song/{slug}/{id} */
     function toSongLink(raw) {
@@ -83,7 +92,7 @@
       input.setAttribute('aria-invalid', String(!link));
       errorEl.hidden = !!link;
       if (!link) {
-        errorEl.textContent = '无法识别：请输入 song 链接、带 ?i= 的专辑链接或纯数字歌曲 ID。';
+        errorEl.textContent = t('home.invalid');
         input.focus();
         return;
       }
@@ -91,21 +100,32 @@
     });
     input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; });
 
-    async function loadStatus() {
+    function renderStatus() {
       const pill = document.getElementById('status');
-      const label = pill.lastElementChild;
+      pill.classList.toggle('ok', !!wrapperStatus && wrapperStatus.ok);
+      pill.classList.toggle('bad', !!wrapperStatus && !wrapperStatus.ok);
+      pill.lastElementChild.textContent = !wrapperStatus ? t('status.checking')
+        : !wrapperStatus.ok ? t('status.down')
+        : wrapperStatus.regions.length ? `wrapper-lite · ${wrapperStatus.regions.join(' / ').toUpperCase()}` : t('status.online');
+    }
+
+    async function loadStatus() {
+      renderStatus();
       try {
         const res = await fetch('/status');
         const data = await res.json();
         if (!res.ok || data.code !== 0) throw new Error();
-        const regions = (data.regions || []).map(String);
-        pill.classList.add('ok');
-        label.textContent = regions.length ? `wrapper-lite · ${regions.join(' / ').toUpperCase()}` : 'wrapper-lite 在线';
+        wrapperStatus = { ok: true, regions: (data.regions || []).map(String) };
       } catch {
-        pill.classList.add('bad');
-        label.textContent = 'wrapper-lite 不可用';
+        wrapperStatus = { ok: false, regions: [] };
       }
+      renderStatus();
     }
+
+    AmI18n.onChange(() => {
+      renderStatus();
+      if (!errorEl.hidden) errorEl.textContent = t('home.invalid');
+    });
 
     function readRecent() {
       try { return JSON.parse(localStorage.getItem('am-hook:recent') || '[]'); } catch { return []; }

@@ -32,6 +32,10 @@ pub async fn player_js_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/player.js"))
 }
 
+pub async fn i18n_js_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/i18n.js"))
+}
+
 pub async fn decrypt_js_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/decrypt.js"))
 }

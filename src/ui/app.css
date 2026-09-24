@@ -87,6 +87,10 @@ button { cursor: pointer; }
   color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap;
 }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+/* 界面语言切换：与状态胶囊同高 */
+.btn.lang-btn { height: 30px; padding: 0 10px; gap: 5px; border-radius: 999px; font-size: 12px; }
+.lang-btn svg { width: 14px; height: 14px; }
+.lang-label { min-width: 2.2em; text-align: center; }
 .status-pill.ok .status-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .status-pill.bad { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, transparent); }
 .status-pill.bad .status-dot { background: var(--error); }

@@ -15,11 +15,34 @@ let wasmPromise = null;
 const templates = new Map();
 let file = null;
 
+/** Worker 取不到页面的 AmI18n：错误信息按每条消息附带的 lang 选择语言 */
+const MESSAGES = {
+  zh: {
+    wasm: '加载 hook.wasm 失败（HTTP {0}）',
+    noTemplate: '缺少解密模板',
+    template: '解析解密模板失败：{0}',
+    decrypt: '解密失败：{0}',
+    write: '写入 OPFS 不完整（{0}/{1}）',
+  },
+  en: {
+    wasm: 'Failed to load hook.wasm (HTTP {0})',
+    noTemplate: 'Missing decryption template',
+    template: 'Failed to parse the decryption template: {0}',
+    decrypt: 'Decryption failed: {0}',
+    write: 'Incomplete OPFS write ({0}/{1})',
+  },
+};
+let lang = 'zh';
+
+function msg(key, ...args) {
+  return (MESSAGES[lang] || MESSAGES.zh)[key].replace(/\{(\d)\}/g, (_, i) => args[i]);
+}
+
 function loadWasm() {
   if (!wasmPromise) {
     wasmPromise = (async () => {
       const res = await fetch('/assets/hook.wasm');
-      if (!res.ok) throw new Error(`加载 hook.wasm 失败（HTTP ${res.status}）`);
+      if (!res.ok) throw new Error(msg('wasm', res.status));
       const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
       return instance.exports;
     })();
@@ -48,10 +71,10 @@ function templateHandle(w, key, json) {
   if (key === 'fixed') return w.hook_fixed_template();
   const cached = templates.get(key);
   if (cached) return cached;
-  if (!json) throw new Error('缺少解密模板');
+  if (!json) throw new Error(msg('noTemplate'));
   let handle = 0;
   inWasm(w, new TextEncoder().encode(json), (ptr, len) => { handle = w.hook_template_load(ptr, len); });
-  if (!handle) throw new Error(`解析解密模板失败：${lastError(w)}`);
+  if (!handle) throw new Error(msg('template', lastError(w)));
   templates.set(key, handle);
   if (templates.size > MAX_TEMPLATES) {
     const [oldKey, oldHandle] = templates.entries().next().value;
@@ -70,7 +93,7 @@ async function decrypt({ kind, key, template, buf }) {
     } else {
       const handle = templateHandle(w, key, template);
       inWasm(w, bytes, (ptr, len) => {
-        if (!w.hook_decrypt_fragment(handle, ptr, len)) throw new Error(`解密失败：${lastError(w)}`);
+        if (!w.hook_decrypt_fragment(handle, ptr, len)) throw new Error(msg('decrypt', lastError(w)));
       });
     }
   } catch (err) {
@@ -95,7 +118,7 @@ async function fileOpen({ dir, name }) {
 
 async function fileWrite({ at, buf }) {
   const written = await file.write(new Uint8Array(buf), { at });
-  if (written !== buf.byteLength) throw new Error(`写入 OPFS 不完整（${written}/${buf.byteLength}）`);
+  if (written !== buf.byteLength) throw new Error(msg('write', written, buf.byteLength));
 }
 
 async function fileClose() {
@@ -110,6 +133,7 @@ const ops = { decrypt, 'file-open': fileOpen, 'file-write': fileWrite, 'file-clo
 
 self.onmessage = async (e) => {
   const { id, op } = e.data;
+  if (e.data.lang) lang = e.data.lang;
   try {
     const result = await ops[op](e.data);
     self.postMessage({ id, ok: true, result }, result instanceof ArrayBuffer ? [result] : []);
