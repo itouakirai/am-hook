@@ -223,32 +223,40 @@
           if (gen !== this.generation) return;
           const decoded = await this.decoder.decode(encrypted);
           if (gen !== this.generation) return;
-          const { channels, rate, samples, pcm } = decoded;
+          const { channels, rate, samples, chunks } = decoded;
           if (this.channels && (this.channels !== channels || this.rate !== rate)) {
             throw new Error('EC-3 channel layout changed during playback');
           }
           this.channels = channels;
           this.rate = rate;
-          const data = new Float32Array(pcm);
-          const buffer = this.context.createBuffer(channels, samples, rate);
-          for (let ch = 0; ch < channels; ch++) {
-            // FFmpeg's 7.1 order puts back channels before side channels;
-            // Web Audio uses side channels before back channels.
-            const sourceCh = channels === 8 ? [0, 1, 2, 3, 6, 7, 4, 5][ch] : ch;
-            buffer.copyToChannel(data.subarray(sourceCh * samples, (sourceCh + 1) * samples), ch);
-          }
-          const offset = Math.max(0, this.currentTime - seg.time);
-          if (offset < buffer.duration) {
+          let sampleOffset = 0;
+          for (const chunk of chunks) {
+            const chunkTime = seg.time + sampleOffset / rate;
+            const offset = Math.max(0, this.currentTime - chunkTime);
+            sampleOffset += chunk.samples;
+            if (offset >= chunk.samples / rate) {
+              chunk.pcm = null;
+              continue;
+            }
+            const data = new Float32Array(chunk.pcm);
+            const buffer = this.context.createBuffer(channels, chunk.samples, rate);
+            for (let ch = 0; ch < channels; ch++) {
+              // FFmpeg's 7.1 order puts back channels before side channels;
+              // Web Audio uses side channels before back channels.
+              const sourceCh = channels === 8 ? [0, 1, 2, 3, 6, 7, 4, 5][ch] : ch;
+              buffer.copyToChannel(data.subarray(sourceCh * chunk.capacity, sourceCh * chunk.capacity + chunk.samples), ch);
+            }
+            chunk.pcm = null;
             const node = this.context.createBufferSource();
             node.buffer = buffer;
             node.connect(this.gain);
             node.onended = () => { this.nodes.delete(node); node.disconnect(); };
             this.nodes.add(node);
             const when = Math.max(this.context.currentTime + 0.01,
-              this.anchorContextTime + seg.time - this.anchorTime);
+              this.anchorContextTime + chunkTime - this.anchorTime);
             node.start(when, offset);
           }
-          this.loadedUntil = Math.max(this.loadedUntil, seg.time + buffer.duration);
+          this.loadedUntil = Math.max(this.loadedUntil, seg.time + samples / rate);
           this.nextIndex++;
           first = false;
           this.onUpdate();
@@ -367,16 +375,31 @@
       this.sb = ms.addSourceBuffer(mimeFor(transcode ? 'flac' : codecs));
       await this.append(await this.fetchRange(playlist.init, gen), gen);
 
-      // 每个 segment 最多尝试追加 2 次，防止时间戳与 EXTINF 不一致时反复拉取同一段；拖动后重置
-      this.attempts = new Map();
+      // 只记录成功追加的分段；时间戳与 EXTINF 有偏差时避免反复拉取。
+      this.appendedSegments = new Set();
       this.pendingSegments = new Map();
+      this.segmentController = new AbortController();
       this.seekSerial = 0;
+      this.pumpSerial = 0;
       this.onTick = () => this.pump(gen);
       this.onSeeking = () => {
         this.seekSerial++;
-        this.attempts.clear();
+        const seekSerial = this.seekSerial;
+        this.pumpSerial++;
+        this.segmentController.abort();
+        this.segmentController = new AbortController();
+        this.appendedSegments.clear();
         this.pendingSegments.clear();
-        this.pump(gen);
+        if (this.sb.updating) {
+          this.sb.addEventListener('updateend', () => {
+            if (gen !== this.generation || seekSerial !== this.seekSerial) return;
+            this.busy = false;
+            this.pump(gen);
+          }, { once: true });
+        } else {
+          this.busy = false;
+          this.pump(gen);
+        }
       };
       this.audio.addEventListener('timeupdate', this.onTick);
       this.audio.addEventListener('seeking', this.onSeeking);
@@ -384,10 +407,12 @@
     }
 
     /** 获取并解密一个分段 */
-    async fetchRange(range, gen) {
-      let buf = await this.playlist.load(range, this.controller.signal);
+    async fetchRange(range, gen, signal = this.controller.signal) {
+      let buf = await this.playlist.load(range, signal);
+      signal.throwIfAborted();
       if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
       if (this.transcoder) buf = await this.transcoder.run(range.init ? 'open' : 'transcode', buf);
+      signal.throwIfAborted();
       if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
       return buf;
     }
@@ -430,7 +455,7 @@
     }
 
     ready(i) {
-      return this.isBuffered(this.playlist.segments[i]) || (this.attempts.get(i) || 0) >= 2;
+      return this.isBuffered(this.playlist.segments[i]) || this.appendedSegments.has(i);
     }
 
     async pump(gen) {
@@ -452,14 +477,15 @@
       }
 
       this.busy = true;
+      const pumpSerial = ++this.pumpSerial;
       const seekSerial = this.seekSerial;
+      const signal = this.segmentController.signal;
       let waitForPlayback = false;
       try {
         if (this.transcoder) {
           let queue = this.pendingSegments.get(target);
           if (!queue) {
-            this.attempts.set(target, (this.attempts.get(target) || 0) + 1);
-            queue = await this.fetchRange(segments[target], gen);
+            queue = await this.fetchRange(segments[target], gen, signal);
             if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
             this.pendingSegments.set(target, queue);
           }
@@ -483,11 +509,11 @@
           }
           if (!queue.length) {
             this.pendingSegments.delete(target);
-            this.attempts.set(target, 2);
+            this.appendedSegments.add(target);
           }
         } else {
-          this.attempts.set(target, (this.attempts.get(target) || 0) + 1);
-          const buf = await this.fetchRange(segments[target], gen);
+          const buf = await this.fetchRange(segments[target], gen, signal);
+          if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
           try {
             await this.append(buf, gen);
           } catch (err) {
@@ -498,28 +524,33 @@
               throw err;
             }
           }
+          if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
+          this.appendedSegments.add(target);
         }
       } catch (err) {
-        if (!err || err.name !== 'AbortError') {
+        if (pumpSerial === this.pumpSerial && (!err || err.name !== 'AbortError')) {
           this.busy = false;
           if (this.onError) this.onError(err);
           return;
         }
       }
-      this.busy = false;
-      if (!waitForPlayback && gen === this.generation) this.pump(gen);
+      if (pumpSerial === this.pumpSerial) {
+        this.busy = false;
+        if (!waitForPlayback && gen === this.generation) this.pump(gen);
+      }
     }
 
     destroy(bump = true) {
       if (bump) this.generation++;
       if (this.controller) this.controller.abort();
+      if (this.segmentController) this.segmentController.abort();
       if (this.transcoder) this.transcoder.destroy();
       if (this.onTick) {
         this.audio.removeEventListener('timeupdate', this.onTick);
         this.audio.removeEventListener('seeking', this.onSeeking);
       }
       if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
-      this.onTick = this.onSeeking = this.controller = this.objectUrl = this.sb = this.ms = this.playlist = this.transcoder = this.pendingSegments = null;
+      this.onTick = this.onSeeking = this.controller = this.segmentController = this.objectUrl = this.sb = this.ms = this.playlist = this.transcoder = this.pendingSegments = this.appendedSegments = null;
       this.busy = false;
     }
   }

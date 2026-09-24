@@ -99,10 +99,18 @@ async function decodeFragment(buffer) {
     ctx = d.open(1); // 1 = E-AC-3, not AC-3.
     if (!ctx) throw new Error('Cannot open EC-3 decoder');
   }
-  const frames = [];
+  const chunks = [];
+  let chunk = null;
+  let capacity = 0;
+  let filled = 0;
   let channels = 0;
   let rate = 0;
   let total = 0;
+  const finishChunk = () => {
+    if (filled) chunks.push({ pcm: chunk.buffer, samples: filled, capacity });
+    chunk = null;
+    filled = 0;
+  };
   for (const packet of samplesFromFragment(new Uint8Array(buffer))) {
     const ptr = d.packet(ctx, packet.length);
     if (!ptr) throw new Error('EC-3 packet allocation failed');
@@ -118,22 +126,21 @@ async function decodeFragment(buffer) {
     }
     if (channels && (channels !== ch || rate !== hz)) throw new Error('EC-3 channel layout changed mid-segment');
     channels = ch; rate = hz;
-    const planes = [];
+    if (!chunk || filled + n > capacity) {
+      finishChunk();
+      capacity = Math.max(hz, n); // Approximately one second of PCM per chunk.
+      chunk = new Float32Array(capacity * ch);
+    }
     for (let i = 0; i < ch; i++) {
       const p = d.plane(ctx, i);
       if (!p) throw new Error('Missing EC-3 PCM plane');
-      planes.push(new Float32Array(d.module.HEAPU8.slice(p, p + n * 4).buffer));
+      chunk.set(new Float32Array(d.module.HEAPU8.buffer, p, n), i * capacity + filled);
     }
-    frames.push({ planes, count: n });
+    filled += n;
     total += n;
   }
-  const pcm = new Float32Array(total * channels);
-  let offset = 0;
-  for (const frame of frames) {
-    for (let ch = 0; ch < channels; ch++) pcm.set(frame.planes[ch], ch * total + offset);
-    offset += frame.count;
-  }
-  return { pcm: pcm.buffer, channels, rate, samples: total };
+  finishChunk();
+  return { chunks, channels, rate, samples: total };
 }
 
 self.onmessage = async ({ data }) => {
@@ -144,7 +151,7 @@ self.onmessage = async ({ data }) => {
       return;
     }
     const result = await decodeFragment(data.buf);
-    self.postMessage({ id: data.id, ok: true, result }, [result.pcm]);
+    self.postMessage({ id: data.id, ok: true, result }, result.chunks.map((chunk) => chunk.pcm));
   } catch (error) {
     self.postMessage({ id: data.id, ok: false, error: error.message || String(error) });
   }
