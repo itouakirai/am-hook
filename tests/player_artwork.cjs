@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { AmPlayer } = require('../src/ui/player.js');
 
-test('Media Session uses one local artwork URL instead of the remote image', async () => {
+test('Media Session reuses one local artwork URL across qualities of a song', async () => {
   const original = { navigator: Object.getOwnPropertyDescriptor(global, 'navigator'), MediaMetadata: global.MediaMetadata, fetch: global.fetch };
   const session = { metadata: null };
   const requests = [];
@@ -24,6 +24,15 @@ test('Media Session uses one local artwork URL instead of the remote image', asy
     assert.deepEqual(requests, [player.current.artwork]);
     assert.match(session.metadata.artwork[0].src, /^blob:/);
     assert.equal(session.metadata.title, 'Test');
+    const artworkUrl = session.metadata.artwork[0].src;
+    const metadata = session.metadata;
+
+    player.playToken = 2;
+    player.current = { title: 'Test', artwork: 'https://example.com/600x600bb.jpg' };
+    player.updateMediaSession();
+    assert.deepEqual(requests, [player.current.artwork]);
+    assert.equal(session.metadata.artwork[0].src, artworkUrl);
+    assert.equal(session.metadata, metadata);
   } finally {
     if (player.mediaArtController) player.mediaArtController.abort();
     if (player.mediaArtUrl) URL.revokeObjectURL(player.mediaArtUrl);

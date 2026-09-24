@@ -676,7 +676,12 @@
       this.showError('');
       this.$('.player-title').textContent = item.title || t('player.unknownTitle');
       this.$('.player-sub').textContent = [item.artist, item.label].filter(Boolean).join(' · ');
-      this.$('.player-art').src = item.artwork || '';
+      const art = this.$('.player-art');
+      if (item.artwork) {
+        if (art.getAttribute('src') !== item.artwork) art.src = item.artwork;
+      } else if (art.hasAttribute('src')) {
+        art.removeAttribute('src');
+      }
       this.setLoading(true);
       this.emit();
       this.updateMediaSession();
@@ -806,38 +811,52 @@
 
     updateMediaSession() {
       if (!('mediaSession' in navigator) || !global.MediaMetadata) return;
-      if (this.mediaArtController) this.mediaArtController.abort();
-      if (this.mediaArtUrl) URL.revokeObjectURL(this.mediaArtUrl);
-      this.mediaArtController = this.mediaArtUrl = null;
+      const source = this.current.artwork || '';
+      if (source !== this.mediaArtSource) {
+        if (this.mediaArtController) this.mediaArtController.abort();
+        if (this.mediaArtUrl) URL.revokeObjectURL(this.mediaArtUrl);
+        this.mediaArtSource = source;
+        this.mediaArtController = this.mediaArtUrl = this.mediaArtType = null;
+        if (source) {
+          // Reuse one local image for every quality of the same song.
+          const controller = new AbortController();
+          this.mediaArtController = controller;
+          fetch(source, { signal: controller.signal, cache: 'force-cache' })
+            .then((response) => {
+              if (!response.ok) throw new Error(`Artwork HTTP ${response.status}`);
+              return response.blob();
+            })
+            .then((blob) => {
+              if (controller.signal.aborted || this.mediaArtSource !== source) return;
+              this.mediaArtUrl = URL.createObjectURL(blob);
+              this.mediaArtType = blob.type || 'image/jpeg';
+              this.writeMediaMetadata();
+            })
+            .catch(() => {}); // The player bar still displays the original image.
+        }
+      }
+      this.writeMediaMetadata();
+    }
+
+    writeMediaMetadata() {
       const c = this.current;
-      const info = {
+      const state = {
         title: c.title || '',
         artist: c.artist || '',
         album: c.album || '',
+        artwork: this.mediaArtUrl || '',
       };
-      navigator.mediaSession.metadata = new MediaMetadata({ ...info, artwork: [] });
-      if (!c.artwork) return;
-
-      // Media Session may read artwork again after a Web Audio seek. Give it a
-      // local URL so those reads cannot request the Apple CDN image repeatedly.
-      const controller = new AbortController();
-      const token = this.playToken;
-      this.mediaArtController = controller;
-      fetch(c.artwork, { signal: controller.signal, cache: 'force-cache' })
-        .then((response) => {
-          if (!response.ok) throw new Error(`Artwork HTTP ${response.status}`);
-          return response.blob();
-        })
-        .then((blob) => {
-          if (controller.signal.aborted || token !== this.playToken) return;
-          const url = URL.createObjectURL(blob);
-          this.mediaArtUrl = url;
-          navigator.mediaSession.metadata = new MediaMetadata({
-            ...info,
-            artwork: [{ src: url, sizes: '600x600', type: blob.type || 'image/jpeg' }],
-          });
-        })
-        .catch(() => {}); // The player bar still displays the original image.
+      const previous = this.mediaMetadataState;
+      if (previous && Object.keys(state).every((key) => state[key] === previous[key])) return;
+      this.mediaMetadataState = state;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: state.title,
+        artist: state.artist,
+        album: state.album,
+        artwork: this.mediaArtUrl
+          ? [{ src: this.mediaArtUrl, sizes: '600x600', type: this.mediaArtType }]
+          : [],
+      });
     }
 
     /** msg 可以是函数，切换语言时重新求值 */
