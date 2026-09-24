@@ -53,7 +53,7 @@ pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, ur
     }
 
     let kind = source::classify(source::filename(&target));
-    info!(%method, ?kind, file = source::filename(&target), "Proxy request");
+    info!(%method, ?kind, file = source::filename(&target), range = ?headers.get(RANGE), ua = ?headers.get(header::USER_AGENT), "Proxy request");
 
     match kind {
         SourceKind::MasterPlaylist => forward(&state, method, &target, None, Some(M3U8_TYPE)).await,
