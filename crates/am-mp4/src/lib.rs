@@ -79,6 +79,8 @@ fn apply_renames(buf: &mut [u8], renames: &Renames) {
 /// 改造 init segment (ftyp + moov)：
 /// stsd 中每个 enca/encv 改回 frma 记录的原始编码 (ec-3/mp4a/alac...)，
 /// 其 sinf 与 moov 下的 pssh 改为等长 free box。
+/// sinf 改名后 body 清零：部分分离器（如 PotPlayer 的 Built-in MP4 Source）会按 QuickTime
+/// `wave` 布局在 sample entry 内扫描 `frma`，把紧随其后的 schm 误当作 ALAC magic cookie。
 pub fn patch_init_segment(init: &[u8]) -> Vec<u8> {
     let mut out = init.to_vec();
     patch_init_in_place(&mut out);
@@ -88,19 +90,23 @@ pub fn patch_init_segment(init: &[u8]) -> Vec<u8> {
 /// `patch_init_segment` 的原地版本
 pub fn patch_init_in_place(init: &mut [u8]) {
     let mut renames = Renames::new();
+    let mut wipes: Vec<Range<usize>> = Vec::new();
     for moov in children(init, 0..init.len()).iter().filter(|b| &b.typ == b"moov") {
         for b in children(init, moov.body..moov.end) {
             match &b.typ {
                 b"pssh" => renames.push((b.start, *b"free")),
-                b"trak" => patch_trak(init, &b, &mut renames),
+                b"trak" => patch_trak(init, &b, &mut renames, &mut wipes),
                 _ => {}
             }
         }
     }
     apply_renames(init, &renames);
+    for r in wipes {
+        init[r].fill(0);
+    }
 }
 
-fn patch_trak(src: &[u8], trak: &BoxHeader, renames: &mut Renames) {
+fn patch_trak(src: &[u8], trak: &BoxHeader, renames: &mut Renames, wipes: &mut Vec<Range<usize>>) {
     let stsd = find(src, trak.body..trak.end, b"mdia")
         .and_then(|b| find(src, b.body..b.end, b"minf"))
         .and_then(|b| find(src, b.body..b.end, b"stbl"))
@@ -123,6 +129,7 @@ fn patch_trak(src: &[u8], trak: &BoxHeader, renames: &mut Renames) {
         let original: [u8; 4] = src[frma.body..frma.body + 4].try_into().unwrap();
         renames.push((entry.start, original));
         renames.push((sinf.start, *b"free"));
+        wipes.push(sinf.body..sinf.end);
     }
 }
 
@@ -323,6 +330,7 @@ mod tests {
         assert!(patched.windows(4).any(|w| w == b"free"));
         assert!(!patched.windows(4).any(|w| w == b"enca"));
         assert!(!patched.windows(4).any(|w| w == b"sinf"));
+        assert!(!patched.windows(4).any(|w| w == b"frma"), "sinf body must be wiped");
     }
 
     #[test]
