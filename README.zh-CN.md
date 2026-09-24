@@ -17,8 +17,9 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
 | 类型 | 文件名特征 | 行为 |
 |---|---|---|
 | Master m3u8 | `P<数字>_<非A开头>.m3u8` | 原样转发 |
-| Media m3u8 | `P<数字>_A<数字>_...m3u8` | 提取元数据，剥离 `#EXT-X-KEY` 行，返回未加密标记的播放列表 |
+| Media m3u8 | `P<数字>_A<数字>_...m3u8` | 提取元数据，剥离 `#EXT-X-KEY` 行。默认改写为通用播放列表（`EXT-X-VERSION:3`，无 `EXT-X-MAP` / `EXT-X-BYTERANGE`，每段独立 URL），兼容 PotPlayer 等对 fMP4 BYTERANGE 支持不完整的播放器；加 `?hook=byterange` 可保留 Apple 原始写法 |
 | Media file | 与 media m3u8 对应，`.m3u8` 替换为 `_m.mp4` | 按范围拉取分片，原地解密 sample，替换加密元数据 box，流式返回 |
+| Media segment | media file 的 `_m.mp4` 替换为 `_m_seg<N>.mp4` | init 段 + 第 N 个分片，可单独解码（支持 Range） |
 
 ### 解密流程
 

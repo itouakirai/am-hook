@@ -13,6 +13,11 @@
   const AHEAD_SECONDS = 45;
   const BEHIND_SECONDS = 30;
 
+  /** 默认 media m3u8 是每段独立 URL 的通用写法；MSE / Safari 用原始 EXT-X-MAP + BYTERANGE 写法 */
+  function byterangeUrl(m3u8Url) {
+    return m3u8Url + (m3u8Url.includes('?') ? '&' : '?') + 'hook=byterange';
+  }
+
   /** 解析 media m3u8（已去除 EXT-X-KEY），返回 init 段与各 segment 的字节 / 时间范围 */
   function parseMediaPlaylist(text, baseUrl) {
     let init = null;
@@ -404,11 +409,11 @@
     async tryMode(mode, item, resumeAt, token) {
       this.teardown();
       if (mode === 'mse') {
-        await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)));
+        await this.mse.load(byterangeUrl(item.m3u8Url), item.codecs, (err) => this.showError(err.message || String(err)));
         if (token !== this.playToken) return;
         this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
       } else {
-        this.audio.src = mode === 'hls' ? item.m3u8Url : item.fileUrl;
+        this.audio.src = mode === 'hls' ? byterangeUrl(item.m3u8Url) : item.fileUrl;
       }
       if (resumeAt > 0) this.audio.currentTime = resumeAt;
       await this.audio.play();

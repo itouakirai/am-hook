@@ -9,7 +9,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use tracing::{debug, info, warn};
 
 use crate::embedded_template::get_fixed_template;
-use crate::m3u8::{parse_media_m3u8, parse_song_link};
+use crate::m3u8::{parse_media_m3u8, parse_song_link, to_compat_playlist};
 use crate::monitor::ensure_template;
 use crate::mp4::{decrypt_fragment, patch_init_segment};
 use crate::source::{self, SourceKind, WHITELIST};
@@ -17,6 +17,7 @@ use crate::state::{AppState, Track};
 use crate::ui::song_handler;
 
 const M3U8_TYPE: &str = "application/vnd.apple.mpegurl; charset=utf-8";
+const BYTERANGE_PARAM: &str = "hook=byterange";
 
 /// 反代入口：`/` 后面是源地址，只处理白名单内的请求，按文件名特征分流
 pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, uri: Uri, headers: HeaderMap) -> Response<Body> {
@@ -27,10 +28,23 @@ pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, ur
         return song_handler(uri).await;
     }
 
+    // `hook=byterange` 是给 am-hook 自己的参数（media m3u8 保留原始 BYTERANGE 写法），不转发给 CDN
+    let mut byterange = false;
+    let query: Vec<&str> = uri
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter(|p| !p.is_empty())
+        .filter(|p| {
+            let hit = *p == BYTERANGE_PARAM;
+            byterange |= hit;
+            !hit
+        })
+        .collect();
     let mut target = source::normalize_url(path);
-    if let Some(q) = uri.query() {
+    if !query.is_empty() {
         target.push('?');
-        target.push_str(q);
+        target.push_str(&query.join("&"));
     }
 
     if !target.contains(WHITELIST) {
@@ -43,8 +57,9 @@ pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, ur
 
     match kind {
         SourceKind::MasterPlaylist => forward(&state, method, &target, None, Some(M3U8_TYPE)).await,
-        SourceKind::MediaPlaylist => handle_media_m3u8(&state, &target).await,
+        SourceKind::MediaPlaylist => handle_media_m3u8(&state, &target, byterange).await,
         SourceKind::MediaFile => handle_media_file(state, method, target, &headers).await,
+        SourceKind::MediaSegment => handle_media_segment(state, method, &target, &headers).await,
         SourceKind::Other => forward(&state, method, &target, headers.get(RANGE), None).await,
     }
 }
@@ -98,8 +113,9 @@ async fn register_track(state: &Arc<AppState>, track: Track) -> Arc<Track> {
     track
 }
 
-/// Media m3u8：补齐轨道信息，返回去掉加密标记的 m3u8
-async fn handle_media_m3u8(state: &Arc<AppState>, target: &str) -> Response<Body> {
+/// Media m3u8：补齐轨道信息，返回去掉加密标记的 m3u8。
+/// 默认输出通用写法（每段独立 URL）；`byterange` 时保留原始的 EXT-X-MAP + BYTERANGE 写法。
+async fn handle_media_m3u8(state: &Arc<AppState>, target: &str, byterange: bool) -> Response<Body> {
     let raw = match fetch_text(state, target).await {
         Ok(t) => t,
         Err(e) => return text(StatusCode::BAD_GATEWAY, format!("{e}\n")),
@@ -114,7 +130,8 @@ async fn handle_media_m3u8(state: &Arc<AppState>, target: &str) -> Response<Body
     );
     register_track(state, track).await;
 
-    Response::builder().header(CONTENT_TYPE, M3U8_TYPE).body(Body::from(cleaned)).unwrap()
+    let body = if byterange { cleaned } else { to_compat_playlist(&cleaned) };
+    Response::builder().header(CONTENT_TYPE, M3U8_TYPE).body(Body::from(body)).unwrap()
 }
 
 /// 取得 media file 对应的轨道：优先内存，其次拉取对应 m3u8 补齐（并发请求只拉一次）
@@ -196,6 +213,58 @@ async fn handle_media_file(state: Arc<AppState>, method: Method, target: String,
         .map_err(std::io::Error::other);
 
     builder.body(Body::from_stream(body)).unwrap()
+}
+
+/// 通用 m3u8 的独立分片：init 段 + 第 idx 个 frag 拼接返回，播放器可逐段单独解码
+async fn handle_media_segment(state: Arc<AppState>, method: Method, target: &str, headers: &HeaderMap) -> Response<Body> {
+    let Some((file_target, idx)) = source::segment_to_media_file_url(target) else {
+        return text(StatusCode::NOT_FOUND, "Invalid segment URL\n".into());
+    };
+    let track = match resolve_track(&state, &file_target).await {
+        Ok(t) => t,
+        Err(e) => return text(StatusCode::BAD_GATEWAY, format!("Failed to resolve track: {e}\n")),
+    };
+    if idx == 0 || idx >= track.segments.len() {
+        return text(StatusCode::NOT_FOUND, format!("Segment {idx} out of range\n"));
+    }
+
+    // box 替换保持字节长度不变，无需解密即可得知总长
+    let total = track.segments[0].length + track.segments[idx].length;
+    let Some((start, end, partial)) = parse_range(headers.get(RANGE), total) else {
+        return Response::builder()
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header(CONTENT_RANGE, format!("bytes */{total}"))
+            .body(Body::empty())
+            .unwrap();
+    };
+
+    let mut builder = Response::builder()
+        .header(CONTENT_TYPE, "video/mp4")
+        .header(ACCEPT_RANGES, "bytes")
+        .header(CONTENT_LENGTH, end - start + 1);
+    builder = if partial {
+        builder.status(StatusCode::PARTIAL_CONTENT).header(CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))
+    } else {
+        builder.status(StatusCode::OK)
+    };
+    if method == Method::HEAD {
+        return builder.body(Body::empty()).unwrap();
+    }
+
+    spawn_readahead(&state, &track, &file_target, idx + 1);
+    let loaded = tokio::try_join!(
+        load_segment(&state, &track, &file_target, 0),
+        load_segment(&state, &track, &file_target, idx)
+    );
+    let (init, frag) = match loaded {
+        Ok(v) => v,
+        Err(e) => return text(StatusCode::BAD_GATEWAY, format!("Failed to load segment {idx}: {e}\n")),
+    };
+    let mut data = Vec::with_capacity(total as usize);
+    data.extend_from_slice(&init);
+    data.extend_from_slice(&frag);
+    let data = Bytes::from(data).slice(start as usize..=end as usize);
+    builder.body(Body::from(data)).unwrap()
 }
 
 fn spawn_readahead(state: &Arc<AppState>, track: &Arc<Track>, target: &str, idx: usize) {

@@ -14,6 +14,8 @@ pub enum SourceKind {
     MediaPlaylist,
     /// media m3u8 的 `.m3u8` 换成 `_m.mp4`：解密后返回
     MediaFile,
+    /// `<media file 去掉 .mp4>_seg<N>.mp4`：通用 m3u8 中的独立分片（init + 第 N 个 frag）
+    MediaSegment,
     /// 白名单内的其他文件：透传
     Other,
 }
@@ -21,6 +23,7 @@ pub enum SourceKind {
 static MASTER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^P\d+_[^A].*\.m3u8$").unwrap());
 static MEDIA_M3U8_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^P\d+_A\d+_.+\.m3u8$").unwrap());
 static MEDIA_FILE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^P\d+_A\d+_.+_m\.mp4$").unwrap());
+static MEDIA_SEGMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^P\d+_A\d+_.+_m_seg\d+\.mp4$").unwrap());
 
 pub fn classify(filename: &str) -> SourceKind {
     if MASTER_RE.is_match(filename) {
@@ -29,6 +32,8 @@ pub fn classify(filename: &str) -> SourceKind {
         SourceKind::MediaPlaylist
     } else if MEDIA_FILE_RE.is_match(filename) {
         SourceKind::MediaFile
+    } else if MEDIA_SEGMENT_RE.is_match(filename) {
+        SourceKind::MediaSegment
     } else {
         SourceKind::Other
     }
@@ -71,6 +76,26 @@ pub fn media_file_to_playlist_url(url: &str) -> String {
     }
 }
 
+/// media file 名 -> 第 `idx` 个分片名：`xxx_m.mp4` -> `xxx_m_seg<idx>.mp4`
+pub fn media_file_to_segment(name: &str, idx: usize) -> Option<String> {
+    name.strip_suffix("_m.mp4").map(|stem| format!("{stem}_m_seg{idx}.mp4"))
+}
+
+/// 分片 URL -> (对应的 media file URL, 分片下标)
+pub fn segment_to_media_file_url(url: &str) -> Option<(String, usize)> {
+    let (path, query) = match url.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (url, None),
+    };
+    let (stem, idx) = path.strip_suffix(".mp4")?.rsplit_once("_seg")?;
+    let idx = idx.parse().ok()?;
+    let url = match query {
+        Some(q) => format!("{stem}.mp4?{q}"),
+        None => format!("{stem}.mp4"),
+    };
+    Some((url, idx))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +105,7 @@ mod tests {
         assert_eq!(classify("P1263211745_default.m3u8"), SourceKind::MasterPlaylist);
         assert_eq!(classify("P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8"), SourceKind::MediaPlaylist);
         assert_eq!(classify("P1263211745_A1468058171_audio_en_gr2768_mp4a-A6_m.mp4"), SourceKind::MediaFile);
+        assert_eq!(classify("P1263211745_A1468058171_audio_en_gr2768_mp4a-A6_m_seg3.mp4"), SourceKind::MediaSegment);
         assert_eq!(classify("cover.jpg"), SourceKind::Other);
     }
 
@@ -96,5 +122,11 @@ mod tests {
         assert_eq!(filename("https://a/b/P1_A2_x_m.mp4?t=1"), "P1_A2_x_m.mp4");
         assert_eq!(media_file_to_playlist_url("https://a/b/P1_A2_x_m.mp4?t=1"), "https://a/b/P1_A2_x.m3u8?t=1");
         assert_eq!(media_file_to_playlist_url("https://a/_m.mp4/P1_A2_x_m.mp4"), "https://a/_m.mp4/P1_A2_x.m3u8");
+        assert_eq!(media_file_to_segment("P1_A2_x_m.mp4", 3).as_deref(), Some("P1_A2_x_m_seg3.mp4"));
+        assert_eq!(
+            segment_to_media_file_url("https://a/b/P1_A2_x_m_seg12.mp4?t=1"),
+            Some(("https://a/b/P1_A2_x_m.mp4?t=1".to_string(), 12))
+        );
+        assert_eq!(segment_to_media_file_url("https://a/b/P1_A2_x_m.mp4"), None);
     }
 }

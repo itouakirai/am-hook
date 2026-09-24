@@ -54,12 +54,18 @@ async fn test_master_m3u8_e2e() {
 async fn test_media_m3u8_and_file_e2e() {
     let state = new_state();
 
-    let resp = get(&state, "P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8", None).await;
+    let resp = get(&state, "P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8?hook=byterange", None).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let m3u8 = String::from_utf8(body(resp).await.to_vec()).unwrap();
     assert!(m3u8.contains("#EXTM3U"));
     assert!(!m3u8.contains("#EXT-X-KEY"));
     assert!(m3u8.contains(FILEURI));
+
+    // 默认是通用写法：无 EXT-X-MAP / BYTERANGE，每段独立 URL
+    let compat = String::from_utf8(body(get(&state, "P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8", None).await).await.to_vec()).unwrap();
+    assert!(compat.contains("#EXT-X-VERSION:3"));
+    assert!(!compat.contains("#EXT-X-MAP") && !compat.contains("#EXT-X-BYTERANGE") && !compat.contains("#EXT-X-KEY"));
+    assert!(compat.contains(&FILEURI.replace("_m.mp4", "_m_seg1.mp4")));
 
     let track = state.get_track(FILEURI).unwrap();
     assert_eq!(track.adam_id, "1468058171");
@@ -91,6 +97,18 @@ async fn test_media_m3u8_and_file_e2e() {
     assert_eq!(full.len() as u64, track.total_size);
     let cross = body(get(&state, FILEURI, Some("1442000-1443000")).await).await;
     assert_eq!(&cross[..], &full[1442000..=1443000]);
+
+    // 独立分片 = init + 对应 frag
+    let seg2 = FILEURI.replace("_m.mp4", "_m_seg2.mp4");
+    let resp = get(&state, &seg2, None).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let seg = body(resp).await;
+    assert_eq!(&seg[..1058], &init[..]);
+    assert_eq!(&seg[1058..], &frag2[..]);
+    let part = body(get(&state, &seg2, Some("1000-1100")).await).await;
+    assert_eq!(&part[..], &seg[1000..=1100]);
+    let resp = get(&state, &FILEURI.replace("_m.mp4", "_m_seg99999.mp4"), None).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

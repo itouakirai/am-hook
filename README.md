@@ -17,8 +17,9 @@ Only URLs containing `aod.itunes.apple.com/itunes-assets/` are handled. Three ty
 | Type | Filename pattern | Behavior |
 |---|---|---|
 | Master m3u8 | `P<digits>_<not-A-start>.m3u8` | Forwarded unchanged |
-| Media m3u8 | `P<digits>_A<digits>_...m3u8` | Metadata extracted, `#EXT-X-KEY` lines stripped, returned as unencrypted |
+| Media m3u8 | `P<digits>_A<digits>_...m3u8` | Metadata extracted, `#EXT-X-KEY` lines stripped. By default rewritten to a generic playlist (`EXT-X-VERSION:3`, no `EXT-X-MAP` / `EXT-X-BYTERANGE`, one URL per segment) for players with weak fMP4 byte-range HLS support such as PotPlayer; append `?hook=byterange` to keep Apple's original layout |
 | Media file | Same as media m3u8, `.m3u8` replaced with `_m.mp4` | Fragment bytes fetched by range, samples decrypted in place, metadata boxes neutralized, streamed back |
+| Media segment | Media file with `_m.mp4` replaced by `_m_seg<N>.mp4` | Init segment + fragment N, self-contained and independently decodable (Range supported) |
 
 ### Decryption Flow
 

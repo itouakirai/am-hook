@@ -192,9 +192,55 @@ pub fn parse_media_m3u8(source_url: &str, content: &str) -> Result<(Track, Strin
     Ok((Track::new(adam_id, uri, fileuri, range1, segments), cleaned))
 }
 
+/// 把 `parse_media_m3u8` 清理后的 m3u8 转成通用写法：去掉 EXT-X-MAP / EXT-X-BYTERANGE，
+/// 每个 frag 改为独立的 `xxx_m_seg<N>.mp4`（init + 该 frag，可单独解码），版本降到 3。
+/// 部分播放器（如 PotPlayer）对 fMP4 + BYTERANGE 支持不完整，只能播第一段。
+pub fn to_compat_playlist(cleaned: &str) -> String {
+    let mut out = String::with_capacity(cleaned.len());
+    let mut idx = 0;
+    for line in cleaned.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#EXT-X-MAP:") || trimmed.starts_with("#EXT-X-BYTERANGE:") {
+            continue;
+        }
+        if trimmed.starts_with("#EXT-X-VERSION:") {
+            out.push_str("#EXT-X-VERSION:3");
+        } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            idx += 1;
+            let (path, query) = match trimmed.split_once('?') {
+                Some((p, q)) => (p, Some(q)),
+                None => (trimmed, None),
+            };
+            match crate::source::media_file_to_segment(path, idx) {
+                Some(seg) => {
+                    out.push_str(&seg);
+                    if let Some(q) = query {
+                        out.push('?');
+                        out.push_str(q);
+                    }
+                }
+                None => out.push_str(line),
+            }
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_to_compat_playlist() {
+        let cleaned = "#EXTM3U\n#EXT-X-TARGETDURATION:15\n#EXT-X-VERSION:7\n#EXT-X-MAP:URI=\"t_m.mp4\",BYTERANGE=\"10@0\"\n#EXTINF:14.976,\t\n#EXT-X-BYTERANGE:5@10\nt_m.mp4\n#EXTINF:14.976,\t\n#EXT-X-BYTERANGE:5@15\nt_m.mp4\n#EXT-X-ENDLIST\n";
+        assert_eq!(
+            to_compat_playlist(cleaned),
+            "#EXTM3U\n#EXT-X-TARGETDURATION:15\n#EXT-X-VERSION:3\n#EXTINF:14.976,\t\nt_m_seg1.mp4\n#EXTINF:14.976,\t\nt_m_seg2.mp4\n#EXT-X-ENDLIST\n"
+        );
+    }
 
     #[test]
     fn test_parse_media_m3u8() {
