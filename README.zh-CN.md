@@ -14,14 +14,14 @@
 |---|---|
 | `GET /parse/<adamId>` | 通过 wrapper-lite 获取 master m3u8，返回各音质变体 |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | 转发 wrapper-lite `/key` 返回的轨道解密模板 JSON |
-| `/assets/hook.wasm` 等 | 页面、脚本与解密核心（内嵌在二进制中，`no-cache` + ETag） |
+| `/assets/hook.wasm`、`/assets/flac.wasm` 等 | 页面、脚本与按需加载的 WASM（内嵌在二进制中，`no-cache` + ETag） |
 
 浏览器端流程（`src/ui/decrypt.js`）：
 
 1. 直接从 `aod.itunes.apple.com` 获取 media m3u8（CDN 允许跨域和 Range 请求），解析出 init 段、各分片的字节范围，以及每个分片对应的 key。
 2. 首个分片使用内嵌在 wasm 中的固定模板（`skd://itunes.apple.com/P000000000/s1/e1`），其余分片使用经 `/key` 获取的轨道模板。
 3. 分片用 Range 请求从 CDN 拉取，交给 Worker 池（每个 Worker 一个 `hook.wasm` 实例）原地解密；解密逻辑与服务端共用 `crates/am-mp4`，产物与 `--hook` 模式逐字节一致。
-4. **播放**：解密后的分片喂给 MSE，只缓冲当前位置之后约 45 秒，拖动时直接定位到对应分片。
+4. **播放**：浏览器支持原编码时，解密后的分片直接喂给 MSE。浏览器不支持 ALAC 但支持 FLAC-in-MP4 MSE 时，按需加载独立的 `flac.wasm`，在浏览器内把每个 ALAC packet 无损转成 FLAC frame，再重新封装成较小的 fMP4 fragment 逐个追加；拖动时直接定位到对应原始分片。FLAC 模式使用更短的缓冲窗口并按需清理已播数据。
 5. **下载**：4 路并发拉取和解密，结果按原始偏移写入 OPFS（Origin Private File System）临时文件，完成后以磁盘文件的形式交给浏览器保存。大文件也只占用少量内存。不支持 OPFS 时退回内存 Blob。
 
 > OPFS 只在安全上下文中可用，也就是 HTTPS 或 `localhost` / `127.0.0.1`。通过 `http://<局域网 IP>` 访问时，下载会退回内存模式，大文件会占用较多内存；播放不受影响。
@@ -64,13 +64,13 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
   - **下载解密文件**：在浏览器内解密，显示进度，可随时取消。
   - 仅 `--hook` 模式：通过服务器下载；**外部播放器**宫格（VLC、PotPlayer、mpv、IINA、Infuse、nPlayer、MX Player 等 14 款，链接协议与 OpenList 相同），用服务端解密的 media m3u8 播放任意音质，当前平台可用的排在前面，其他平台可展开；**复制地址**，可选 M3U8（播放器用）或 media file（IDM 等下载工具用）。需要对应播放器已安装并注册其链接协议，例如桌面版 VLC 默认不注册 `vlc://`，需要自行安装协议处理程序。
   - 页面顶部的「外部播放」按钮直接打开最高音质的外部播放器宫格。
-- 内置在线播放器：用 MSE 加浏览器端解密播放；`--hook` 模式下，不支持 MSE 的编码还可以回退到原生 HLS（Safari，可播 ALAC / E-AC-3）或直连服务端 media file。支持空格 / 方向键和系统媒体控制。
+- 内置在线播放器：用 MSE 加浏览器端解密播放；ALAC 在支持 FLAC-in-MP4 MSE 的浏览器中自动无损转码播放，`--hook` 模式下仍可回退到原生 HLS（Safari，可播 ALAC / E-AC-3）或直连服务端 media file。下载仍保存原始 ALAC。支持空格 / 方向键和系统媒体控制。
 
 ## 环境要求
 
 - Rust 2021 edition 工具链（`cargo build`）
 - 运行中的 wrapper-lite 密钥服务（默认 `http://127.0.0.1:12340`）
-- 浏览器端需要 Web Worker、WebAssembly 和 MSE（主流浏览器均支持）
+- 浏览器端需要 Web Worker、WebAssembly 和 MSE；ALAC 转 FLAC 播放还需要 `audio/mp4; codecs="flac"` 的 MSE 支持，页面会运行时检测
 
 ## 构建
 
@@ -80,7 +80,7 @@ cargo build --release
 
 Windows 下生成的二进制位于 `target/release/am-hook.exe`。
 
-浏览器端解密核心 `src/ui/hook.wasm` 是预编译好并随仓库提交的，构建服务端时直接内嵌。修改 `crates/am-mp4`、`crates/am-wasm` 或 `crates/temari` 后，需要重新生成并提交它：
+浏览器端解密核心 `src/ui/hook.wasm` 与 ALAC 转 FLAC 核心 `src/ui/flac.wasm` 都随仓库提交，并在构建服务端时内嵌。`flac.wasm` 仅在需要 ALAC 转码时加载。修改相关 crate 后需要重新生成并提交产物：
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -88,6 +88,8 @@ scripts/build-wasm.sh
 # 或手动：
 cargo build -p am-wasm --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/am_wasm.wasm src/ui/hook.wasm
+cargo build -p am-flac-wasm --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/am_flac_wasm.wasm src/ui/flac.wasm
 ```
 
 ## 运行

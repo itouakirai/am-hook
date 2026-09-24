@@ -60,6 +60,8 @@
       if (audio.canPlayType('application/vnd.apple.mpegurl') !== '') modes.push('hls');
       modes.push('direct');
     }
+    if (String(codecs).toLowerCase() === 'alac' && MS && MS.isTypeSupported &&
+        MS.isTypeSupported(mimeFor('flac')) && global.Worker && global.AmDecrypt && global.AmDecrypt.supported()) modes.push('flac');
     return modes;
   }
 
@@ -82,6 +84,39 @@
     return mode === 'direct' ? t('player.direct') : mode.toUpperCase();
   }
 
+  class FlacTranscoder {
+    constructor() {
+      this.worker = new Worker('/assets/flac-transcode-worker.js');
+      this.pending = new Map();
+      this.seq = 0;
+      this.worker.onmessage = ({ data }) => {
+        const job = this.pending.get(data.id);
+        if (!job) return;
+        this.pending.delete(data.id);
+        if (data.ok) job.resolve(data.result);
+        else job.reject(new Error(data.error));
+      };
+      this.worker.onerror = (event) => {
+        for (const job of this.pending.values()) job.reject(new Error(event.message || 'FLAC Worker failed'));
+        this.pending.clear();
+      };
+    }
+
+    run(op, buf) {
+      const id = ++this.seq;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, { resolve, reject });
+        this.worker.postMessage({ id, op, buf }, [buf]);
+      });
+    }
+
+    destroy() {
+      this.worker.terminate();
+      for (const job of this.pending.values()) job.reject(new DOMException('stale', 'AbortError'));
+      this.pending.clear();
+    }
+  }
+
   class MseEngine {
     constructor(audio) {
       this.audio = audio;
@@ -89,7 +124,7 @@
     }
 
     /** m3u8Url：Apple CDN 上的原始 media m3u8 */
-    async load(m3u8Url, codecs, onError) {
+    async load(m3u8Url, codecs, onError, transcode = false) {
       const gen = ++this.generation;
       this.destroy(false);
       this.onError = onError;
@@ -97,6 +132,7 @@
       const playlist = await global.AmDecrypt.openTrack(m3u8Url, this.controller.signal);
       if (gen !== this.generation) return;
       this.playlist = playlist;
+      if (transcode) this.transcoder = new FlacTranscoder();
 
       const MS = global.ManagedMediaSource || global.MediaSource;
       const ms = new MS();
@@ -108,13 +144,20 @@
       if (gen !== this.generation) return;
 
       ms.duration = playlist.duration;
-      this.sb = ms.addSourceBuffer(mimeFor(codecs));
+      this.sb = ms.addSourceBuffer(mimeFor(transcode ? 'flac' : codecs));
       await this.append(await this.fetchRange(playlist.init, gen), gen);
 
       // 每个 segment 最多尝试追加 2 次，防止时间戳与 EXTINF 不一致时反复拉取同一段；拖动后重置
       this.attempts = new Map();
+      this.pendingSegments = new Map();
+      this.seekSerial = 0;
       this.onTick = () => this.pump(gen);
-      this.onSeeking = () => { this.attempts.clear(); this.pump(gen); };
+      this.onSeeking = () => {
+        this.seekSerial++;
+        this.attempts.clear();
+        this.pendingSegments.clear();
+        this.pump(gen);
+      };
       this.audio.addEventListener('timeupdate', this.onTick);
       this.audio.addEventListener('seeking', this.onSeeking);
       this.pump(gen);
@@ -122,7 +165,9 @@
 
     /** 获取并解密一个分段 */
     async fetchRange(range, gen) {
-      const buf = await this.playlist.load(range, this.controller.signal);
+      let buf = await this.playlist.load(range, this.controller.signal);
+      if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
+      if (this.transcoder) buf = await this.transcoder.run(range.init ? 'open' : 'transcode', buf);
       if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
       return buf;
     }
@@ -155,7 +200,7 @@
     }
 
     async evict(gen) {
-      const cut = this.audio.currentTime - BEHIND_SECONDS;
+      const cut = this.audio.currentTime - (this.transcoder ? 2 : BEHIND_SECONDS);
       if (cut <= 1 || this.sb.updating) return;
       await new Promise((resolve) => {
         this.sb.addEventListener('updateend', resolve, { once: true });
@@ -173,8 +218,9 @@
       const { segments } = this.playlist;
       const now = this.audio.currentTime;
       let target = -1;
+      const ahead = this.transcoder ? 14 : AHEAD_SECONDS;
       for (let i = segmentAt(segments, now); i < segments.length; i++) {
-        if (segments[i].time > now + AHEAD_SECONDS) break;
+        if (segments[i].time > now + ahead) break;
         if (!this.ready(i)) { target = i; break; }
       }
       if (target < 0) {
@@ -186,17 +232,51 @@
       }
 
       this.busy = true;
-      this.attempts.set(target, (this.attempts.get(target) || 0) + 1);
+      const seekSerial = this.seekSerial;
+      let waitForPlayback = false;
       try {
-        const buf = await this.fetchRange(segments[target], gen);
-        try {
-          await this.append(buf, gen);
-        } catch (err) {
-          if (err && err.name === 'QuotaExceededError') {
-            await this.evict(gen);
+        if (this.transcoder) {
+          let queue = this.pendingSegments.get(target);
+          if (!queue) {
+            this.attempts.set(target, (this.attempts.get(target) || 0) + 1);
+            queue = await this.fetchRange(segments[target], gen);
+            if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
+            this.pendingSegments.set(target, queue);
+          }
+          while (queue.length) {
+            if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
+            try {
+              await this.append(queue[0], gen);
+            } catch (err) {
+              if (!err || err.name !== 'QuotaExceededError') throw err;
+              await this.evict(gen);
+              try {
+                await this.append(queue[0], gen);
+              } catch (retryError) {
+                if (!retryError || retryError.name !== 'QuotaExceededError') throw retryError;
+                waitForPlayback = true;
+                break;
+              }
+            }
+            if (seekSerial !== this.seekSerial) throw new DOMException('stale seek', 'AbortError');
+            queue.shift();
+          }
+          if (!queue.length) {
+            this.pendingSegments.delete(target);
+            this.attempts.set(target, 2);
+          }
+        } else {
+          this.attempts.set(target, (this.attempts.get(target) || 0) + 1);
+          const buf = await this.fetchRange(segments[target], gen);
+          try {
             await this.append(buf, gen);
-          } else {
-            throw err;
+          } catch (err) {
+            if (err && err.name === 'QuotaExceededError') {
+              await this.evict(gen);
+              await this.append(buf, gen);
+            } else {
+              throw err;
+            }
           }
         }
       } catch (err) {
@@ -207,18 +287,19 @@
         }
       }
       this.busy = false;
-      if (gen === this.generation) this.pump(gen);
+      if (!waitForPlayback && gen === this.generation) this.pump(gen);
     }
 
     destroy(bump = true) {
       if (bump) this.generation++;
       if (this.controller) this.controller.abort();
+      if (this.transcoder) this.transcoder.destroy();
       if (this.onTick) {
         this.audio.removeEventListener('timeupdate', this.onTick);
         this.audio.removeEventListener('seeking', this.onSeeking);
       }
       if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
-      this.onTick = this.onSeeking = this.controller = this.objectUrl = this.sb = this.ms = this.playlist = null;
+      this.onTick = this.onSeeking = this.controller = this.objectUrl = this.sb = this.ms = this.playlist = this.transcoder = this.pendingSegments = null;
       this.busy = false;
     }
   }
@@ -399,8 +480,8 @@
 
     async tryMode(mode, item, resumeAt, token) {
       this.teardown();
-      if (mode === 'mse') {
-        await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)));
+      if (mode === 'mse' || mode === 'flac') {
+        await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)), mode === 'flac');
         if (token !== this.playToken) return;
         this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
       } else {

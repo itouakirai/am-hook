@@ -14,14 +14,14 @@ Server endpoints:
 |---|---|
 | `GET /parse/<adamId>` | Fetches the master m3u8 via wrapper-lite and returns its variants |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | Relays the track decryption template JSON from wrapper-lite `/key` |
-| `/assets/hook.wasm` etc. | Pages, scripts and the decryption core (embedded in the binary, `no-cache` + ETag) |
+| `/assets/hook.wasm`, `/assets/flac.wasm`, etc. | Pages, scripts and on-demand WASM modules (embedded in the binary, `no-cache` + ETag) |
 
 In the browser (`src/ui/decrypt.js`):
 
 1. The media m3u8 is fetched directly from `aod.itunes.apple.com` (the CDN allows CORS and Range requests) and parsed into the init segment, fragment byte ranges and the key used by each fragment.
 2. The first fragment uses the fixed template embedded in the wasm (`skd://itunes.apple.com/P000000000/s1/e1`); the rest use the track template from `/key`.
 3. Fragments are fetched from the CDN with Range requests and decrypted in place by a Worker pool (one `hook.wasm` instance per Worker). The decryption code is shared with the server (`crates/am-mp4`), so the output is byte-identical to `--hook` mode.
-4. **Playback**: decrypted fragments feed MSE, buffering only ~45 s ahead of the playhead; seeking jumps straight to the right fragment.
+4. **Playback**: decrypted fragments feed MSE when the original codec is supported. If ALAC is unavailable but FLAC-in-MP4 MSE is supported, a separate `flac.wasm` is loaded on demand to losslessly convert ALAC packets to FLAC frames and remux them into small fMP4 fragments. Seeking jumps straight to the matching source fragment. FLAC mode uses a shorter buffer window and evicts played data as needed.
 5. **Download**: 4 lanes fetch and decrypt concurrently and write each result at its original offset into an OPFS (Origin Private File System) temporary file. The finished disk-backed file is handed to the browser to save, so even large files use little memory. Without OPFS it falls back to in-memory Blobs.
 
 > OPFS is only available in a secure context: HTTPS, or `localhost` / `127.0.0.1`. When the UI is opened over `http://<LAN IP>`, downloads fall back to memory and large files use more RAM. Playback is unaffected.
@@ -64,13 +64,13 @@ Open `http://127.0.0.1:8888/` in a browser:
   - **Download decrypted file**: decrypted in the browser, with progress and a cancel button.
   - `--hook` only: download through the server; an **external players** grid (14 players including VLC, PotPlayer, mpv, IINA, Infuse, nPlayer and MX Player, using the same link schemes as OpenList) that plays any variant from the server-decrypted media m3u8, with players for the current platform first and the rest behind a toggle; and **Copy URL**, choosing between M3U8 (for players) and the media file (for download managers such as IDM). Each player must be installed and register its link scheme; desktop VLC, for example, registers no `vlc://` handler by default, so a protocol handler must be installed separately.
   - The "External player" button at the top of the page opens the player grid for the highest quality.
-- Built-in web player: MSE with browser-side decryption. In `--hook` mode, codecs MSE cannot play fall back to native HLS (Safari, which plays ALAC and E-AC-3) or the server's media file. Space and arrow keys and system media controls are supported.
+- Built-in web player: MSE with browser-side decryption, including lossless ALAC-to-FLAC playback when the browser supports FLAC-in-MP4 MSE. Downloads retain the original ALAC. In `--hook` mode, codecs MSE cannot play can fall back to native HLS (Safari, which plays ALAC and E-AC-3) or the server's media file. Space and arrow keys and system media controls are supported.
 
 ## Requirements
 
 - Rust 2021 edition toolchain (`cargo build`)
 - A running wrapper-lite key server (default `http://127.0.0.1:12340`)
-- A browser with Web Workers, WebAssembly and MSE (all mainstream browsers)
+- A browser with Web Workers, WebAssembly and MSE; ALAC-to-FLAC playback also requires FLAC-in-MP4 MSE support, detected at runtime
 
 ## Build
 
@@ -80,7 +80,7 @@ cargo build --release
 
 The binary is output to `target/release/am-hook.exe` on Windows.
 
-The browser decryption core `src/ui/hook.wasm` is prebuilt, committed, and embedded into the server binary. After changing `crates/am-mp4`, `crates/am-wasm` or `crates/temari`, rebuild and commit it:
+The browser decryption core `src/ui/hook.wasm` and ALAC-to-FLAC core `src/ui/flac.wasm` are prebuilt, committed and embedded into the server binary. `flac.wasm` loads only when ALAC conversion is needed. After changing the relevant crates, rebuild and commit the artifacts:
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -88,6 +88,8 @@ scripts/build-wasm.sh
 # or manually:
 cargo build -p am-wasm --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/am_wasm.wasm src/ui/hook.wasm
+cargo build -p am-flac-wasm --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/am_flac_wasm.wasm src/ui/flac.wasm
 ```
 
 ## Run

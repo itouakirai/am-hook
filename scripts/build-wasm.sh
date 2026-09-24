@@ -7,9 +7,13 @@ cd "$(dirname "$0")/.."
 
 cargo build -p am-wasm --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/am_wasm.wasm src/ui/hook.wasm
+cargo build -p am-flac-wasm --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/am_flac_wasm.wasm src/ui/flac.wasm
 
 if command -v wasm-opt >/dev/null 2>&1; then
   wasm-opt -O3 --enable-bulk-memory src/ui/hook.wasm -o src/ui/hook.wasm
+  wasm-opt -Oz --enable-bulk-memory src/ui/flac.wasm -o src/ui/flac.wasm
 fi
 
 ls -l src/ui/hook.wasm
+ls -l src/ui/flac.wasm

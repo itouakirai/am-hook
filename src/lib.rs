@@ -28,6 +28,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/assets/decrypt.js", get(ui::decrypt_js_handler))
         .route("/assets/hook-worker.js", get(ui::worker_js_handler))
         .route("/assets/hook.wasm", get(ui::wasm_handler))
+        .route("/assets/flac.wasm", get(ui::flac_wasm_handler))
+        .route("/assets/flac-init.bin", get(ui::flac_init_handler))
+        .route("/assets/flac-transcode-worker.js", get(ui::flac_worker_handler))
         .fallback(proxy::handle_proxy)
         .with_state(state)
 }

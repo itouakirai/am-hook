@@ -1,0 +1,11 @@
+[package]
+name = "am-flac-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Small ALAC packet to FLAC frame transcoder for browser playback"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+alac = { version = "0.5", default-features = false }
