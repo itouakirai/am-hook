@@ -62,7 +62,8 @@ Open `http://127.0.0.1:8888/` in a browser:
 - The song page parses every variant automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions) and shows artwork and track info (fetched by the browser directly from the iTunes Lookup API).
 - Each variant has a "more" menu:
   - **Download decrypted file**: decrypted in the browser, with progress and a cancel button.
-  - `--hook` only: download through the server, play in VLC (`vlc://<media m3u8 URL>`, the format alist uses), or copy the media m3u8 / media file (IDM) URL. Desktop VLC registers no `vlc://` handler by default, so a protocol handler must be installed separately; the Android / iOS VLC apps handle it directly.
+  - `--hook` only: download through the server; an **external players** grid (14 players including VLC, PotPlayer, mpv, IINA, Infuse, nPlayer and MX Player, using the same link schemes as OpenList) that plays any variant from the server-decrypted media m3u8, with players for the current platform first and the rest behind a toggle; and **Copy URL**, choosing between M3U8 (for players) and the media file (for download managers such as IDM). Each player must be installed and register its link scheme; desktop VLC, for example, registers no `vlc://` handler by default, so a protocol handler must be installed separately.
+  - The "External player" button at the top of the page opens the player grid for the highest quality.
 - Built-in web player: MSE with browser-side decryption. In `--hook` mode, codecs MSE cannot play fall back to native HLS (Safari, which plays ALAC and E-AC-3) or the server's media file. Space and arrow keys and system media controls are supported.
 
 ## Requirements
