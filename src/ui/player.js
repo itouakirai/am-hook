@@ -806,13 +806,38 @@
 
     updateMediaSession() {
       if (!('mediaSession' in navigator) || !global.MediaMetadata) return;
+      if (this.mediaArtController) this.mediaArtController.abort();
+      if (this.mediaArtUrl) URL.revokeObjectURL(this.mediaArtUrl);
+      this.mediaArtController = this.mediaArtUrl = null;
       const c = this.current;
-      navigator.mediaSession.metadata = new MediaMetadata({
+      const info = {
         title: c.title || '',
         artist: c.artist || '',
         album: c.album || '',
-        artwork: c.artwork ? [{ src: c.artwork, sizes: '600x600', type: 'image/jpeg' }] : [],
-      });
+      };
+      navigator.mediaSession.metadata = new MediaMetadata({ ...info, artwork: [] });
+      if (!c.artwork) return;
+
+      // Media Session may read artwork again after a Web Audio seek. Give it a
+      // local URL so those reads cannot request the Apple CDN image repeatedly.
+      const controller = new AbortController();
+      const token = this.playToken;
+      this.mediaArtController = controller;
+      fetch(c.artwork, { signal: controller.signal, cache: 'force-cache' })
+        .then((response) => {
+          if (!response.ok) throw new Error(`Artwork HTTP ${response.status}`);
+          return response.blob();
+        })
+        .then((blob) => {
+          if (controller.signal.aborted || token !== this.playToken) return;
+          const url = URL.createObjectURL(blob);
+          this.mediaArtUrl = url;
+          navigator.mediaSession.metadata = new MediaMetadata({
+            ...info,
+            artwork: [{ src: url, sizes: '600x600', type: blob.type || 'image/jpeg' }],
+          });
+        })
+        .catch(() => {}); // The player bar still displays the original image.
     }
 
     /** msg 可以是函数，切换语言时重新求值 */
