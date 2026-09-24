@@ -3,390 +3,448 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>am-hook · 音质</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --background: #08080a;
-      --surface: #141417;
-      --surface-strong: #1c1c20;
-      --line: #303038;
-      --text: #f5f3f1;
-      --muted: #a7a2a0;
-      --accent: #fb2c55;
-      --accent-hover: #ff4466;
-      --error: #ff8087;
-    }
-    *, *::before, *::after { box-sizing: border-box; }
-    body {
-      min-height: 100dvh;
-      margin: 0;
-      background:
-        radial-gradient(circle at 0% 0%, rgba(251, 44, 85, .12), transparent 36rem),
-        var(--background);
-      color: var(--text);
-      font: 14px/1.5 "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      letter-spacing: 0;
-    }
-    .page {
-      width: min(1180px, 100%);
-      margin: 0 auto;
-      padding: 24px 24px 64px;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; color: var(--text); }
-    .brand-mark {
-      width: 34px;
-      height: 34px;
-      flex: 0 0 auto;
-      display: grid;
-      place-items: center;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #fb2c55, #ff7553);
-      color: white;
-    }
-    .brand-name { font-size: 16px; font-weight: 750; white-space: nowrap; }
-    .back {
-      height: 38px;
-      padding: 0 14px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: transparent;
-      color: var(--text);
-      font-size: 13px;
-      text-decoration: none;
-    }
-    .back:hover { background: var(--surface); }
-    .back svg { width: 15px; height: 15px; }
-    .title-block {
-      margin-top: 52px;
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 24px;
-    }
-    .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 12px; font-weight: 700; }
-    h1 { margin: 0; font-size: clamp(28px, 4vw, 36px); line-height: 1.1; font-weight: 800; }
-    .source { max-width: 700px; margin: 12px 0 0; color: var(--muted); overflow-wrap: anywhere; font-size: 13px; }
-    .parse {
-      height: 46px;
-      flex: 0 0 auto;
-      padding: 0 20px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 0;
-      border-radius: 9px;
-      background: var(--accent);
-      color: white;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: background .18s ease, transform .18s ease;
-    }
-    .parse:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
-    .parse:disabled { background: #6d202f; cursor: progress; transform: none; }
-    .parse svg { width: 16px; height: 16px; }
-    .alert {
-      display: none;
-      margin-top: 22px;
-      padding: 11px 13px;
-      border-radius: 8px;
-      font-size: 13px;
-    }
-    .alert.info {
-      display: block;
-      border: 1px solid #34425b;
-      background: rgba(58, 103, 177, .12);
-      color: #9fbce8;
-    }
-    .alert.error {
-      display: block;
-      border: 1px solid rgba(255, 128, 135, .38);
-      background: rgba(251, 44, 85, .09);
-      color: var(--error);
-    }
-    .result {
-      display: none;
-      margin-top: 28px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--surface);
-      overflow: hidden;
-    }
-    .result-header {
-      min-height: 58px;
-      padding: 15px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface-strong);
-    }
-    .result-title { font-size: 15px; font-weight: 750; }
-    .result-count { padding: 5px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
-    .table-scroll { overflow-x: auto; }
-    table { width: 100%; min-width: 980px; border-collapse: collapse; }
-    th, td {
-      padding: 14px 18px;
-      border-bottom: 1px solid #232329;
-      text-align: left;
-      vertical-align: top;
-    }
-    th { background: #101013; color: #8f8b8a; font-size: 12px; font-weight: 650; white-space: nowrap; }
-    tbody tr:last-child td { border-bottom: 0; }
-    tbody tr:hover td { background: rgba(255, 255, 255, .017); }
-    .quality-name { display: block; font-size: 15px; font-weight: 700; white-space: nowrap; }
-    .quality-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-    .url-cell { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-    .url {
-      min-width: 0;
-      flex: 1;
-      color: #c8c4c3;
-      text-decoration: none;
-      font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
-      font-size: 12px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }
-    .url:hover { color: white; text-decoration: underline; text-underline-offset: 3px; }
-    .copy-button {
-      width: 30px;
-      height: 30px;
-      flex: 0 0 auto;
-      display: grid;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: var(--surface-strong);
-      color: #cfcbca;
-      cursor: pointer;
-      transition: background .16s ease, color .16s ease, border-color .16s ease;
-    }
-    .copy-button:hover { color: white; border-color: #52525c; background: #242429; }
-    .copy-button.copied { color: #6ce8a4; border-color: rgba(108, 232, 164, .42); background: rgba(108, 232, 164, .09); }
-    .copy-button svg { width: 15px; height: 15px; }
-    .empty {
-      display: none;
-      margin-top: 22px;
-      padding: 42px 20px;
-      border: 1px dashed #3f3f47;
-      border-radius: 12px;
-      color: var(--muted);
-      text-align: center;
-    }
-    @media (max-width: 720px) {
-      .page { padding: 18px 16px 48px; }
-      .title-block { margin-top: 40px; align-items: stretch; flex-direction: column; }
-      .parse { width: 100%; justify-content: center; }
-      .result-header { flex-wrap: wrap; }
-    }
-  </style>
+  <title>am-hook · 音质解析</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23fb2c55'/%3E%3Cpath d='M9.5 16.5V7l7-1.5v9' fill='none' stroke='white' stroke-width='1.8'/%3E%3Ccircle cx='7.5' cy='16.5' r='2' fill='white'/%3E%3Ccircle cx='14.5' cy='14.5' r='2' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
   <div class="page">
-    <header>
+    <header class="topbar">
       <a class="brand" href="/">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
-        </div>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </span>
         <span class="brand-name">am-hook</span>
       </a>
-      <a class="back" href="/">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-        主页
-      </a>
+      <div class="topbar-right">
+        <span class="status-pill" id="status"><span class="status-dot"></span><span>wrapper-lite</span></span>
+        <a class="btn" href="/">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          主页
+        </a>
+      </div>
     </header>
 
     <main>
-      <div class="title-block">
-        <div>
-          <p class="eyebrow">QUALITY VARIANTS</p>
-          <h1>音质解析</h1>
-          <p class="source" id="song-url"></p>
-        </div>
-        <button class="parse" id="parse" type="button">
-          解析
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3"/><path d="M12 18v3"/><path d="M4.2 7.5l2.6 1.5"/><path d="M17.2 15l2.6 1.5"/><path d="M4.2 16.5l2.6-1.5"/><path d="M17.2 9l2.6-1.5"/></svg>
-        </button>
-      </div>
-
-      <div class="alert" id="alert" aria-live="polite"></div>
-      <div class="empty" id="empty">还没有解析结果</div>
-
-      <section class="result" id="result">
-        <div class="result-header">
-          <div class="result-title">可用音质</div>
-          <div class="result-count" id="count"></div>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>音质</th>
-                <th>media m3u8 完整地址</th>
-                <th>media file 完整地址</th>
-              </tr>
-            </thead>
-            <tbody id="variants"></tbody>
-          </table>
+      <section class="song">
+        <div class="cover" id="cover"></div>
+        <div class="song-info">
+          <p class="eyebrow">SONG</p>
+          <h1 class="song-title skeleton" id="title">&nbsp;</h1>
+          <p class="song-sub skeleton" id="subtitle">&nbsp;</p>
+          <div class="song-meta" id="meta"></div>
+          <div class="song-actions">
+            <button class="btn btn-primary" id="play-best" type="button" disabled>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>
+              播放
+            </button>
+            <button class="btn" id="vlc-best" type="button" disabled title="用 VLC 播放最高音质">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 3h5l4.5 15H5z"/><path d="M7.6 10h8.8M6.4 14h11.2"/><path d="M3 21h18"/></svg>
+              VLC 播放
+            </button>
+            <button class="btn" id="reparse" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg>
+              重新解析
+            </button>
+            <a class="btn" id="apple-link" target="_blank" rel="noreferrer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+              Apple Music
+            </a>
+          </div>
+          <p class="song-source" id="source"></p>
         </div>
       </section>
 
-      <template id="variant-row">
-        <tr>
-          <td>
-            <span class="quality-name"></span>
-            <span class="quality-meta"></span>
-          </td>
-          <td>
-            <div class="url-cell">
-              <a class="url" target="_blank" rel="noreferrer"></a>
-              <button class="copy-button" type="button" title="复制 media m3u8 地址" aria-label="复制 media m3u8 地址">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-              </button>
-            </div>
-          </td>
-          <td>
-            <div class="url-cell">
-              <a class="url" target="_blank" rel="noreferrer"></a>
-              <button class="copy-button" type="button" title="复制 media file 地址" aria-label="复制 media file 地址">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-              </button>
-            </div>
-          </td>
-        </tr>
-      </template>
+      <div class="alert info" id="alert" hidden aria-live="polite"></div>
+
+      <section class="variants" id="variants" hidden>
+        <div class="variants-head">
+          <h2 class="variants-title">可用音质</h2>
+          <span class="variants-count" id="count"></span>
+        </div>
+        <div id="variant-list"></div>
+      </section>
     </main>
   </div>
 
+  <div class="menu" id="menu" role="menu" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <div class="player" id="player" hidden>
+    <div class="player-track">
+      <img class="player-art" alt="">
+      <div class="player-text">
+        <span class="player-title"></span>
+        <span class="player-sub"></span>
+      </div>
+    </div>
+    <div class="player-center">
+      <button class="player-skip skip-back" type="button" aria-label="后退 10 秒">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <button class="player-toggle" type="button" aria-label="播放"></button>
+      <button class="player-skip skip-fwd" type="button" aria-label="前进 10 秒">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+      <span class="time time-cur">0:00</span>
+      <div class="seek" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+        <div class="seek-track"><div class="seek-buffer"></div><div class="seek-fill"></div></div>
+        <div class="seek-thumb"></div>
+      </div>
+      <span class="time time-total">0:00</span>
+    </div>
+    <div class="player-right">
+      <span class="badge player-mode" title="播放方式"></span>
+      <input class="volume" type="range" min="0" max="1" step="0.01" aria-label="音量">
+    </div>
+    <p class="player-msg" hidden></p>
+  </div>
+
+  <script src="/assets/player.js"></script>
   <script>
+    const { AmPlayer, detectMode } = window.AmHook;
     const songUrl = decodeURIComponent(location.pathname.slice(1));
-    const adamId = (songUrl.match(/\/song\/[^/?#]+\/(\d+)(?:[/?#]|$)/i) || [])[1];
-    const alertElement = document.getElementById('alert');
-    const emptyElement = document.getElementById('empty');
-    const parseButton = document.getElementById('parse');
-    document.getElementById('song-url').textContent = songUrl;
+    const linkMatch = songUrl.match(/music\.apple\.com\/([a-z]{2})\/song\/[^/?#]+\/(\d+)/i) || [];
+    const country = (linkMatch[1] || 'us').toLowerCase();
+    const adamId = linkMatch[2];
+    const $ = (id) => document.getElementById(id);
+    const player = new AmPlayer($('player'));
+    const probe = document.createElement('audio');
+    let meta = {};
+    let variants = [];
+    let rows = new Map();
 
-    async function requestJson(url) {
-      if (typeof fetch === 'function') {
-        const response = await fetch(url);
-        return { ok: response.ok, text: await response.text() };
-      }
+    $('source').textContent = songUrl;
+    $('apple-link').href = songUrl;
 
-      return new Promise((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open('GET', url);
-        request.onload = () => resolve({ ok: request.status >= 200 && request.status < 300, text: request.responseText });
-        request.onerror = () => reject(new Error('网络请求失败'));
-        request.send();
-      });
+    const ICON = {
+      play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>',
+      pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
+      copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+      list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+      file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
+      vlc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 3h5l4.5 15H5z"/><path d="M7.6 10h8.8M6.4 14h11.2"/><path d="M3 21h18"/></svg>',
+      more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+      download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+    };
+
+    function el(tag, props = {}, ...children) {
+      const node = Object.assign(document.createElement(tag), props);
+      node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+      return node;
     }
 
     function showAlert(kind, message) {
-      alertElement.className = `alert ${kind}`;
-      alertElement.textContent = message;
+      const a = $('alert');
+      a.className = `alert ${kind}`;
+      a.textContent = message;
+      a.hidden = !message;
     }
 
-    function qualityLabel(groupId, codecs) {
-      const value = groupId.toLowerCase();
-      if (value.includes('alac')) return 'ALAC';
-      if (value.includes('he-stereo-64')) return 'HE-AAC 64';
-      if (value.includes('stereo-256')) return 'AAC 256';
-      if (value.includes('stereo-128')) return 'AAC 128';
-      return groupId;
+    function formatRate(bps) {
+      if (!bps) return '';
+      return bps >= 1e6 ? `${(bps / 1e6).toFixed(2)} Mbps` : `${Math.round(bps / 1000)} kbps`;
     }
 
-    function hookUrl(relativeUrl) {
-      return `${location.origin}/${relativeUrl.replace(/^\/+/, '')}`;
+    /** 由 GROUP-ID / CODECS 推导展示信息 */
+    function describe(v) {
+      const g = v.group_id.toLowerCase();
+      const tags = [];
+      if (g.includes('binaural')) tags.push('双耳');
+      if (g.includes('downmix')) tags.push('缩混');
+      const variantRank = tags.length ? 1 : 0;
+      if (g.includes('alac')) {
+        const spec = [v.bit_depth && `${v.bit_depth}-bit`, v.sample_rate && `${(v.sample_rate / 1000).toFixed(1).replace(/\.0$/, '')} kHz`].filter(Boolean).join(' / ');
+        return { group: '无损', rank: 0, kbps: 0, name: `ALAC${spec ? ' · ' + spec : ''}`, badge: ['Lossless', 'accent'], tags, sub: variantRank };
+      }
+      if (g.includes('atmos')) {
+        // GROUP-ID 形如 atmos-2768：首位是版本号，后三位才是码率（768 kbps）
+        const raw = Number((g.match(/atmos-(\d+)/) || [])[1]) || 0;
+        const kbps = raw >= 1000 ? raw % 1000 : raw;
+        return { group: '杜比全景声', rank: 1, kbps, name: `Dolby Atmos${kbps ? ' · ' + kbps + ' kbps' : ''}`, badge: ['Atmos', 'accent'], tags, sub: variantRank };
+      }
+      if (g.includes('he-')) {
+        const kbps = Number((g.match(/stereo-(\d+)/) || [])[1]) || 0;
+        return { group: 'HE-AAC', rank: 3, kbps, name: `HE-AAC${kbps ? ' · ' + kbps + ' kbps' : ''}`, tags, sub: variantRank };
+      }
+      const kbps = Number((g.match(/stereo-(\d+)/) || [])[1]) || 0;
+      return { group: 'AAC', rank: 2, kbps, name: kbps ? `AAC · ${kbps} kbps` : v.group_id, tags, sub: variantRank };
     }
 
-    function copyText(text, button) {
-      const markCopied = () => {
-        button.classList.add('copied');
-        button.title = '已复制';
-        button.setAttribute('aria-label', '已复制');
-        setTimeout(() => {
-          button.classList.remove('copied');
-          button.title = button.dataset.tooltip;
-          button.setAttribute('aria-label', button.dataset.tooltip);
-        }, 1300);
+    function hookUrl(absolute) {
+      return `${location.origin}/${absolute}`;
+    }
+
+    function safeName(s) {
+      return s.replace(/[\\/:*?"<>|]+/g, '_').trim();
+    }
+
+    let toastTimer;
+    function toast(message) {
+      const t = $('toast');
+      t.textContent = message;
+      t.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+    }
+
+    function copy(text, what) {
+      const done = () => toast(`已复制${what}`);
+      const fallback = () => {
+        const area = el('textarea', { value: text });
+        area.style.cssText = 'position:fixed;opacity:0';
+        document.body.append(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+        done();
       };
-
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).then(markCopied).catch(() => fallbackCopy(text, markCopied));
-      } else {
-        fallbackCopy(text, markCopied);
-      }
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
+      else fallback();
     }
 
-    function fallbackCopy(text, done) {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.style.position = 'fixed';
-      area.style.opacity = '0';
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand('copy');
-      area.remove();
-      done();
+    /** VLC 协议链接（与 alist 相同的 vlc://<地址> 格式），打开 media m3u8，所有音质都能播 */
+    function vlcHref(v) {
+      return `vlc://${v.m3u8Url}`;
     }
 
-    parseButton.addEventListener('click', async () => {
-      parseButton.disabled = true;
-      emptyElement.style.display = 'none';
-      document.getElementById('result').style.display = 'none';
-      showAlert('info', '正在获取 master m3u8。');
-      try {
-        const { ok, text } = await requestJson(`/parse/${adamId}`);
-        const data = JSON.parse(text);
-        if (!ok || !data.masterUrl || !Array.isArray(data.variants)) {
-          throw new Error(data.msg || '解析失败');
-        }
+    function openInVlc(v) {
+      location.href = vlcHref(v);
+      toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议');
+    }
 
-        const masterBase = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
-        const template = document.getElementById('variant-row');
-        const rows = data.variants.map((item) => {
-          const row = template.content.cloneNode(true);
-          const m3u8Url = hookUrl(masterBase + item.uri);
-          const fileUrl = hookUrl(masterBase + item.file_uri);
-          row.querySelector('.quality-name').textContent = qualityLabel(item.group_id, item.codecs);
-          row.querySelector('.quality-meta').textContent = `${item.group_id} · ${item.codecs}`;
+    /* ---------- 下拉菜单（单例，fixed 定位，避免被列表 overflow 裁剪） ---------- */
+    const menu = { el: $('menu'), trigger: null };
 
-          const links = row.querySelectorAll('.url');
-          const buttons = row.querySelectorAll('.copy-button');
-          links[0].href = m3u8Url;
-          links[0].textContent = m3u8Url;
-          links[1].href = fileUrl;
-          links[1].textContent = fileUrl;
-          buttons[0].dataset.tooltip = '复制 media m3u8 地址';
-          buttons[1].dataset.tooltip = '复制 media file 地址';
-          buttons[0].addEventListener('click', () => copyText(m3u8Url, buttons[0]));
-          buttons[1].addEventListener('click', () => copyText(fileUrl, buttons[1]));
-          return row;
-        });
+    function closeMenu(focusTrigger) {
+      if (!menu.trigger) return;
+      menu.el.hidden = true;
+      menu.trigger.setAttribute('aria-expanded', 'false');
+      if (focusTrigger) menu.trigger.focus();
+      menu.trigger = null;
+    }
 
-        const tbody = document.getElementById('variants');
-        tbody.replaceChildren(...rows);
-        document.getElementById('count').textContent = `${data.variants.length} 个音质`;
-        document.getElementById('result').style.display = 'block';
-        showAlert('info', `已解析 ${data.variants.length} 个音质。`);
-      } catch (error) {
-        emptyElement.style.display = 'block';
-        showAlert('error', error.message || '解析失败');
-      } finally {
-        parseButton.disabled = false;
-      }
+    function openMenu(trigger, items) {
+      const reopen = menu.trigger === trigger;
+      closeMenu(false);
+      if (reopen) return;
+      menu.el.replaceChildren(...items.map((it) => {
+        if (it === '-') return el('div', { className: 'menu-sep', role: 'separator' });
+        const node = el(it.href ? 'a' : 'button', { className: 'menu-item', innerHTML: it.icon, tabIndex: -1 });
+        if (it.href) { node.href = it.href; if (it.download) node.download = it.download; } else node.type = 'button';
+        node.setAttribute('role', 'menuitem');
+        node.append(el('span', { className: 'menu-text' },
+          el('span', { className: 'menu-label', textContent: it.label }),
+          it.hint && el('span', { className: 'menu-hint', textContent: it.hint })));
+        node.addEventListener('click', () => { closeMenu(false); if (it.onSelect) it.onSelect(); });
+        return node;
+      }));
+      menu.el.hidden = false;
+      menu.trigger = trigger;
+      trigger.setAttribute('aria-expanded', 'true');
+
+      // 右对齐触发按钮；下方空间不足（含底部播放条）时向上展开
+      const r = trigger.getBoundingClientRect();
+      const m = menu.el.getBoundingClientRect();
+      const playerTop = $('player').hidden ? innerHeight : $('player').getBoundingClientRect().top;
+      const below = playerTop - r.bottom - 8;
+      const top = below >= m.height || r.top < m.height + 8 ? r.bottom + 6 : r.top - m.height - 6;
+      menu.el.style.top = `${Math.max(8, top)}px`;
+      menu.el.style.left = `${Math.min(Math.max(8, r.right - m.width), innerWidth - m.width - 8)}px`;
+      menu.el.querySelector('.menu-item').focus();
+    }
+
+    menu.el.addEventListener('keydown', (e) => {
+      const items = [...menu.el.querySelectorAll('.menu-item')];
+      const i = items.indexOf(document.activeElement);
+      const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length].focus(); };
+      if (e.key === 'ArrowDown') go(i + 1);
+      else if (e.key === 'ArrowUp') go(i - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(items.length - 1);
+      else if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); }
+      else if (e.key === 'Tab') closeMenu(false);
     });
+    document.addEventListener('pointerdown', (e) => {
+      if (menu.trigger && !menu.el.contains(e.target) && !menu.trigger.contains(e.target)) closeMenu(false);
+    });
+    addEventListener('resize', () => closeMenu(false));
+    addEventListener('scroll', () => closeMenu(false), true);
+
+    function variantMenu(v, fileName) {
+      return [
+        { icon: ICON.vlc, label: '用 VLC 播放', hint: '所有音质均可播放', href: vlcHref(v),
+          onSelect: () => toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议') },
+        '-',
+        { icon: ICON.list, label: '复制 media m3u8 地址', hint: '可在 VLC「打开网络串流」中使用', onSelect: () => copy(v.m3u8Url, ' media m3u8 地址') },
+        { icon: ICON.file, label: '复制 media file 地址', hint: '用于 IDM 等下载工具', onSelect: () => copy(v.fileUrl, ' media file 地址') },
+        '-',
+        { icon: ICON.download, label: '下载解密文件', hint: fileName, href: v.fileUrl, download: fileName },
+      ];
+    }
+
+    function playItem(v) {
+      return {
+        id: v.group_id,
+        codecs: v.codecs,
+        m3u8Url: v.m3u8Url,
+        fileUrl: v.fileUrl,
+        label: v.info.name,
+        title: meta.title,
+        artist: meta.artist,
+        album: meta.album,
+        artwork: meta.artwork,
+      };
+    }
+
+    function renderVariants() {
+      const list = $('variant-list');
+      rows = new Map();
+      const nodes = [];
+      let lastGroup = null;
+      for (const v of variants) {
+        if (v.info.group !== lastGroup) {
+          lastGroup = v.info.group;
+          nodes.push(el('div', { className: 'variant-group', textContent: lastGroup }));
+        }
+        const playable = !!v.mode;
+        const playBtn = el('button', { className: 'play-btn', type: 'button', innerHTML: ICON.play, disabled: !playable });
+        playBtn.setAttribute('aria-label', playable ? `播放 ${v.info.name}` : '当前浏览器不支持该编码');
+        playBtn.title = playable ? '在线播放' : `当前浏览器不支持 ${v.codecs}，可用 VLC 播放`;
+        playBtn.addEventListener('click', () => player.play(playItem(v)));
+
+        const name = el('div', { className: 'variant-name' }, v.info.name,
+          v.info.badge && el('span', { className: `badge ${v.info.badge[1]}`, textContent: v.info.badge[0] }),
+          ...v.info.tags.map((t) => el('span', { className: 'badge', textContent: t })),
+          el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: playable ? '浏览器可播' : '需外部播放器' }));
+        const detail = el('div', { className: 'variant-detail' },
+          [v.codecs, formatRate(v.bandwidth), v.channels && `声道 ${v.channels}`].filter(Boolean).join(' · ') + ' · ',
+          el('code', { textContent: v.group_id }));
+
+        const fileName = safeName(`${meta.artist ? meta.artist + ' - ' : ''}${meta.title || adamId} [${v.info.name.replace(/ · /g, ' ')}].m4a`);
+        const more = el('button', { className: 'icon-btn more-btn', type: 'button', title: '更多', innerHTML: ICON.more });
+        more.setAttribute('aria-label', `${v.info.name} 更多操作`);
+        more.setAttribute('aria-haspopup', 'menu');
+        more.setAttribute('aria-expanded', 'false');
+        more.addEventListener('click', () => openMenu(more, variantMenu(v, fileName)));
+        const actions = el('div', { className: 'variant-actions' }, more);
+
+        const row = el('div', { className: 'variant' }, playBtn, el('div', {}, name, detail), actions);
+        rows.set(v.group_id, { row, playBtn });
+        nodes.push(row);
+      }
+      list.replaceChildren(...nodes);
+      $('count').textContent = `${variants.length} 个音质 · ${variants.filter((v) => v.mode).length} 个可在浏览器播放`;
+      $('variants').hidden = false;
+      $('play-best').disabled = !variants.some((v) => v.mode);
+      $('vlc-best').disabled = variants.length === 0;
+      syncRows(player.current, !player.audio.paused);
+    }
+
+    function syncRows(current, playing) {
+      for (const [id, { row, playBtn }] of rows) {
+        const active = current && current.id === id;
+        row.classList.toggle('playing', !!active);
+        playBtn.innerHTML = active && playing ? ICON.pause : ICON.play;
+      }
+    }
+    player.onChange(syncRows);
+    // 检测说能播但实际失败的编码：更新标记，避免再次误导
+    player.onUnsupported((codecs) => {
+      variants.forEach((v) => { if (v.codecs === codecs) v.mode = null; });
+      renderVariants();
+    });
+
+    // VLC 能播所有音质，直接取最高音质
+    $('vlc-best').addEventListener('click', () => { if (variants[0]) openInVlc(variants[0]); });
+
+    $('play-best').addEventListener('click', () => {
+      // 优先播放浏览器能播的最高音质
+      const best = variants.find((v) => v.mode);
+      if (best) player.play(playItem(best));
+    });
+
+    async function loadVariants() {
+      $('reparse').disabled = true;
+      showAlert('info', '正在获取 master m3u8…');
+      try {
+        const res = await fetch(`/parse/${adamId}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || `解析失败（HTTP ${res.status}）`);
+        const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
+        variants = data.variants.map((v) => ({
+          ...v,
+          info: describe(v),
+          mode: detectMode(v.codecs, probe),
+          m3u8Url: hookUrl(base + v.uri),
+          fileUrl: hookUrl(base + v.file_uri),
+        })).sort((a, b) => a.info.rank - b.info.rank || b.info.kbps - a.info.kbps || a.info.sub - b.info.sub || (b.bandwidth || 0) - (a.bandwidth || 0));
+        renderVariants();
+        showAlert('', '');
+      } catch (err) {
+        showAlert('error', err.message || '解析失败');
+      } finally {
+        $('reparse').disabled = false;
+      }
+    }
+
+    async function loadMeta() {
+      try {
+        const res = await fetch(`/meta/${adamId}?country=${country}`);
+        const data = await res.json();
+        if (!res.ok || data.code !== 0) throw new Error();
+        meta = data;
+      } catch {
+        meta = {};
+      }
+      const title = meta.title || `歌曲 ${adamId}`;
+      document.title = `${title} · am-hook`;
+      $('title').textContent = title;
+      $('title').classList.remove('skeleton');
+      $('subtitle').textContent = [meta.artist, meta.album].filter(Boolean).join(' — ') || '未能获取歌曲信息';
+      $('subtitle').classList.remove('skeleton');
+      const tags = [];
+      if (meta.releaseDate) tags.push(meta.releaseDate.slice(0, 4));
+      if (meta.genre) tags.push(meta.genre);
+      if (meta.durationMs) tags.push(window.AmHook.formatTime(meta.durationMs / 1000));
+      if (meta.explicit) tags.push('E');
+      tags.push(`ID ${adamId}`);
+      $('meta').replaceChildren(...tags.map((t) => el('span', { className: 'badge', textContent: t })));
+      if (meta.artwork) $('cover').replaceChildren(el('img', { src: meta.artwork, alt: `${title} 封面` }));
+      if (meta.url) $('apple-link').href = meta.url;
+      if (rows.size) renderVariants(); // 下载文件名需要歌名
+
+      try {
+        const key = 'am-hook:recent';
+        const list = JSON.parse(localStorage.getItem(key) || '[]').filter((i) => i.id !== adamId);
+        list.unshift({ id: adamId, link: songUrl, title: meta.title || '', artist: meta.artist || '', artwork: meta.artwork || '' });
+        localStorage.setItem(key, JSON.stringify(list.slice(0, 12)));
+      } catch {}
+    }
+
+    async function loadStatus() {
+      const pill = $('status');
+      try {
+        const res = await fetch('/status');
+        const data = await res.json();
+        if (!res.ok || data.code !== 0) throw new Error();
+        pill.classList.add('ok');
+        pill.lastElementChild.textContent = `wrapper-lite · ${(data.regions || []).join(' / ').toUpperCase() || '在线'}`;
+      } catch {
+        pill.classList.add('bad');
+        pill.lastElementChild.textContent = 'wrapper-lite 不可用';
+      }
+    }
+
+    $('reparse').addEventListener('click', loadVariants);
+
+    if (!adamId) {
+      showAlert('error', '无法从链接中识别歌曲 ID。');
+    } else {
+      loadMeta();
+      loadVariants();
+      loadStatus();
+    }
   </script>
 </body>
 </html>

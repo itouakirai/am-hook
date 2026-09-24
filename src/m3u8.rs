@@ -1,5 +1,17 @@
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use regex::Regex;
-use crate::state::FragmentRange;
+
+use crate::state::{Segment, Track};
+
+/// 首个 frag 使用的固定 key，解析时忽略
+const FIXED_KEY_URI: &str = "skd://itunes.apple.com/P000000000/s1/e1";
+
+static SONG_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());
+static ATTR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"([A-Z0-9-]+)=("[^"]*"|[^,\r\n]+)"#).unwrap());
+static ADAM_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"_A(\d+)_").unwrap());
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MasterVariant {
@@ -8,58 +20,78 @@ pub struct MasterVariant {
     pub group_id: String,
     pub audio: String,
     pub codecs: Option<String>,
+    /// AVERAGE-BANDWIDTH（缺省取 BANDWIDTH），bit/s
+    pub bandwidth: Option<u64>,
+    pub channels: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub bit_depth: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParsedSongLink {
-    pub adam_id: String,
+#[derive(Default)]
+struct AudioGroup {
+    name: String,
+    channels: Option<String>,
+    sample_rate: Option<u32>,
+    bit_depth: Option<u32>,
 }
 
 pub fn parse_song_link(url: &str) -> Result<String, String> {
-    let pattern = Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)")
-        .map_err(|e| e.to_string())?;
-    pattern
+    SONG_LINK_RE
         .captures(url.trim())
-        .and_then(|caps| caps.get(1))
-        .map(|m| m.as_str().to_string())
+        .map(|caps| caps[1].to_string())
         .ok_or_else(|| format!("Only Apple Music song links are supported: {url}"))
 }
 
-pub fn parse_master_variants(content: &str) -> Result<Vec<MasterVariant>, String> {
-    let attr_pattern = Regex::new(
-        r#"([A-Z0-9-]+)=("(?:[^"]*)"|[^,\r\n]+)"#,
-    )
-    .map_err(|e| e.to_string())?;
-    let media_pattern = Regex::new(r#"^#EXT-X-MEDIA:(.*)$"#).map_err(|e| e.to_string())?;
-    let stream_pattern = Regex::new(r#"^#EXT-X-STREAM-INF:(.*)$"#).map_err(|e| e.to_string())?;
-    let line_pattern = Regex::new(r#"^[^#\r\n].*\.m3u8$"#).map_err(|e| e.to_string())?;
+fn parse_attributes(input: &str) -> HashMap<&str, &str> {
+    ATTR_RE
+        .captures_iter(input)
+        .map(|caps| {
+            let (k, v) = (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str());
+            (k, v.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(v))
+        })
+        .collect()
+}
 
-    let mut audio_groups = std::collections::HashMap::<String, String>::new();
-    let mut current_stream = None;
+pub fn parse_master_variants(content: &str) -> Result<Vec<MasterVariant>, String> {
+    let mut audio_groups = HashMap::<String, AudioGroup>::new();
+    let mut current_stream: Option<HashMap<&str, &str>> = None;
     let mut variants = Vec::new();
 
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(caps) = media_pattern.captures(line) {
-            let attrs = parse_hls_attributes(&caps[1], &attr_pattern);
-            if attrs.get("TYPE").map(String::as_str) == Some("AUDIO") {
+    for line in content.lines().map(str::trim) {
+        if let Some(attrs) = line.strip_prefix("#EXT-X-MEDIA:") {
+            let attrs = parse_attributes(attrs);
+            if attrs.get("TYPE") == Some(&"AUDIO") {
                 if let Some(group_id) = attrs.get("GROUP-ID") {
-                    audio_groups.insert(group_id.clone(), attrs.get("NAME").cloned().unwrap_or_default());
+                    audio_groups.insert(
+                        group_id.to_string(),
+                        AudioGroup {
+                            name: attrs.get("NAME").unwrap_or(&"").to_string(),
+                            channels: attrs.get("CHANNELS").map(|s| s.to_string()),
+                            sample_rate: attrs.get("SAMPLE-RATE").and_then(|s| s.parse().ok()),
+                            bit_depth: attrs.get("BIT-DEPTH").and_then(|s| s.parse().ok()),
+                        },
+                    );
                 }
             }
-        } else if let Some(caps) = stream_pattern.captures(line) {
-            current_stream = Some(parse_hls_attributes(&caps[1], &attr_pattern));
-        } else if line_pattern.is_match(line) {
+        } else if let Some(attrs) = line.strip_prefix("#EXT-X-STREAM-INF:") {
+            current_stream = Some(parse_attributes(attrs));
+        } else if !line.is_empty() && !line.starts_with('#') && line.ends_with(".m3u8") {
             let attrs = current_stream.take().unwrap_or_default();
-            let group_id = attrs.get("AUDIO").cloned().unwrap_or_default();
-            let uri = line.to_string();
-            let file_uri = uri.replace(".m3u8", "_m.mp4");
+            let group_id = attrs.get("AUDIO").unwrap_or(&"").to_string();
+            let group = audio_groups.get(&group_id);
             variants.push(MasterVariant {
-                uri,
-                file_uri,
-                group_id: group_id.clone(),
-                audio: audio_groups.get(&group_id).cloned().unwrap_or_default(),
-                codecs: attrs.get("CODECS").cloned(),
+                uri: line.to_string(),
+                file_uri: media_playlist_to_file(line),
+                audio: group.map(|g| g.name.clone()).unwrap_or_default(),
+                channels: group.and_then(|g| g.channels.clone()),
+                sample_rate: group.and_then(|g| g.sample_rate),
+                bit_depth: group.and_then(|g| g.bit_depth),
+                group_id,
+                codecs: attrs.get("CODECS").map(|s| s.to_string()),
+                bandwidth: attrs
+                    .get("AVERAGE-BANDWIDTH")
+                    .or_else(|| attrs.get("BANDWIDTH"))
+                    .and_then(|s| s.parse().ok()),
             });
         }
     }
@@ -70,139 +102,94 @@ pub fn parse_master_variants(content: &str) -> Result<Vec<MasterVariant>, String
     Ok(variants)
 }
 
-fn parse_hls_attributes(
-    input: &str,
-    pattern: &Regex,
-) -> std::collections::HashMap<String, String> {
-    let mut attrs = std::collections::HashMap::new();
-    for caps in pattern.captures_iter(input) {
-        let key = caps.get(1).map(|m| m.as_str()).unwrap_or_default().to_string();
-        let mut value = caps.get(2).map(|m| m.as_str()).unwrap_or_default().to_string();
-        if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
-            value = value[1..value.len() - 1].to_string();
-        }
-        attrs.insert(key, value);
+/// `xxx.m3u8` -> `xxx_m.mp4`
+pub fn media_playlist_to_file(name: &str) -> String {
+    match name.strip_suffix(".m3u8") {
+        Some(stem) => format!("{stem}_m.mp4"),
+        None => name.to_string(),
     }
-    attrs
 }
 
-#[derive(Debug, Clone)]
-pub struct ParsedMediaM3u8 {
-    pub adam_id: String,
-    pub uri: String,
-    pub fileuri: String,
-    pub range1: String,
-    pub init_range: (u64, u64),
-    pub fragments: Vec<FragmentRange>,
-    pub total_size: u64,
+/// 解析 `LEN[@OFF]`，缺省 OFF 时接在 `next` 之后
+fn parse_byterange(value: &str, next: u64) -> Result<Segment, String> {
+    let value = value.trim().trim_matches('"');
+    let (len, off) = match value.split_once('@') {
+        Some((l, o)) => (l, Some(o)),
+        None => (value, None),
+    };
+    let length = len.parse().map_err(|e| format!("Invalid BYTERANGE length '{value}': {e}"))?;
+    let offset = match off {
+        Some(o) => o.parse().map_err(|e| format!("Invalid BYTERANGE offset '{value}': {e}"))?,
+        None => next,
+    };
+    Ok(Segment { offset, length })
 }
 
-pub fn parse_and_clean_media_m3u8(
-    source_url: &str,
-    content: &str,
-) -> Result<(ParsedMediaM3u8, String), String> {
-    // 1. Extract adamId from URL (_A followed by digits)
-    let adam_re = Regex::new(r"_A(\d+)").map_err(|e| e.to_string())?;
-    let adam_id = adam_re
-        .captures(source_url)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| format!("Could not find '_A<digits>' in source URL: {source_url}"))?;
+/// 解析 media m3u8：提取 adamId / key uri / fileuri / range1 与全部 segment 字节范围，
+/// 同时去掉 `#EXT-X-KEY` / `#EXT-X-SESSION-KEY`，返回 (轨道, 清理后的 m3u8)。
+pub fn parse_media_m3u8(source_url: &str, content: &str) -> Result<(Track, String), String> {
+    let path = source_url.split('?').next().unwrap_or(source_url);
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    let adam_id = ADAM_ID_RE
+        .captures(filename)
+        .map(|c| c[1].to_string())
+        .ok_or_else(|| format!("Could not find '_A<digits>_' in source URL: {source_url}"))?;
 
-    let mut found_uri = None;
-    let mut found_fileuri = None;
-    let mut init_range = (0u64, 0u64);
-    let mut first_range = None;
-    let mut fragments = Vec::new();
-    let mut current_offset: u64 = 0;
-
-    let key_re = Regex::new(r#"URI="([^"]+)""#).map_err(|e| e.to_string())?;
-    let byterange_attr_re = Regex::new(r#"BYTERANGE="(\d+)(?:@(\d+))?""#).map_err(|e| e.to_string())?;
-    let byterange_tag_re = Regex::new(r#"^#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?"#).map_err(|e| e.to_string())?;
-
-    let mut cleaned_lines = Vec::new();
+    let mut uri = None;
+    let mut fileuri = None;
+    let mut range1 = None;
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut cleaned = String::with_capacity(content.len());
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Filter out encryption key declarations
-        if trimmed.starts_with("#EXT-X-KEY") || trimmed.starts_with("#EXT-X-SESSION-KEY") {
-            // Parse key URI if it's SAMPLE-AES
-            if trimmed.contains("METHOD=SAMPLE-AES") {
-                if let Some(caps) = key_re.captures(trimmed) {
-                    if let Some(uri_match) = caps.get(1) {
-                        let u = uri_match.as_str();
-                        // Ignore the fixed P000000000/s1/e1 key URI
-                        if !u.contains("P000000000/s1/e1") {
-                            found_uri = Some(u.to_string());
-                        }
-                    }
+        if trimmed.starts_with("#EXT-X-KEY:") || trimmed.starts_with("#EXT-X-SESSION-KEY:") {
+            let (_, attrs) = trimmed.split_once(':').unwrap();
+            let attrs = parse_attributes(attrs);
+            if attrs.get("METHOD") == Some(&"SAMPLE-AES") {
+                if let Some(u) = attrs.get("URI").filter(|u| **u != FIXED_KEY_URI) {
+                    uri.get_or_insert_with(|| u.to_string());
                 }
             }
-            // Do NOT include this line in cleaned_lines
             continue;
         }
 
-        // Parse #EXT-X-MAP
-        if trimmed.starts_with("#EXT-X-MAP:") {
-            if let Some(caps) = key_re.captures(trimmed) {
-                if let Some(m) = caps.get(1) {
-                    found_fileuri = Some(m.as_str().to_string());
-                }
+        if let Some(attrs) = trimmed.strip_prefix("#EXT-X-MAP:") {
+            if !segments.is_empty() {
+                return Err("Multiple or late EXT-X-MAP entries are not supported".into());
             }
-            if let Some(caps) = byterange_attr_re.captures(trimmed) {
-                let len: u64 = caps[1].parse().unwrap_or(0);
-                let off: u64 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                init_range = (off, len);
-                current_offset = off + len;
+            let attrs = parse_attributes(attrs);
+            fileuri = attrs.get("URI").map(|s| s.to_string());
+            let range = attrs.get("BYTERANGE").ok_or("EXT-X-MAP has no BYTERANGE")?;
+            segments.push(parse_byterange(range, 0)?);
+        } else if let Some(value) = trimmed.strip_prefix("#EXT-X-BYTERANGE:") {
+            if segments.is_empty() {
+                return Err("EXT-X-BYTERANGE before EXT-X-MAP".into());
             }
+            let next = segments.last().map_or(0, Segment::end);
+            segments.push(parse_byterange(value, next)?);
+            range1.get_or_insert_with(|| value.trim().to_string());
         }
 
-        // Parse #EXT-X-BYTERANGE
-        if trimmed.starts_with("#EXT-X-BYTERANGE:") {
-            let raw_val = trimmed.strip_prefix("#EXT-X-BYTERANGE:").unwrap().trim();
-            if first_range.is_none() {
-                first_range = Some(raw_val.to_string());
-            }
-            if let Some(caps) = byterange_tag_re.captures(trimmed) {
-                let len: u64 = caps[1].parse().map_err(|e| format!("Invalid byterange length: {e}"))?;
-                let off: u64 = if let Some(off_match) = caps.get(2) {
-                    off_match.as_str().parse().map_err(|e| format!("Invalid byterange offset: {e}"))?
-                } else {
-                    current_offset
-                };
-                fragments.push(FragmentRange { offset: off, length: len });
-                current_offset = off + len;
-            }
-        }
-
-        cleaned_lines.push(line);
+        cleaned.push_str(line);
+        cleaned.push('\n');
     }
 
-    let uri = found_uri.ok_or_else(|| "Could not find non-fixed SAMPLE-AES key URI in m3u8".to_string())?;
-    let fileuri = found_fileuri.ok_or_else(|| "Could not find EXT-X-MAP URI in m3u8".to_string())?;
-    let range1 = first_range.ok_or_else(|| "Could not find first EXT-X-BYTERANGE in m3u8".to_string())?;
+    let uri = uri.ok_or("Could not find non-fixed SAMPLE-AES key URI in m3u8")?;
+    let fileuri = fileuri.ok_or("Could not find EXT-X-MAP URI in m3u8")?;
+    let range1 = range1.ok_or("Could not find first EXT-X-BYTERANGE in m3u8")?;
 
-    let total_size = if let Some(last_frag) = fragments.last() {
-        last_frag.offset + last_frag.length
-    } else {
-        init_range.0 + init_range.1
-    };
+    // media file 按 segment 拼接输出，必须从 0 开始且首尾相接，否则 Content-Length 会失真
+    let mut expected = 0;
+    for s in &segments {
+        if s.offset != expected || s.length == 0 {
+            return Err(format!("Segments are not contiguous at offset {} (expected {expected})", s.offset));
+        }
+        expected = s.end();
+    }
 
-    let cleaned_m3u8 = cleaned_lines.join("\n") + "\n";
-
-    Ok((
-        ParsedMediaM3u8 {
-            adam_id,
-            uri,
-            fileuri,
-            range1,
-            init_range,
-            fragments,
-            total_size,
-        },
-        cleaned_m3u8,
-    ))
+    Ok((Track::new(adam_id, uri, fileuri, range1, segments), cleaned))
 }
 
 #[cfg(test)]
@@ -210,18 +197,62 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_and_clean_media_m3u8() {
-        let raw = "#EXTM3U\n#EXT-X-TARGETDURATION:15\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://itunes.apple.com/P000000000/s1/e1\"\n#EXT-X-MAP:URI=\"test_m.mp4\",BYTERANGE=\"1058@0\"\n#EXTINF:15,\n#EXT-X-BYTERANGE:1441673@1058\ntest_m.mp4\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://itunes.apple.com/p1263211745/c6\"\n#EXTINF:15,\n#EXT-X-BYTERANGE:1441601@1442731\ntest_m.mp4\n#EXT-X-ENDLIST\n";
+    fn test_parse_media_m3u8() {
+        let raw = "#EXTM3U\n#EXT-X-TARGETDURATION:15\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://itunes.apple.com/P000000000/s1/e1\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXT-X-MAP:URI=\"test_m.mp4\",BYTERANGE=\"1058@0\"\n#EXTINF:15,\n#EXT-X-BYTERANGE:1441673@1058\ntest_m.mp4\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://itunes.apple.com/p1263211745/c6\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:15,\n#EXT-X-BYTERANGE:1441601\ntest_m.mp4\n#EXT-X-ENDLIST\n";
         let url = "https://aod.itunes.apple.com/itunes-assets/v4/P1263211745_A1468058171_audio.m3u8";
-        let (parsed, cleaned) = parse_and_clean_media_m3u8(url, raw).unwrap();
-        assert_eq!(parsed.adam_id, "1468058171");
-        assert_eq!(parsed.uri, "skd://itunes.apple.com/p1263211745/c6");
-        assert_eq!(parsed.fileuri, "test_m.mp4");
-        assert_eq!(parsed.range1, "1441673@1058");
-        assert_eq!(parsed.init_range, (0, 1058));
-        assert_eq!(parsed.fragments.len(), 2);
-        assert_eq!(parsed.total_size, 1442731 + 1441601);
+        let (track, cleaned) = parse_media_m3u8(url, raw).unwrap();
+        assert_eq!(track.adam_id, "1468058171");
+        assert_eq!(track.uri, "skd://itunes.apple.com/p1263211745/c6");
+        assert_eq!(&*track.fileuri, "test_m.mp4");
+        assert_eq!(track.range1, "1441673@1058");
+        assert_eq!(
+            track.segments,
+            vec![
+                Segment { offset: 0, length: 1058 },
+                Segment { offset: 1058, length: 1441673 },
+                Segment { offset: 1442731, length: 1441601 },
+            ]
+        );
+        assert_eq!(track.total_size, 1442731 + 1441601);
         assert!(!cleaned.contains("#EXT-X-KEY"));
         assert!(cleaned.contains("#EXT-X-MAP:URI="));
+        assert_eq!(cleaned.lines().count(), raw.lines().count() - 2);
+    }
+
+    #[test]
+    fn test_parse_media_m3u8_rejects_gaps() {
+        let raw = "#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://x/c6\"\n#EXT-X-MAP:URI=\"t_m.mp4\",BYTERANGE=\"10@0\"\n#EXT-X-BYTERANGE:5@20\nt_m.mp4\n";
+        assert!(parse_media_m3u8("P1_A2_x.m3u8", raw).is_err());
+    }
+
+    #[test]
+    fn test_parse_song_link() {
+        assert_eq!(
+            parse_song_link("https://music.apple.com/us/song/%E9%A3%9E%E8%88%9E/1797679527").unwrap(),
+            "1797679527"
+        );
+        assert_eq!(parse_song_link("https://music.apple.com/us/song/name/123?l=zh-CN").unwrap(), "123");
+        assert!(parse_song_link("https://music.apple.com/us/album/name/123").is_err());
+        assert!(parse_song_link("http://music.apple.com/us/song/name/123").is_err());
+    }
+
+    #[test]
+    fn test_parse_master_variants() {
+        let content = r#"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-alac",NAME="songEnhanced",CHANNELS="2",SAMPLE-RATE=44100,BIT-DEPTH=24
+#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=1673776,BANDWIDTH=1788592,CODECS="alac",AUDIO="audio-alac"
+P100_A123_audio_alac.m3u8
+"#;
+        let variants = parse_master_variants(content).unwrap();
+        assert_eq!(variants.len(), 1);
+        assert_eq!(variants[0].uri, "P100_A123_audio_alac.m3u8");
+        assert_eq!(variants[0].file_uri, "P100_A123_audio_alac_m.mp4");
+        assert_eq!(variants[0].group_id, "audio-alac");
+        assert_eq!(variants[0].audio, "songEnhanced");
+        assert_eq!(variants[0].codecs.as_deref(), Some("alac"));
+        assert_eq!(variants[0].bandwidth, Some(1673776));
+        assert_eq!(variants[0].channels.as_deref(), Some("2"));
+        assert_eq!(variants[0].sample_rate, Some(44100));
+        assert_eq!(variants[0].bit_depth, Some(24));
     }
 }

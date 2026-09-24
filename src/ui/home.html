@@ -4,262 +4,141 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>am-hook</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --background: #08080a;
-      --surface: #141417;
-      --line: #303038;
-      --text: #f5f3f1;
-      --muted: #a7a2a0;
-      --accent: #fb2c55;
-      --accent-hover: #ff4466;
-      --error: #ff8087;
-    }
-    *, *::before, *::after { box-sizing: border-box; }
-    html { min-width: 320px; }
-    body {
-      min-height: 100dvh;
-      margin: 0;
-      background:
-        radial-gradient(circle at 88% 0%, rgba(251, 44, 85, .18), transparent 34rem),
-        var(--background);
-      color: var(--text);
-      font: 14px/1.5 "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      letter-spacing: 0;
-    }
-    .page {
-      width: min(920px, 100%);
-      min-height: 100dvh;
-      margin: 0 auto;
-      padding: 28px 24px 48px;
-      display: flex;
-      flex-direction: column;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .brand-mark {
-      width: 36px;
-      height: 36px;
-      flex: 0 0 auto;
-      display: grid;
-      place-items: center;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #fb2c55, #ff7553);
-      color: white;
-    }
-    .brand-name { font-size: 18px; font-weight: 750; white-space: nowrap; }
-    .regions {
-      min-height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 7px;
-      flex-wrap: wrap;
-    }
-    .region-label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-    .region-chip {
-      height: 28px;
-      padding: 0 10px;
-      display: inline-flex;
-      align-items: center;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: var(--surface);
-      color: #e3e0df;
-      font-size: 12px;
-      font-weight: 650;
-    }
-    .region-chip.error {
-      color: var(--error);
-      border-color: rgba(255, 128, 135, .38);
-      background: rgba(251, 44, 85, .08);
-    }
-    .region-chip.loading { position: relative; overflow: hidden; color: transparent; }
-    .region-chip.loading::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
-      animation: shimmer 1.4s infinite;
-    }
-    .hero {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 84px 0;
-    }
-    .hero-eyebrow { margin: 0 0 12px; color: var(--accent); font-size: 13px; font-weight: 700; }
-    h1 {
-      max-width: 620px;
-      margin: 0 0 14px;
-      font-size: clamp(32px, 5vw, 44px);
-      line-height: 1.1;
-      font-weight: 800;
-    }
-    .hero-text { max-width: 560px; margin: 0; color: var(--muted); font-size: 15px; }
-    .input-panel { margin-top: 34px; width: min(720px, 100%); }
-    form { display: flex; gap: 10px; align-items: stretch; }
-    .input-wrap { position: relative; min-width: 0; flex: 1; }
-    .input-wrap svg {
-      position: absolute;
-      top: 50%;
-      left: 15px;
-      width: 18px;
-      height: 18px;
-      transform: translateY(-50%);
-      color: #726d6c;
-      pointer-events: none;
-    }
-    input {
-      width: 100%;
-      height: 52px;
-      padding: 0 16px 0 44px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--surface);
-      color: var(--text);
-      font-size: 14px;
-    }
-    input::placeholder { color: #75706f; }
-    input:hover { border-color: #4a4a53; }
-    input:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(251, 44, 85, .16);
-    }
-    input.invalid { border-color: var(--error); }
-    .submit {
-      height: 52px;
-      flex: 0 0 auto;
-      padding: 0 22px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 0;
-      border-radius: 10px;
-      background: var(--accent);
-      color: white;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: background .18s ease, transform .18s ease;
-    }
-    .submit:hover { background: var(--accent-hover); transform: translateY(-1px); }
-    .submit:active { transform: translateY(0); }
-    .submit svg { width: 16px; height: 16px; }
-    .error {
-      display: none;
-      margin-top: 12px;
-      padding: 10px 12px;
-      border: 1px solid rgba(255, 128, 135, .38);
-      border-radius: 8px;
-      background: rgba(251, 44, 85, .09);
-      color: var(--error);
-    }
-    footer { display: flex; justify-content: space-between; gap: 16px; color: #78726f; font-size: 12px; }
-    @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-    @media (max-width: 620px) {
-      .page { padding: 20px 16px 32px; }
-      header { align-items: flex-start; }
-      .regions { justify-content: flex-start; }
-      .hero { padding: 48px 0; }
-      form { flex-direction: column; }
-      .submit { justify-content: center; width: 100%; }
-      footer { flex-direction: column; gap: 4px; }
-    }
-  </style>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23fb2c55'/%3E%3Cpath d='M9.5 16.5V7l7-1.5v9' fill='none' stroke='white' stroke-width='1.8'/%3E%3Ccircle cx='7.5' cy='16.5' r='2' fill='white'/%3E%3Ccircle cx='14.5' cy='14.5' r='2' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
   <div class="page">
-    <header>
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
-        </div>
-        <div class="brand-name">am-hook</div>
-      </div>
-      <div class="regions" id="regions" aria-live="polite">
-        <span class="region-chip loading">Loading</span>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </span>
+        <span class="brand-name">am-hook</span>
+      </a>
+      <div class="topbar-right">
+        <span class="status-pill" id="status" aria-live="polite"><span class="status-dot"></span><span>检查 wrapper-lite…</span></span>
       </div>
     </header>
 
     <main class="hero">
-      <p class="hero-eyebrow">APPLE MUSIC SONG</p>
-      <h1>粘贴 song 链接，进入音质解析</h1>
-      <p class="hero-text">输入 music.apple.com 上的 song 页面链接，快速查看可用的 media m3u8 和 media file 地址。</p>
-      <div class="input-panel">
-        <form id="song-form" novalidate>
-          <div class="input-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1L13 19"/></svg>
-            <input id="song-url" name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://music.apple.com/us/song/…">
-          </div>
-          <button class="submit" type="submit">
-            跳转
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
-          </button>
-        </form>
-        <div class="error" id="error"></div>
-      </div>
+      <p class="eyebrow">APPLE MUSIC</p>
+      <h1>粘贴歌曲链接，解析音质并在线试听</h1>
+      <p class="hero-text">支持 music.apple.com 的 song 链接、带 <code>?i=</code> 的专辑分享链接，或直接输入歌曲 ID。解析后可复制 media m3u8 / media file 地址，或直接在浏览器里播放。</p>
+
+      <form class="search" id="form" novalidate>
+        <label class="search-field">
+          <span class="sr-only">歌曲链接或 ID</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1L13 19"/></svg>
+          <input id="input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
+                 placeholder="https://music.apple.com/cn/song/…/1468058171" aria-describedby="error">
+        </label>
+        <button class="btn btn-primary btn-lg" type="submit">
+          解析
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+        </button>
+      </form>
+      <div class="alert error" id="error" hidden></div>
+      <p class="hint">示例：<code>https://music.apple.com/cn/album/lover/1468058165?i=1468058171</code></p>
+
+      <section class="recent" id="recent" hidden>
+        <div class="section-head">
+          <h2 class="section-title">最近解析</h2>
+          <button class="link-btn" id="clear-recent" type="button">清空</button>
+        </div>
+        <div class="recent-list" id="recent-list"></div>
+      </section>
     </main>
 
-    <footer>
-      <span>am-hook local proxy</span>
-      <span>song links only</span>
+    <footer class="footer">
+      <span>am-hook · 本地解密反代</span>
+      <span>仅供个人学习使用</span>
     </footer>
   </div>
 
   <script>
-    const regionsElement = document.getElementById('regions');
-    const input = document.getElementById('song-url');
-    const errorElement = document.getElementById('error');
-    const songPattern = /^https:\/\/music\.apple\.com\/[a-z]{2}\/song\/[^/?#]+\/(\d+)(?:[/?#]|$)/i;
+    const input = document.getElementById('input');
+    const errorEl = document.getElementById('error');
 
-    async function loadRegions() {
+    /** 把各种输入规整为 song 页面路径：/https://music.apple.com/{cc}/song/{slug}/{id} */
+    function toSongLink(raw) {
+      const value = raw.trim();
+      if (/^\d{5,}$/.test(value)) return `https://music.apple.com/us/song/_/${value}`;
+      let url;
+      try { url = new URL(value); } catch { return null; }
+      if (!/(^|\.)music\.apple\.com$/i.test(url.hostname)) return null;
+      const parts = url.pathname.split('/').filter(Boolean);
+      const cc = /^[a-z]{2}$/i.test(parts[0] || '') ? parts[0].toLowerCase() : 'us';
+      const song = url.pathname.match(/\/song\/([^/]+)\/(\d+)/i);
+      if (song) return `https://music.apple.com/${cc}/song/${song[1]}/${song[2]}`;
+      const trackId = url.searchParams.get('i');
+      const album = url.pathname.match(/\/album\/([^/]+)\//i);
+      if (trackId && /^\d+$/.test(trackId)) return `https://music.apple.com/${cc}/song/${album ? album[1] : '_'}/${trackId}`;
+      return null;
+    }
+
+    document.getElementById('form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const link = toSongLink(input.value);
+      input.setAttribute('aria-invalid', String(!link));
+      errorEl.hidden = !!link;
+      if (!link) {
+        errorEl.textContent = '无法识别：请输入 song 链接、带 ?i= 的专辑链接或纯数字歌曲 ID。';
+        input.focus();
+        return;
+      }
+      location.href = '/' + link;
+    });
+    input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; });
+
+    async function loadStatus() {
+      const pill = document.getElementById('status');
+      const label = pill.lastElementChild;
       try {
-        const response = await fetch('/status');
-        const data = await response.json();
-        if (!response.ok || data.code !== 0) throw new Error(data.msg || 'wrapper-lite unavailable');
-        const regions = Array.isArray(data.regions) ? data.regions.map(String) : [];
-        regionsElement.replaceChildren(...[
-          Object.assign(document.createElement('span'), { className: 'region-label', textContent: 'regions' }),
-          ...(regions.length ? regions : ['无']).map((region) => {
-            const chip = document.createElement('span');
-            chip.className = 'region-chip';
-            chip.textContent = region;
-            return chip;
-          })
-        ]);
+        const res = await fetch('/status');
+        const data = await res.json();
+        if (!res.ok || data.code !== 0) throw new Error();
+        const regions = (data.regions || []).map(String);
+        pill.classList.add('ok');
+        label.textContent = regions.length ? `wrapper-lite · ${regions.join(' / ').toUpperCase()}` : 'wrapper-lite 在线';
       } catch {
-        regionsElement.replaceChildren(...[
-          Object.assign(document.createElement('span'), { className: 'region-label', textContent: 'status' }),
-          Object.assign(document.createElement('span'), { className: 'region-chip error', textContent: 'wrapper-lite 不可用' })
-        ]);
+        pill.classList.add('bad');
+        label.textContent = 'wrapper-lite 不可用';
       }
     }
 
-    document.getElementById('song-form').addEventListener('submit', (event) => {
-      event.preventDefault();
-      const value = input.value.trim();
-      const valid = songPattern.test(value);
-      input.classList.toggle('invalid', !valid);
-      errorElement.style.display = valid ? 'none' : 'block';
-      errorElement.textContent = valid ? '' : '请输入 https://music.apple.com/{region}/song/{name}/{id} 格式的链接。';
-      if (valid) location.href = `/${value}`;
+    function readRecent() {
+      try { return JSON.parse(localStorage.getItem('am-hook:recent') || '[]'); } catch { return []; }
+    }
+
+    function renderRecent() {
+      const items = readRecent();
+      const section = document.getElementById('recent');
+      section.hidden = items.length === 0;
+      document.getElementById('recent-list').replaceChildren(...items.map((item) => {
+        const a = document.createElement('a');
+        a.className = 'recent-item';
+        a.href = '/' + item.link;
+        const art = item.artwork ? Object.assign(document.createElement('img'), { src: item.artwork.replace('600x600bb', '100x100bb'), alt: '', loading: 'lazy' })
+                                 : Object.assign(document.createElement('span'), { className: 'ph' });
+        const text = document.createElement('span');
+        text.className = 'recent-text';
+        text.append(
+          Object.assign(document.createElement('span'), { className: 'recent-title', textContent: item.title || item.id }),
+          Object.assign(document.createElement('span'), { className: 'recent-sub', textContent: item.artist || '' })
+        );
+        a.append(art, text);
+        return a;
+      }));
+    }
+
+    document.getElementById('clear-recent').addEventListener('click', () => {
+      try { localStorage.removeItem('am-hook:recent'); } catch {}
+      renderRecent();
     });
 
-    input.addEventListener('input', () => {
-      input.classList.remove('invalid');
-      errorElement.style.display = 'none';
-    });
-
-    loadRegions();
+    loadStatus();
+    renderRecent();
   </script>
 </body>
 </html>

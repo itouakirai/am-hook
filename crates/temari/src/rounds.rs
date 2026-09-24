@@ -230,6 +230,24 @@ pub(crate) fn decrypt_par_into(tmpl: &Template, samples: &[&[u8]], offs: &[usize
     crate::pool::par_decrypt_into(tmpl, samples, offs, out);
 }
 
+/// Decrypt the samples at `ranges` of `src` in parallel, writing each plaintext
+/// to the same byte range of `dst` (same layout as `src`, e.g. a copy of it).
+/// Bytes of `dst` outside `ranges` are untouched. Ranges must be sorted, lie
+/// within both buffers and not overlap; panics otherwise.
+pub fn decrypt_ranges_par(tmpl: &Template, src: &[u8], ranges: &[std::ops::Range<usize>], dst: &mut [u8]) {
+    assert_eq!(src.len(), dst.len(), "src/dst length mismatch");
+    let mut prev_end = 0usize;
+    let mut samples = Vec::with_capacity(ranges.len());
+    let mut offs = Vec::with_capacity(ranges.len());
+    for r in ranges {
+        assert!(r.start >= prev_end && r.end >= r.start && r.end <= src.len(), "invalid sample range");
+        prev_end = r.end;
+        samples.push(&src[r.clone()]);
+        offs.push(r.start);
+    }
+    decrypt_par_into(tmpl, &samples, &offs, dst);
+}
+
 /// Decrypt a batch of independent samples in parallel, preserving order.
 /// Each sample is an independent SAMPLE-AES unit (state resets per sample).
 pub fn decrypt_par(tmpl: &Template, samples: &[&[u8]]) -> Vec<Vec<u8>> {

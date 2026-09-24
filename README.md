@@ -25,8 +25,17 @@ Only URLs containing `aod.itunes.apple.com/itunes-assets/` are handled. Three ty
 1. A media m3u8 request builds a track context containing `adamId`, `skd://` URI, `fileuri`, the first fragment range, and all fragment byte ranges.
 2. A background monitor fetches the track decryption template from wrapper-lite via `GET /key?adamId=<adamId>&uri=<skd-uri>` as soon as the context is complete.
 3. The first fragment uses a fixed template embedded in the binary (for `skd://itunes.apple.com/P000000000/s1/e1`); subsequent fragments use the per-track template.
-4. Media file requests map HTTP ranges onto fragments, fetch only the needed bytes from the CDN, decrypt samples in place, and cache results in memory.
-5. FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `sgpd`, `sbgp`) are replaced with equal-length `free` boxes, so byte lengths and HTTP Range offsets stay exact. The `enca` box in the init segment is rewritten to the original codec (`ec-3`, `mp4a`, `alac`, etc.).
+4. Media file requests map HTTP ranges onto fragments and fetch only the needed bytes from the CDN. Up to `--prefetch` fragments are downloaded concurrently and their samples decrypted in parallel on temari's worker pool (off the async runtime), then streamed out in order. Concurrent requests for the same fragment share one download/decrypt, results go into a byte-bounded LRU cache, and the next fragment is warmed up when a player requests fragment by fragment. Pending work is cancelled when the client disconnects.
+5. FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, and `sgpd`/`sbgp` with grouping type `seig`/`seam`) are replaced with equal-length `free` boxes, so byte lengths and HTTP Range offsets stay exact. The `enca` box in the init segment is rewritten to the original codec (`ec-3`, `mp4a`, `alac`, etc.).
+
+## Web UI
+
+Open `http://127.0.0.1:8888/` in a browser:
+
+- Paste a song link, an album share link with `?i=`, or a bare numeric song ID.
+- The song page parses every variant automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions) and shows artwork and track info (via `/meta/:adamId`, which proxies the iTunes Lookup API).
+- Each variant has an alist-style "more" dropdown: play in VLC (`vlc://<media m3u8 URL>`, the same format alist uses), copy the media m3u8 / media file (IDM) URL, or download the decrypted file. Desktop VLC registers no `vlc://` handler by default, so a protocol handler must be installed separately; the Android / iOS VLC apps handle it directly.
+- Built-in web player: uses MSE to load BYTERANGE segments on demand, so seeking jumps straight to the right segment; falls back to native HLS (Safari, which plays ALAC and E-AC-3) or a direct media file source. Codecs the browser cannot play are marked accordingly. Space and arrow keys and system media controls are supported.
 
 ## Requirements
 
@@ -55,7 +64,9 @@ All options:
 | `-p, --port <PORT>` | optional | Overrides the port in `--listen` when set |
 | `-w, --wrapper-url <URL>` | `http://127.0.0.1:12340` | wrapper-lite key server base URL |
 | `--cache-ttl <SECONDS>` | `1800` | Track context TTL before eviction |
-| `--lru-cache-mb <MB>` | `128` | Decrypted-fragment LRU cache capacity in MB |
+| `--lru-cache-mb <MB>` | `128` | Decrypted-fragment LRU cache capacity in MB (byte-accounted) |
+| `--prefetch <N>` | `4` | Fragments fetched and decrypted concurrently per request |
+| `--template-timeout <SECONDS>` | `20` | How long to wait for a track's decryption template |
 
 ## Testing
 
@@ -63,7 +74,7 @@ All options:
 cargo test
 ```
 
-Unit tests cover URL parsing, m3u8 rewriting, and MP4 box patching. End-to-end tests run against a live wrapper-lite instance and verify that decrypted fragments start with the correct E-AC-3 sync word (`0x0B 0x77`).
+Unit tests cover URL parsing, m3u8 rewriting, MP4 box patching, range parsing and cache deduplication. End-to-end tests run against the live CDN and a wrapper-lite instance (default `http://127.0.0.1:12340`, override with `AM_HOOK_WRAPPER`) and verify that decrypted fragments start with the correct E-AC-3 sync word (`0x0B 0x77`) and that cross-fragment ranges match the full file.
 
 ## Project Layout
 
@@ -71,12 +82,16 @@ Unit tests cover URL parsing, m3u8 rewriting, and MP4 box patching. End-to-end t
 src/
   cli.rs               CLI argument parsing
   main.rs              Server startup
-  proxy.rs             Request routing and range streaming
+  lib.rs               Router construction
+  source.rs            Source URL normalization and classification
+  proxy.rs             Request dispatch, range streaming, fragment fetch/decrypt scheduling
   m3u8.rs              HLS playlist parsing and key stripping
   mp4.rs               ISOBMFF parsing, box patching, sample decryption
-  state.rs             Track contexts and LRU cache
+  state.rs             Track contexts (deduplicated init) and fragment cache
   wrapper.rs           wrapper-lite key fetch client
   monitor.rs           Background template fetch and TTL cleanup
+  ui.rs                Web UI endpoints (status, parse, metadata)
+  ui/                  Pages, styles and web player (home.html / song.html / app.css / player.js)
   embedded_template.rs Fixed first-fragment template
   fixed_template.json  Embedded template data
 crates/temari/         Vendored Temari FairPlay decryption library

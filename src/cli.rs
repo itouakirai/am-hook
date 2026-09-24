@@ -1,5 +1,9 @@
-use clap::Parser;
 use std::net::SocketAddr;
+use std::time::Duration;
+
+use clap::Parser;
+
+use crate::state::Config;
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "am-hook", author, version, about = "Apple Music FairPlay HLS Decryption Hook Reverse Proxy")]
@@ -16,23 +20,41 @@ pub struct Cli {
     #[arg(short, long, default_value = "http://127.0.0.1:12340")]
     pub wrapper_url: String,
 
-    /// Metadata context TTL in seconds before eviction (default 30 minutes)
+    /// Track context TTL in seconds since last access before eviction
     #[arg(long, default_value_t = 1800)]
-    pub cache_ttl: i64,
+    pub cache_ttl: u64,
 
-    /// Decrypted fragment in-memory LRU cache capacity in megabytes (default 128MB)
+    /// Decrypted segment in-memory LRU cache capacity in megabytes
     #[arg(long, default_value_t = 128)]
     pub lru_cache_mb: usize,
+
+    /// Segments fetched and decrypted concurrently ahead of the one being sent
+    #[arg(long, default_value_t = 4)]
+    pub prefetch: usize,
+
+    /// Seconds to wait for a track's decryption template before failing
+    #[arg(long, default_value_t = 20)]
+    pub template_timeout: u64,
 }
 
 impl Cli {
     pub fn resolve_listen_addr(&self) -> Result<SocketAddr, String> {
+        let mut addr: SocketAddr = self
+            .listen
+            .parse()
+            .map_err(|e| format!("Invalid listen address '{}': {e}", self.listen))?;
         if let Some(port) = self.port {
-            let host = self.listen.split(':').next().unwrap_or("0.0.0.0");
-            let addr_str = format!("{}:{}", host, port);
-            addr_str.parse().map_err(|e| format!("Invalid address '{addr_str}': {e}"))
-        } else {
-            self.listen.parse().map_err(|e| format!("Invalid listen address '{}': {e}", self.listen))
+            addr.set_port(port);
+        }
+        Ok(addr)
+    }
+
+    pub fn config(&self) -> Config {
+        Config {
+            wrapper_url: self.wrapper_url.trim_end_matches('/').to_string(),
+            cache_ttl: Duration::from_secs(self.cache_ttl),
+            prefetch: self.prefetch.max(1),
+            template_timeout: Duration::from_secs(self.template_timeout),
         }
     }
 }

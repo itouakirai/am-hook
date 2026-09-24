@@ -12,40 +12,6 @@ use tracing::warn;
 use crate::m3u8::{parse_master_variants, parse_song_link};
 use crate::state::AppState;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_song_link() {
-        assert_eq!(
-            parse_song_link("https://music.apple.com/us/song/%E9%A3%9E%E8%88%9E/1797679527").unwrap(),
-            "1797679527"
-        );
-        assert_eq!(
-            parse_song_link("https://music.apple.com/us/song/name/123?l=zh-CN").unwrap(),
-            "123"
-        );
-        assert!(parse_song_link("https://music.apple.com/us/album/name/123").is_err());
-        assert!(parse_song_link("http://music.apple.com/us/song/name/123").is_err());
-    }
-
-    #[test]
-    fn test_parse_master_variants() {
-        let content = r#"
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-alac",NAME="songEnhanced",SAMPLE-RATE=44100
-#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=1,CODECS="alac",AUDIO="audio-alac"
-P100_A123_audio_alac.m3u8
-"#;
-        let variants = parse_master_variants(content).unwrap();
-        assert_eq!(variants.len(), 1);
-        assert_eq!(variants[0].uri, "P100_A123_audio_alac.m3u8");
-        assert_eq!(variants[0].file_uri, "P100_A123_audio_alac_m.mp4");
-        assert_eq!(variants[0].group_id, "audio-alac");
-        assert_eq!(variants[0].audio, "songEnhanced");
-    }
-}
-
 #[derive(Deserialize)]
 pub struct ParseRequest {
     pub url: Option<String>,
@@ -54,16 +20,94 @@ pub struct ParseRequest {
 }
 
 pub async fn home_handler() -> Response<Body> {
-    html_response(include_str!("ui/home.html").to_string())
+    static_response("text/html; charset=utf-8", include_str!("ui/home.html"), false)
+}
+
+pub async fn css_handler() -> Response<Body> {
+    static_response("text/css; charset=utf-8", include_str!("ui/app.css"), true)
+}
+
+pub async fn player_js_handler() -> Response<Body> {
+    static_response("text/javascript; charset=utf-8", include_str!("ui/player.js"), true)
+}
+
+#[derive(Deserialize)]
+pub struct MetaQuery {
+    pub country: Option<String>,
+}
+
+/// 通过 iTunes Lookup 获取歌曲信息（标题、艺人、专辑、封面等），供页面与播放器展示。
+/// 先查歌曲链接所在地区，查不到时依次回退 us / cn。
+pub async fn meta_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(adam_id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<MetaQuery>,
+) -> Response<Body> {
+    if adam_id.is_empty() || !adam_id.chars().all(|c| c.is_ascii_digit()) {
+        return bad_request("Invalid adamId");
+    }
+    let preferred = query
+        .country
+        .filter(|c| c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()))
+        .map(|c| c.to_ascii_lowercase());
+    let mut countries: Vec<String> = preferred.into_iter().collect();
+    for fallback in ["us", "cn"] {
+        if !countries.iter().any(|c| c == fallback) {
+            countries.push(fallback.to_string());
+        }
+    }
+
+    for country in &countries {
+        let resp = state
+            .http_client
+            .get("https://itunes.apple.com/lookup")
+            .query(&[("id", adam_id.as_str()), ("country", country.as_str()), ("entity", "song")])
+            .timeout(std::time::Duration::from_secs(8))
+            .send()
+            .await;
+        let value = match resp {
+            Ok(r) if r.status().is_success() => r.json::<serde_json::Value>().await.ok(),
+            Ok(r) => {
+                warn!(status = %r.status(), %country, "iTunes lookup failed");
+                None
+            }
+            Err(error) => {
+                warn!(%error, %country, "iTunes lookup request failed");
+                None
+            }
+        };
+        let Some(track) = value.as_ref().and_then(|v| v.pointer("/results/0")) else { continue };
+        let s = |k: &str| track.get(k).and_then(serde_json::Value::as_str).unwrap_or_default();
+        // artworkUrl100 形如 .../100x100bb.jpg，换成大图
+        let artwork = s("artworkUrl100").replace("100x100bb", "600x600bb");
+        return json_response(
+            StatusCode::OK,
+            json!({
+                "code": 0,
+                "adamId": adam_id,
+                "country": country,
+                "title": s("trackName"),
+                "artist": s("artistName"),
+                "album": s("collectionName"),
+                "artwork": artwork,
+                "genre": s("primaryGenreName"),
+                "releaseDate": s("releaseDate"),
+                "durationMs": track.get("trackTimeMillis").and_then(serde_json::Value::as_u64),
+                "explicit": s("trackExplicitness") == "explicit",
+                "url": s("trackViewUrl"),
+            }),
+        );
+    }
+    json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "song metadata not found" }))
 }
 
 pub async fn status_handler(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let wrapper_url = format!("{}/status", state.wrapper_url.trim_end_matches('/'));
+    let wrapper_url = format!("{}/status", state.config.wrapper_url);
     let mut body = json!({
         "code": 1,
         "msg": "wrapper-lite unavailable",
         "regions": [],
-        "wrapperUrl": state.wrapper_url,
+        "wrapperUrl": state.config.wrapper_url,
     });
     let mut status = StatusCode::BAD_GATEWAY;
 
@@ -140,7 +184,7 @@ pub async fn master_handler(
         return bad_request("Invalid song URL or adamId");
     }
 
-    let wrapper_url = format!("{}/m3u8", state.wrapper_url.trim_end_matches('/'));
+    let wrapper_url = format!("{}/m3u8", state.config.wrapper_url);
     let response = state
         .http_client
         .get(&wrapper_url)
@@ -215,14 +259,16 @@ pub async fn song_handler(uri: Uri) -> Response<Body> {
     if parse_song_link(path.strip_prefix('/').unwrap_or(path)).is_err() {
         return bad_request("Only Apple Music song links are supported");
     }
-    html_response(include_str!("ui/song.html").to_string())
+    static_response("text/html; charset=utf-8", include_str!("ui/song.html"), false)
 }
 
-fn html_response(html: String) -> Response<Body> {
+fn static_response(content_type: &'static str, body: &'static str, cacheable: bool) -> Response<Body> {
+    let cache = if cacheable { "public, max-age=300" } else { "no-cache" };
     Response::builder()
         .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(Body::from(html))
+        .header(CONTENT_TYPE, content_type)
+        .header(axum::http::header::CACHE_CONTROL, cache)
+        .body(Body::from(body))
         .unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}")))
 }
 
