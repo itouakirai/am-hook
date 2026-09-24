@@ -23,7 +23,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/status", get(ui::status_handler))
         .route("/parse", post(ui::parse_handler))
         .route("/parse/:adam_id", get(ui::master_handler))
-        .route("/meta/:adam_id", get(ui::meta_handler))
         .route("/assets/app.css", get(ui::css_handler))
         .route("/assets/player.js", get(ui::player_js_handler))
         .fallback(proxy::handle_proxy)

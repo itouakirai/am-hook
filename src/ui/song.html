@@ -388,15 +388,35 @@
       }
     }
 
-    async function loadMeta() {
-      try {
-        const res = await fetch(`/meta/${adamId}?country=${country}`);
-        const data = await res.json();
-        if (!res.ok || data.code !== 0) throw new Error();
-        meta = data;
-      } catch {
-        meta = {};
+    // 浏览器直连 iTunes Lookup（该接口返回 Access-Control-Allow-Origin: *）。
+    // 先查歌曲链接所在地区，查不到时依次回退 us / cn。
+    async function lookupMeta() {
+      for (const cc of new Set([country, 'us', 'cn'])) {
+        try {
+          const res = await fetch(`https://itunes.apple.com/lookup?id=${adamId}&country=${cc}&entity=song`, { signal: AbortSignal.timeout(8000) });
+          if (!res.ok) continue;
+          const t = (await res.json()).results?.[0];
+          if (!t) continue;
+          return {
+            country: cc,
+            title: t.trackName || '',
+            artist: t.artistName || '',
+            album: t.collectionName || '',
+            // artworkUrl100 形如 .../100x100bb.jpg，换成大图
+            artwork: (t.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+            genre: t.primaryGenreName || '',
+            releaseDate: t.releaseDate || '',
+            durationMs: t.trackTimeMillis,
+            explicit: t.trackExplicitness === 'explicit',
+            url: t.trackViewUrl || '',
+          };
+        } catch {}
       }
+      return {};
+    }
+
+    async function loadMeta() {
+      meta = await lookupMeta();
       const title = meta.title || `歌曲 ${adamId}`;
       document.title = `${title} · am-hook`;
       $('title').textContent = title;

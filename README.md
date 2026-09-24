@@ -34,7 +34,7 @@ Only URLs containing `aod.itunes.apple.com/itunes-assets/` are handled. Three ty
 Open `http://127.0.0.1:8888/` in a browser:
 
 - Paste a song link, an album share link with `?i=`, or a bare numeric song ID.
-- The song page parses every variant automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions) and shows artwork and track info (via `/meta/:adamId`, which proxies the iTunes Lookup API).
+- The song page parses every variant automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions) and shows artwork and track info (fetched by the browser directly from the iTunes Lookup API).
 - Each variant has an alist-style "more" dropdown: play in VLC (`vlc://<media m3u8 URL>`, the same format alist uses), copy the media m3u8 / media file (IDM) URL, or download the decrypted file. Desktop VLC registers no `vlc://` handler by default, so a protocol handler must be installed separately; the Android / iOS VLC apps handle it directly.
 - Built-in web player: uses MSE to load BYTERANGE segments on demand, so seeking jumps straight to the right segment; falls back to native HLS (Safari, which plays ALAC and E-AC-3) or a direct media file source. Codecs the browser cannot play are marked accordingly. Space and arrow keys and system media controls are supported.
 

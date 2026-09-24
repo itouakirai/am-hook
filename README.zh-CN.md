@@ -34,7 +34,7 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
 浏览器打开 `http://127.0.0.1:8888/`：
 
 - 输入 song 链接、带 `?i=` 的专辑分享链接或纯数字歌曲 ID，进入歌曲页。
-- 歌曲页自动解析全部音质（无损 ALAC / 杜比全景声 / AAC / HE-AAC，含双耳、缩混版本），显示封面、歌名等信息（经 `/meta/:adamId` 代理 iTunes Lookup）。
+- 歌曲页自动解析全部音质（无损 ALAC / 杜比全景声 / AAC / HE-AAC，含双耳、缩混版本），显示封面、歌名等信息（由浏览器直接请求 iTunes Lookup）。
 - 每个音质的「更多」下拉菜单：用 VLC 播放（`vlc://<media m3u8 地址>`，与 alist 相同格式）、复制 media m3u8 / media file（IDM）地址、下载解密后的文件。桌面版 VLC 默认不注册 `vlc://` 协议，需要自行安装协议处理程序；Android / iOS 版 VLC 可直接唤起。
 - 内置在线播放器：优先用 MSE 按 BYTERANGE 分段加载，拖动进度条时直接定位对应分段；不支持时回退到原生 HLS（Safari，可播 ALAC / E-AC-3）或直连 media file。浏览器不支持的编码会标记为“需外部播放器”。支持空格 / 方向键、系统媒体控制。
 
