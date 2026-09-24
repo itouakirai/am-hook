@@ -75,7 +75,7 @@
 
   /** 不能在浏览器内播放时给用户的建议 */
   function fallbackHint(item) {
-    return t(item && item.hookM3u8Url ? 'player.hintVlc' : 'player.hintDownload');
+    return t(item && item.hookM3u8Url ? 'player.hintExternal' : 'player.hintDownload');
   }
 
   function modeLabel(mode) {

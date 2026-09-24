@@ -62,7 +62,8 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
 - 歌曲页自动解析全部音质（无损 ALAC / 杜比全景声 / AAC / HE-AAC，含双耳、缩混版本），显示封面、歌名等信息（由浏览器直接请求 iTunes Lookup）。
 - 每个音质的「更多」菜单：
   - **下载解密文件**：在浏览器内解密，显示进度，可随时取消。
-  - 仅 `--hook` 模式：通过服务器下载、用 VLC 播放（`vlc://<media m3u8 地址>`，与 alist 格式相同）、复制 media m3u8 / media file（IDM）地址。桌面版 VLC 默认不注册 `vlc://` 协议，需要自行安装协议处理程序；Android / iOS 版 VLC 可以直接唤起。
+  - 仅 `--hook` 模式：通过服务器下载；**外部播放器**宫格（VLC、PotPlayer、mpv、IINA、Infuse、nPlayer、MX Player 等 14 款，链接协议与 OpenList 相同），用服务端解密的 media m3u8 播放任意音质，当前平台可用的排在前面，其他平台可展开；**复制地址**，可选 M3U8（播放器用）或 media file（IDM 等下载工具用）。需要对应播放器已安装并注册其链接协议，例如桌面版 VLC 默认不注册 `vlc://`，需要自行安装协议处理程序。
+  - 页面顶部的「外部播放」按钮直接打开最高音质的外部播放器宫格。
 - 内置在线播放器：用 MSE 加浏览器端解密播放；`--hook` 模式下，不支持 MSE 的编码还可以回退到原生 HLS（Safari，可播 ALAC / E-AC-3）或直连服务端 media file。支持空格 / 方向键和系统媒体控制。
 
 ## 环境要求
