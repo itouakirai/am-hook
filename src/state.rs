@@ -128,6 +128,8 @@ pub type SegmentKey = (Arc<str>, usize);
 
 pub struct Config {
     pub wrapper_url: String,
+    /// 是否启用服务端解密代理（media m3u8 / media file 地址）
+    pub hook: bool,
     pub cache_ttl: Duration,
     /// 单个请求内并发预取的 segment 数
     pub prefetch: usize,
@@ -143,10 +145,12 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// 启用服务端解密的默认配置（测试用）
     pub fn new(wrapper_url: String, cache_ttl_secs: u64, cache_mb: usize) -> Self {
         Self::with_config(
             Config {
                 wrapper_url: wrapper_url.trim_end_matches('/').to_string(),
+                hook: true,
                 cache_ttl: Duration::from_secs(cache_ttl_secs),
                 prefetch: 4,
                 template_timeout: Duration::from_secs(20),

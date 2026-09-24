@@ -16,6 +16,7 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 temari = { path = "crates/temari" }
+am-mp4 = { path = "crates/am-mp4" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -25,6 +26,13 @@ regex = "1"
 bytes = "1"
 futures = "0.3"
 lru = "0.12"
+
+[workspace]
+members = [".", "crates/temari", "crates/am-mp4", "crates/am-wasm"]
+
+# 解密是热点，debug 构建下也优化 temari，否则测试与本地调试会很慢
+[profile.dev.package.temari]
+opt-level = 3
 
 [profile.release]
 opt-level = 3

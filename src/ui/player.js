@@ -2,10 +2,11 @@
  * am-hook 简易在线播放器
  *
  * 播放方式按优先级：
- *   1. MSE：解析去加密后的 media m3u8，按 BYTERANGE 用 Range 请求逐段喂给 SourceBuffer。
- *      只缓冲当前位置之后 ~45s，拖动时直接定位到对应 segment，适合所有 MSE 支持的编码。
- *   2. 原生 HLS（Safari）：直接把 media m3u8 交给 <audio>，可播放 ALAC / E-AC-3。
- *   3. 直连：<audio src=media file>，依赖浏览器对 fMP4 的渐进式播放。
+ *   1. MSE：浏览器直接从 Apple CDN 获取 media m3u8 与分段，在 Worker 中用 wasm 解密（decrypt.js）
+ *      后逐段喂给 SourceBuffer。只缓冲当前位置之后 ~45s，拖动时直接定位到对应 segment。
+ *   2. 原生 HLS（Safari）：把服务端解密的 media m3u8 交给 <audio>，可播放 ALAC / E-AC-3。
+ *   3. 直连：<audio src=服务端解密的 media file>，依赖浏览器对 fMP4 的渐进式播放。
+ *   2、3 需要服务端以 --hook 启动（item 带 hookM3u8Url / hookFileUrl）。
  */
 (function (global) {
   'use strict';
@@ -13,44 +14,9 @@
   const AHEAD_SECONDS = 45;
   const BEHIND_SECONDS = 30;
 
-  /** 默认 media m3u8 是每段独立 URL 的通用写法；MSE / Safari 用原始 EXT-X-MAP + BYTERANGE 写法 */
+  /** 服务端默认 media m3u8 是每段独立 URL 的通用写法；Safari 原生 HLS 用原始 EXT-X-MAP + BYTERANGE 写法 */
   function byterangeUrl(m3u8Url) {
     return m3u8Url + (m3u8Url.includes('?') ? '&' : '?') + 'hook=byterange';
-  }
-
-  /** 解析 media m3u8（已去除 EXT-X-KEY），返回 init 段与各 segment 的字节 / 时间范围 */
-  function parseMediaPlaylist(text, baseUrl) {
-    let init = null;
-    let duration = 0;
-    let pendingDuration = null;
-    let next = 0;
-    const segments = [];
-    const byterange = (value, fallbackOffset) => {
-      const [len, off] = value.replace(/"/g, '').split('@');
-      const start = off === undefined ? fallbackOffset : Number(off);
-      return { start, end: start + Number(len) - 1 };
-    };
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (line.startsWith('#EXT-X-MAP:')) {
-        const uri = /URI="([^"]+)"/.exec(line);
-        const range = /BYTERANGE="([^"]+)"/.exec(line);
-        if (!uri || !range) throw new Error('media m3u8 缺少 EXT-X-MAP BYTERANGE');
-        init = { url: new URL(uri[1], baseUrl).href, ...byterange(range[1], 0) };
-        next = init.end + 1;
-      } else if (line.startsWith('#EXTINF:')) {
-        pendingDuration = parseFloat(line.slice(8));
-      } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
-        const r = byterange(line.slice(17), next);
-        next = r.end + 1;
-        const dur = pendingDuration || 0;
-        segments.push({ ...r, time: duration, duration: dur });
-        duration += dur;
-        pendingDuration = null;
-      }
-    }
-    if (!init || segments.length === 0) throw new Error('media m3u8 中没有可播放的分段');
-    return { init, segments, duration, url: init.url };
   }
 
   /** time 所在 segment 下标 */
@@ -84,21 +50,27 @@
    * 不代表能解码其中的编码（新版 Chrome/Edge 原生支持 HLS 但不支持 ALAC），
    * 所以 HLS / 直连都必须同时通过编码检测。
    */
-  function detectModes(codecs, audio) {
+  function detectModes(codecs, audio, hook) {
     if (failedCodecs.has(codecs)) return [];
     const mime = mimeFor(codecs);
     const modes = [];
     const MS = global.ManagedMediaSource || global.MediaSource;
-    if (MS && MS.isTypeSupported && MS.isTypeSupported(mime)) modes.push('mse');
-    if (audio && audio.canPlayType(mime) !== '') {
+    if (MS && MS.isTypeSupported && MS.isTypeSupported(mime) && global.AmDecrypt && global.AmDecrypt.supported()) modes.push('mse');
+    if (hook && audio && audio.canPlayType(mime) !== '') {
       if (audio.canPlayType('application/vnd.apple.mpegurl') !== '') modes.push('hls');
       modes.push('direct');
     }
     return modes;
   }
 
-  function detectMode(codecs, audio) {
-    return detectModes(codecs, audio)[0] || null;
+  /** hook：服务端是否以 --hook 启动（决定能否使用原生 HLS / 直连） */
+  function detectMode(codecs, audio, hook) {
+    return detectModes(codecs, audio, hook)[0] || null;
+  }
+
+  /** 不能在浏览器内播放时给用户的建议 */
+  function fallbackHint(item) {
+    return item && item.hookM3u8Url ? '可点击该音质的 VLC 按钮用 VLC 播放' : '可下载解密文件后用本地播放器播放';
   }
 
   class MseEngine {
@@ -107,13 +79,13 @@
       this.generation = 0;
     }
 
+    /** m3u8Url：Apple CDN 上的原始 media m3u8 */
     async load(m3u8Url, codecs, onError) {
       const gen = ++this.generation;
       this.destroy(false);
       this.onError = onError;
-      const res = await fetch(m3u8Url);
-      if (!res.ok) throw new Error(`获取 media m3u8 失败（HTTP ${res.status}）`);
-      const playlist = parseMediaPlaylist(await res.text(), res.url || m3u8Url);
+      this.controller = new AbortController();
+      const playlist = await global.AmDecrypt.openTrack(m3u8Url, this.controller.signal);
       if (gen !== this.generation) return;
       this.playlist = playlist;
 
@@ -139,14 +111,9 @@
       this.pump(gen);
     }
 
+    /** 获取并解密一个分段 */
     async fetchRange(range, gen) {
-      this.controller = new AbortController();
-      const res = await fetch(this.playlist.url, {
-        headers: { Range: `bytes=${range.start}-${range.end}` },
-        signal: this.controller.signal,
-      });
-      if (!res.ok) throw new Error(`分段请求失败（HTTP ${res.status}）`);
-      const buf = await res.arrayBuffer();
+      const buf = await this.playlist.load(range, this.controller.signal);
       if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
       return buf;
     }
@@ -318,7 +285,7 @@
       a.addEventListener('error', () => {
         // 尝试阶段的错误由 play() 统一处理（会自动换下一种播放方式）
         if (!this.attempting && this.current && this.current.mode !== 'mse' && this.audio.getAttribute('src')) {
-          this.showError('播放出错，请换一个音质，或点击该音质的 VLC 按钮用 VLC 播放。');
+          this.showError(`播放出错，请换一个音质，或${fallbackHint(this.current)}。`);
         }
       });
 
@@ -344,12 +311,15 @@
       return Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
     }
 
-    /** item: { id, codecs, m3u8Url, fileUrl, label, title, artist, album, artwork } */
+    /**
+     * item: { id, codecs, m3u8Url, hookM3u8Url, hookFileUrl, label, title, artist, album, artwork }
+     * m3u8Url 为 CDN 原始地址（浏览器解密）；hook* 为服务端解密地址，仅 --hook 时存在。
+     */
     async play(item) {
       if (this.current && this.current.id === item.id) { this.toggle(); return; }
-      const modes = detectModes(item.codecs, this.audio);
+      const modes = detectModes(item.codecs, this.audio, !!item.hookM3u8Url);
       if (!modes.length) {
-        this.showError(`当前浏览器不支持 ${item.codecs} 编码，可点击该音质的 VLC 按钮用 VLC 播放。`);
+        this.showError(`当前浏览器不支持 ${item.codecs} 编码，${fallbackHint(item)}。`);
         return;
       }
       const token = ++this.playToken;
@@ -394,7 +364,7 @@
       this.teardown();
       failedCodecs.add(item.codecs);
       this.unsupportedListeners.forEach((fn) => fn(item.codecs));
-      this.showError(`当前浏览器无法播放 ${item.label || item.codecs}（${item.codecs}），可点击该音质的 VLC 按钮用 VLC 播放。`
+      this.showError(`当前浏览器无法播放 ${item.label || item.codecs}（${item.codecs}），${fallbackHint(item)}。`
         + (lastError && lastError.message ? `（${lastError.message}）` : ''));
       this.emit();
     }
@@ -409,11 +379,11 @@
     async tryMode(mode, item, resumeAt, token) {
       this.teardown();
       if (mode === 'mse') {
-        await this.mse.load(byterangeUrl(item.m3u8Url), item.codecs, (err) => this.showError(err.message || String(err)));
+        await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)));
         if (token !== this.playToken) return;
         this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
       } else {
-        this.audio.src = mode === 'hls' ? byterangeUrl(item.m3u8Url) : item.fileUrl;
+        this.audio.src = mode === 'hls' ? byterangeUrl(item.hookM3u8Url) : item.hookFileUrl;
       }
       if (resumeAt > 0) this.audio.currentTime = resumeAt;
       await this.audio.play();
@@ -493,7 +463,7 @@
     }
   }
 
-  const api = { AmPlayer, parseMediaPlaylist, segmentAt, formatTime, detectMode, detectModes, mimeFor };
+  const api = { AmPlayer, segmentAt, formatTime, detectMode, detectModes, mimeFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.AmHook = api;
 })(typeof window !== 'undefined' ? window : globalThis);

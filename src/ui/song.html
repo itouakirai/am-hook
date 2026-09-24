@@ -38,7 +38,7 @@
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>
               播放
             </button>
-            <button class="btn" id="vlc-best" type="button" disabled title="用 VLC 播放最高音质">
+            <button class="btn" id="vlc-best" type="button" disabled hidden title="用 VLC 播放最高音质">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 3h5l4.5 15H5z"/><path d="M7.6 10h8.8M6.4 14h11.2"/><path d="M3 21h18"/></svg>
               VLC 播放
             </button>
@@ -100,9 +100,11 @@
     <p class="player-msg" hidden></p>
   </div>
 
+  <script src="/assets/decrypt.js"></script>
   <script src="/assets/player.js"></script>
   <script>
     const { AmPlayer, detectMode } = window.AmHook;
+    const { AmDecrypt } = window;
     const songUrl = decodeURIComponent(location.pathname.slice(1));
     const linkMatch = songUrl.match(/music\.apple\.com\/([a-z]{2})\/song\/[^/?#]+\/(\d+)/i) || [];
     const country = (linkMatch[1] || 'us').toLowerCase();
@@ -113,6 +115,10 @@
     let meta = {};
     let variants = [];
     let rows = new Map();
+    /** 服务端是否以 --hook 启动（提供服务端解密地址，可用 VLC / IDM） */
+    let hook = false;
+    /** group_id -> { ctl, done, total }，进行中的浏览器端下载 */
+    const downloads = new Map();
 
     $('source').textContent = songUrl;
     $('apple-link').href = songUrl;
@@ -126,6 +132,8 @@
       vlc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 3h5l4.5 15H5z"/><path d="M7.6 10h8.8M6.4 14h11.2"/><path d="M3 21h18"/></svg>',
       more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
       download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+      server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+      close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     };
 
     function el(tag, props = {}, ...children) {
@@ -203,9 +211,51 @@
       else fallback();
     }
 
-    /** VLC 协议链接（与 alist 相同的 vlc://<地址> 格式），打开 media m3u8，所有音质都能播 */
+    /** VLC 协议链接（与 alist 相同的 vlc://<地址> 格式），打开服务端解密的 media m3u8，所有音质都能播 */
     function vlcHref(v) {
-      return `vlc://${v.m3u8Url}`;
+      return `vlc://${v.hookM3u8Url}`;
+    }
+
+    function formatSize(bytes) {
+      return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+    }
+
+    /* ---------- 浏览器端下载：直连 CDN + wasm 解密 + OPFS 暂存 ---------- */
+    async function startDownload(v, fileName) {
+      const id = v.group_id;
+      if (downloads.has(id)) { toast('该音质正在下载'); return; }
+      const job = { ctl: new AbortController(), done: 0, total: 0 };
+      downloads.set(id, job);
+      renderDownload(id);
+      try {
+        const track = await AmDecrypt.openTrack(v.m3u8Url, job.ctl.signal);
+        job.total = track.size;
+        renderDownload(id);
+        const result = await AmDecrypt.download(track, fileName, {
+          signal: job.ctl.signal,
+          onProgress: (done) => { job.done = done; renderDownload(id); },
+        });
+        toast(`解密完成，已交给浏览器保存（${formatSize(result.size)}）`);
+      } catch (err) {
+        if (err && err.name === 'AbortError') toast('已取消下载');
+        else showAlert('error', `下载失败：${(err && err.message) || err}`);
+      } finally {
+        downloads.delete(id);
+        renderDownload(id);
+      }
+    }
+
+    function renderDownload(id) {
+      const r = rows.get(id);
+      if (!r) return;
+      const job = downloads.get(id);
+      r.progress.hidden = !job;
+      if (!job) return;
+      const ratio = job.total ? job.done / job.total : 0;
+      r.progressFill.style.width = `${ratio * 100}%`;
+      r.progressText.textContent = job.total
+        ? `浏览器解密下载中 ${Math.floor(ratio * 100)}% · ${formatSize(job.done)} / ${formatSize(job.total)}`
+        : '正在准备下载…';
     }
 
     function openInVlc(v) {
@@ -272,15 +322,20 @@
     addEventListener('scroll', () => closeMenu(false), true);
 
     function variantMenu(v, fileName) {
-      return [
-        { icon: ICON.vlc, label: '用 VLC 播放', hint: '所有音质均可播放', href: vlcHref(v),
-          onSelect: () => toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议') },
-        '-',
-        { icon: ICON.list, label: '复制 media m3u8 地址', hint: '可在 VLC「打开网络串流」中使用', onSelect: () => copy(v.m3u8Url, ' media m3u8 地址') },
-        { icon: ICON.file, label: '复制 media file 地址', hint: '用于 IDM 等下载工具', onSelect: () => copy(v.fileUrl, ' media file 地址') },
-        '-',
-        { icon: ICON.download, label: '下载解密文件', hint: fileName, href: v.fileUrl, download: fileName },
+      const items = [
+        { icon: ICON.download, label: '下载解密文件', hint: `浏览器内解密 · ${fileName}`, onSelect: () => startDownload(v, fileName) },
       ];
+      if (hook) {
+        items.push(
+          { icon: ICON.server, label: '通过服务器下载', hint: '由服务端解密，消耗服务器流量', href: v.hookFileUrl, download: fileName },
+          '-',
+          { icon: ICON.vlc, label: '用 VLC 播放', hint: '所有音质均可播放', href: vlcHref(v),
+            onSelect: () => toast('正在唤起 VLC…若没有反应，请确认已安装 VLC 并支持 vlc:// 协议') },
+          { icon: ICON.list, label: '复制 media m3u8 地址', hint: '可在 VLC「打开网络串流」中使用', onSelect: () => copy(v.hookM3u8Url, ' media m3u8 地址') },
+          { icon: ICON.file, label: '复制 media file 地址', hint: '用于 IDM 等下载工具', onSelect: () => copy(v.hookFileUrl, ' media file 地址') },
+        );
+      }
+      return items;
     }
 
     function playItem(v) {
@@ -288,7 +343,8 @@
         id: v.group_id,
         codecs: v.codecs,
         m3u8Url: v.m3u8Url,
-        fileUrl: v.fileUrl,
+        hookM3u8Url: v.hookM3u8Url,
+        hookFileUrl: v.hookFileUrl,
         label: v.info.name,
         title: meta.title,
         artist: meta.artist,
@@ -310,16 +366,24 @@
         const playable = !!v.mode;
         const playBtn = el('button', { className: 'play-btn', type: 'button', innerHTML: ICON.play, disabled: !playable });
         playBtn.setAttribute('aria-label', playable ? `播放 ${v.info.name}` : '当前浏览器不支持该编码');
-        playBtn.title = playable ? '在线播放' : `当前浏览器不支持 ${v.codecs}，可用 VLC 播放`;
+        playBtn.title = playable ? '在线播放' : `当前浏览器不支持 ${v.codecs}，${hook ? '可用 VLC 播放' : '可下载后用本地播放器播放'}`;
         playBtn.addEventListener('click', () => player.play(playItem(v)));
 
         const name = el('div', { className: 'variant-name' }, v.info.name,
           v.info.badge && el('span', { className: `badge ${v.info.badge[1]}`, textContent: v.info.badge[0] }),
           ...v.info.tags.map((t) => el('span', { className: 'badge', textContent: t })),
-          el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: playable ? '浏览器可播' : '需外部播放器' }));
+          el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: playable ? '浏览器可播' : (hook ? '需外部播放器' : '仅可下载') }));
         const detail = el('div', { className: 'variant-detail' },
           [v.codecs, formatRate(v.bandwidth), v.channels && `声道 ${v.channels}`].filter(Boolean).join(' · ') + ' · ',
           el('code', { textContent: v.group_id }));
+
+        const progressFill = el('div', { className: 'dl-fill' });
+        const progressText = el('span', { className: 'dl-text' });
+        const cancel = el('button', { className: 'icon-btn dl-cancel', type: 'button', title: '取消下载', innerHTML: ICON.close });
+        cancel.setAttribute('aria-label', `取消下载 ${v.info.name}`);
+        cancel.addEventListener('click', () => { const job = downloads.get(v.group_id); if (job) job.ctl.abort(); });
+        const progress = el('div', { className: 'dl', hidden: true },
+          el('div', { className: 'dl-bar' }, progressFill), progressText, cancel);
 
         const fileName = safeName(`${meta.artist ? meta.artist + ' - ' : ''}${meta.title || adamId} [${v.info.name.replace(/ · /g, ' ')}].m4a`);
         const more = el('button', { className: 'icon-btn more-btn', type: 'button', title: '更多', innerHTML: ICON.more });
@@ -329,14 +393,16 @@
         more.addEventListener('click', () => openMenu(more, variantMenu(v, fileName)));
         const actions = el('div', { className: 'variant-actions' }, more);
 
-        const row = el('div', { className: 'variant' }, playBtn, el('div', {}, name, detail), actions);
-        rows.set(v.group_id, { row, playBtn });
+        const row = el('div', { className: 'variant' }, playBtn, el('div', {}, name, detail, progress), actions);
+        rows.set(v.group_id, { row, playBtn, progress, progressFill, progressText });
         nodes.push(row);
       }
       list.replaceChildren(...nodes);
+      for (const id of downloads.keys()) renderDownload(id);
       $('count').textContent = `${variants.length} 个音质 · ${variants.filter((v) => v.mode).length} 个可在浏览器播放`;
       $('variants').hidden = false;
       $('play-best').disabled = !variants.some((v) => v.mode);
+      $('vlc-best').hidden = !hook;
       $('vlc-best').disabled = variants.length === 0;
       syncRows(player.current, !player.audio.paused);
     }
@@ -372,12 +438,16 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || `解析失败（HTTP ${res.status}）`);
         const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
+        hook = !!data.hook;
         variants = data.variants.map((v) => ({
           ...v,
           info: describe(v),
-          mode: detectMode(v.codecs, probe),
-          m3u8Url: hookUrl(base + v.uri),
-          fileUrl: hookUrl(base + v.file_uri),
+          mode: detectMode(v.codecs, probe, hook),
+          // 浏览器直连 CDN 的原始地址（浏览器端解密）
+          m3u8Url: base + v.uri,
+          // 服务端解密地址，仅 --hook 时可用
+          hookM3u8Url: hook ? hookUrl(base + v.uri) : null,
+          hookFileUrl: hook ? hookUrl(base + v.file_uri) : null,
         })).sort((a, b) => a.info.rank - b.info.rank || b.info.kbps - a.info.kbps || a.info.sub - b.info.sub || (b.bandwidth || 0) - (a.bandwidth || 0));
         renderVariants();
         showAlert('', '');
@@ -458,12 +528,16 @@
 
     $('reparse').addEventListener('click', loadVariants);
 
+    // 下载在页面内进行，离开页面会中断
+    addEventListener('beforeunload', (e) => { if (downloads.size) e.preventDefault(); });
+
     if (!adamId) {
       showAlert('error', '无法从链接中识别歌曲 ID。');
     } else {
       loadMeta();
       loadVariants();
       loadStatus();
+      AmDecrypt.cleanupStale();
     }
   </script>
 </body>

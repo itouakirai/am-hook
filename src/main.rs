@@ -18,14 +18,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let listen_addr = cli.resolve_listen_addr()?;
     info!(
-        listen = %listen_addr, wrapper = %cli.wrapper_url, cache_ttl = cli.cache_ttl,
+        listen = %listen_addr, wrapper = %cli.wrapper_url, hook = cli.hook, cache_ttl = cli.cache_ttl,
         cache_mb = cli.lru_cache_mb, prefetch = cli.prefetch, "Starting am-hook"
     );
 
     let state = Arc::new(AppState::with_config(cli.config(), cli.lru_cache_mb));
-    // 预热内嵌模板，避免首个请求时解析
-    am_hook::embedded_template::get_fixed_template();
-    tokio::spawn(monitor::run_background_monitor(state.clone()));
+    if cli.hook {
+        // 预热内嵌模板，避免首个请求时解析
+        am_mp4::fixed_template();
+        tokio::spawn(monitor::run_background_monitor(state.clone()));
+    } else {
+        info!("Server-side decryption disabled (browser decrypts); pass --hook to serve media m3u8 / media file URLs");
+    }
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     info!("am-hook listening on http://{listen_addr}");

@@ -11,6 +11,7 @@ use tracing::warn;
 
 use crate::m3u8::{parse_master_variants, parse_song_link};
 use crate::state::AppState;
+use crate::wrapper::fetch_key_json;
 
 #[derive(Deserialize)]
 pub struct ParseRequest {
@@ -19,16 +20,62 @@ pub struct ParseRequest {
     pub base_url: Option<String>,
 }
 
-pub async fn home_handler() -> Response<Body> {
-    static_response("text/html; charset=utf-8", include_str!("ui/home.html"), false)
+pub async fn home_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/html; charset=utf-8", include_bytes!("ui/home.html"))
 }
 
-pub async fn css_handler() -> Response<Body> {
-    static_response("text/css; charset=utf-8", include_str!("ui/app.css"), true)
+pub async fn css_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/css; charset=utf-8", include_bytes!("ui/app.css"))
 }
 
-pub async fn player_js_handler() -> Response<Body> {
-    static_response("text/javascript; charset=utf-8", include_str!("ui/player.js"), true)
+pub async fn player_js_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/player.js"))
+}
+
+pub async fn decrypt_js_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/decrypt.js"))
+}
+
+pub async fn worker_js_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/hook-worker.js"))
+}
+
+/// 浏览器端解密核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
+pub async fn wasm_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "application/wasm", include_bytes!("ui/hook.wasm"))
+}
+
+#[derive(Deserialize)]
+pub struct KeyQuery {
+    #[serde(rename = "adamId")]
+    pub adam_id: String,
+    pub uri: String,
+}
+
+/// 浏览器端解密所需的轨道模板：转发 wrapper-lite `/key` 返回的 `data`。
+/// 固定 key 的模板已内嵌在 wasm 中，不经过这里。
+pub async fn key_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<KeyQuery>,
+) -> Response<Body> {
+    if query.adam_id.is_empty() || !query.adam_id.chars().all(|c| c.is_ascii_digit()) {
+        return bad_request("Invalid adamId");
+    }
+    if !query.uri.starts_with("skd://") || query.uri == am_mp4::FIXED_KEY_URI {
+        return bad_request("Invalid key uri");
+    }
+    match fetch_key_json(&state.http_client, &state.config.wrapper_url, &query.adam_id, &query.uri).await {
+        Ok(data) => Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "application/json; charset=utf-8")
+            .header(axum::http::header::CACHE_CONTROL, "private, max-age=3600")
+            .body(Body::from(data))
+            .unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}"))),
+        Err(error) => {
+            warn!(adam_id = %query.adam_id, uri = %query.uri, %error, "Template fetch for browser failed");
+            json_response(StatusCode::BAD_GATEWAY, json!({ "code": 1, "msg": error }))
+        }
+    }
 }
 
 pub async fn status_handler(State(state): State<Arc<AppState>>) -> Response<Body> {
@@ -38,6 +85,7 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Response<Body
         "msg": "wrapper-lite unavailable",
         "regions": [],
         "wrapperUrl": state.config.wrapper_url,
+        "hook": state.config.hook,
     });
     let mut status = StatusCode::BAD_GATEWAY;
 
@@ -180,26 +228,39 @@ pub async fn master_handler(
             "adamId": adam_id,
             "masterUrl": master_url,
             "variants": variants,
+            // 为 true 时前端额外提供服务端解密地址（VLC / IDM / 原生 HLS）
+            "hook": state.config.hook,
         }),
     )
 }
 
-pub async fn song_handler(uri: Uri) -> Response<Body> {
+pub async fn song_handler(uri: Uri, headers: &HeaderMap) -> Response<Body> {
     let path = uri.path();
     if parse_song_link(path.strip_prefix('/').unwrap_or(path)).is_err() {
         return bad_request("Only Apple Music song links are supported");
     }
-    static_response("text/html; charset=utf-8", include_str!("ui/song.html"), false)
+    static_response(headers, "text/html; charset=utf-8", include_bytes!("ui/song.html"))
 }
 
-fn static_response(content_type: &'static str, body: &'static str, cacheable: bool) -> Response<Body> {
-    let cache = if cacheable { "public, max-age=300" } else { "no-cache" };
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, content_type)
-        .header(axum::http::header::CACHE_CONTROL, cache)
-        .body(Body::from(body))
-        .unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}")))
+/// 内嵌静态资源：`no-cache` + 内容 ETag。每次使用前都向服务器确认（未变化时 304），
+/// 升级后页面、decrypt.js、Worker 与 wasm 不会因缓存而版本错配。
+fn static_response(headers: &HeaderMap, content_type: &'static str, body: &'static [u8]) -> Response<Body> {
+    // FNV-1a 64：内容指纹，资源最大只有几百 KB，逐请求计算的开销可以忽略
+    let hash = body.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    let etag = format!("\"{hash:016x}\"");
+    let fresh = headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag));
+    let builder = Response::builder()
+        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+        .header(axum::http::header::ETAG, &etag);
+    let response = if fresh {
+        builder.status(StatusCode::NOT_MODIFIED).body(Body::empty())
+    } else {
+        builder.status(StatusCode::OK).header(CONTENT_TYPE, content_type).body(Body::from(body))
+    };
+    response.unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}")))
 }
 
 fn json_response(status: StatusCode, value: serde_json::Value) -> Response<Body> {

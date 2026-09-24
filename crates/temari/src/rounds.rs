@@ -248,6 +248,18 @@ pub fn decrypt_ranges_par(tmpl: &Template, src: &[u8], ranges: &[std::ops::Range
     decrypt_par_into(tmpl, &samples, &offs, dst);
 }
 
+/// Decrypt the samples at `ranges` of `buf` in place, one after another on the
+/// calling thread. For targets without threads (e.g. wasm32-unknown-unknown).
+/// Ranges must lie within `buf`; panics otherwise.
+pub fn decrypt_ranges_in_place(tmpl: &Template, buf: &mut [u8], ranges: &[std::ops::Range<usize>]) {
+    let mut scratch = Vec::new();
+    for r in ranges {
+        scratch.clear();
+        scratch.extend_from_slice(&buf[r.clone()]);
+        decrypt_region_into(tmpl, &scratch, &mut buf[r.clone()]);
+    }
+}
+
 /// Decrypt a batch of independent samples in parallel, preserving order.
 /// Each sample is an independent SAMPLE-AES unit (state resets per sample).
 pub fn decrypt_par(tmpl: &Template, samples: &[&[u8]]) -> Vec<Vec<u8>> {

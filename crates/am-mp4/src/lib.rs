@@ -2,7 +2,21 @@
 //! 保证 HTTP Range 偏移与上游完全一致。
 
 use std::ops::Range;
-use temari::rounds::{decrypt_ranges_par, Template};
+use std::sync::OnceLock;
+
+pub use temari::rounds::Template;
+pub use temari::template::template_from_json;
+use temari::rounds::{decrypt_ranges_in_place, decrypt_ranges_par};
+
+/// 每条轨道第一个 fragment 使用的固定 key
+pub const FIXED_KEY_URI: &str = "skd://itunes.apple.com/P000000000/s1/e1";
+pub const FIXED_TEMPLATE_JSON: &str = include_str!("fixed_template.json");
+
+/// 内嵌的固定 key 解密模板（首次调用时解析）
+pub fn fixed_template() -> &'static Template {
+    static FIXED: OnceLock<Template> = OnceLock::new();
+    FIXED.get_or_init(|| template_from_json(FIXED_TEMPLATE_JSON).expect("embedded fixed template must parse"))
+}
 
 #[derive(Debug, Clone, Copy)]
 struct BoxHeader {
@@ -52,8 +66,14 @@ fn be_u64(buf: &[u8], pos: usize) -> u64 {
     u64::from_be_bytes(buf[pos..pos + 8].try_into().unwrap())
 }
 
-fn set_type(buf: &mut [u8], b: &BoxHeader, typ: &[u8; 4]) {
-    buf[b.start + 4..b.start + 8].copy_from_slice(typ);
+/// 待改写的 box 类型：(box 起始偏移, 新类型)。先只读扫描收集，再统一写入，
+/// 这样同一套逻辑既能原地改写（wasm），也能写到副本里（服务端并行解密）。
+type Renames = Vec<(usize, [u8; 4])>;
+
+fn apply_renames(buf: &mut [u8], renames: &Renames) {
+    for (start, typ) in renames {
+        buf[start + 4..start + 8].copy_from_slice(typ);
+    }
 }
 
 /// 改造 init segment (ftyp + moov)：
@@ -61,19 +81,26 @@ fn set_type(buf: &mut [u8], b: &BoxHeader, typ: &[u8; 4]) {
 /// 其 sinf 与 moov 下的 pssh 改为等长 free box。
 pub fn patch_init_segment(init: &[u8]) -> Vec<u8> {
     let mut out = init.to_vec();
+    patch_init_in_place(&mut out);
+    out
+}
+
+/// `patch_init_segment` 的原地版本
+pub fn patch_init_in_place(init: &mut [u8]) {
+    let mut renames = Renames::new();
     for moov in children(init, 0..init.len()).iter().filter(|b| &b.typ == b"moov") {
         for b in children(init, moov.body..moov.end) {
             match &b.typ {
-                b"pssh" => set_type(&mut out, &b, b"free"),
-                b"trak" => patch_trak(init, &mut out, &b),
+                b"pssh" => renames.push((b.start, *b"free")),
+                b"trak" => patch_trak(init, &b, &mut renames),
                 _ => {}
             }
         }
     }
-    out
+    apply_renames(init, &renames);
 }
 
-fn patch_trak(src: &[u8], out: &mut [u8], trak: &BoxHeader) {
+fn patch_trak(src: &[u8], trak: &BoxHeader, renames: &mut Renames) {
     let stsd = find(src, trak.body..trak.end, b"mdia")
         .and_then(|b| find(src, b.body..b.end, b"minf"))
         .and_then(|b| find(src, b.body..b.end, b"stbl"))
@@ -94,28 +121,45 @@ fn patch_trak(src: &[u8], out: &mut [u8], trak: &BoxHeader) {
             continue;
         }
         let original: [u8; 4] = src[frma.body..frma.body + 4].try_into().unwrap();
-        set_type(out, &entry, &original);
-        set_type(out, &sinf, b"free");
+        renames.push((entry.start, original));
+        renames.push((sinf.start, *b"free"));
     }
 }
 
 /// 解密一个媒体分片 (moof + mdat)：
 /// 1. 解析 tfhd/trun 得到每个 sample 的字节范围；
 /// 2. 将 senc/saiz/saio、'seig'/'seam' 类型的 sgpd/sbgp 以及 pssh 改为等长 free box；
-/// 3. 用 temari 线程池并行解密全部 sample，原地写回。
+/// 3. 用 temari 线程池并行解密全部 sample，写入副本返回。
 ///
 /// CPU 密集，调用方应放在阻塞线程中执行。
 pub fn decrypt_fragment(frag: &[u8], tmpl: &Template) -> Result<Vec<u8>, String> {
+    let (samples, renames) = scan_fragment(frag)?;
     let mut out = frag.to_vec();
+    apply_renames(&mut out, &renames);
+    decrypt_ranges_par(tmpl, frag, &samples, &mut out);
+    Ok(out)
+}
+
+/// `decrypt_fragment` 的原地单线程版本，供没有线程的环境（浏览器 wasm）使用。
+pub fn decrypt_fragment_in_place(frag: &mut [u8], tmpl: &Template) -> Result<(), String> {
+    let (samples, renames) = scan_fragment(frag)?;
+    apply_renames(frag, &renames);
+    decrypt_ranges_in_place(tmpl, frag, &samples);
+    Ok(())
+}
+
+/// 只读扫描分片，返回按顺序排列的 sample 字节范围与需要改为 free 的 box。
+fn scan_fragment(frag: &[u8]) -> Result<(Vec<Range<usize>>, Renames), String> {
     let mut samples: Vec<Range<usize>> = Vec::new();
+    let mut renames = Renames::new();
     let mut found_moof = false;
 
     for moof in children(frag, 0..frag.len()).iter().filter(|b| &b.typ == b"moof") {
         found_moof = true;
         for b in children(frag, moof.body..moof.end) {
             match &b.typ {
-                b"pssh" => set_type(&mut out, &b, b"free"),
-                b"traf" => parse_traf(frag, &mut out, moof, &b, &mut samples)?,
+                b"pssh" => renames.push((b.start, *b"free")),
+                b"traf" => parse_traf(frag, moof, &b, &mut samples, &mut renames)?,
                 _ => {}
             }
         }
@@ -132,17 +176,15 @@ pub fn decrypt_fragment(frag: &[u8], tmpl: &Template) -> Result<Vec<u8>, String>
         }
         prev_end = r.end;
     }
-
-    decrypt_ranges_par(tmpl, frag, &samples, &mut out);
-    Ok(out)
+    Ok((samples, renames))
 }
 
 fn parse_traf(
     src: &[u8],
-    out: &mut [u8],
     moof: &BoxHeader,
     traf: &BoxHeader,
     samples: &mut Vec<Range<usize>>,
+    renames: &mut Renames,
 ) -> Result<(), String> {
     let mut default_size: Option<u32> = None;
     // 未显式给出 data_offset 的 trun 紧接上一个 trun 的数据
@@ -203,11 +245,11 @@ fn parse_traf(
                 }
                 next_data = pos;
             }
-            b"senc" | b"saiz" | b"saio" => set_type(out, &b, b"free"),
+            b"senc" | b"saiz" | b"saio" => renames.push((b.start, *b"free")),
             b"sgpd" | b"sbgp" => {
                 // FullBox(4) 后紧跟 grouping_type；只清除加密相关的 'seig' 与 Apple 换钥映射 'seam'
                 if b.body + 8 <= b.end && matches!(&src[b.body + 4..b.body + 8], b"seig" | b"seam") {
-                    set_type(out, &b, b"free");
+                    renames.push((b.start, *b"free"));
                 }
             }
             _ => {}
@@ -304,18 +346,26 @@ mod tests {
         assert_eq!(frag.len(), moof_len);
         frag.extend_from_slice(&mk_box(b"mdat", &[0xAB; 64]));
 
-        let tmpl = crate::embedded_template::get_fixed_template();
-        let out = decrypt_fragment(&frag, tmpl).unwrap();
+        let out = decrypt_fragment(&frag, fixed_template()).unwrap();
         assert_eq!(out.len(), frag.len());
         assert!(!out.windows(4).any(|w| w == b"senc"));
         assert!(out.windows(4).any(|w| w == b"roll"), "non-encryption sgpd must be kept");
         assert_eq!(out.windows(4).filter(|w| w == b"sgpd").count(), 1, "'seig' sgpd must be freed");
         assert_ne!(&out[moof_len + 8..], &frag[moof_len + 8..], "mdat samples must be decrypted");
+
+        let mut in_place = frag.clone();
+        decrypt_fragment_in_place(&mut in_place, fixed_template()).unwrap();
+        assert_eq!(in_place, out, "in-place (wasm) path must match the parallel path");
     }
 
     #[test]
     fn test_decrypt_fragment_rejects_garbage() {
-        let tmpl = crate::embedded_template::get_fixed_template();
-        assert!(decrypt_fragment(&[0u8; 32], tmpl).is_err());
+        assert!(decrypt_fragment(&[0u8; 32], fixed_template()).is_err());
+        assert!(decrypt_fragment_in_place(&mut [0u8; 32], fixed_template()).is_err());
+    }
+
+    #[test]
+    fn test_fixed_template_loads() {
+        assert_eq!(fixed_template().ctx.len(), temari::rounds::CTX_SIZE);
     }
 }

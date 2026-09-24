@@ -3,10 +3,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::state::{Segment, Track};
+use am_mp4::FIXED_KEY_URI;
 
-/// 首个 frag 使用的固定 key，解析时忽略
-const FIXED_KEY_URI: &str = "skd://itunes.apple.com/P000000000/s1/e1";
+use crate::state::{Segment, Track};
 
 static SONG_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());

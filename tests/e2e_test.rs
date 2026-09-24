@@ -42,6 +42,22 @@ async fn test_whitelist_rejection() {
 }
 
 #[tokio::test]
+async fn test_hook_disabled_rejects_proxy() {
+    let config = am_hook::state::Config {
+        wrapper_url: "http://127.0.0.1:12340".into(),
+        hook: false,
+        cache_ttl: std::time::Duration::from_secs(60),
+        prefetch: 1,
+        template_timeout: std::time::Duration::from_secs(1),
+    };
+    let state = Arc::new(AppState::with_config(config, 16));
+    for path in ["P1263211745_default.m3u8", "P1263211745_A1468058171_audio_en_gr2768_mp4a-A6.m3u8", FILEURI] {
+        let resp = get(&state, path, None).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{path} must not be proxied without --hook");
+    }
+}
+
+#[tokio::test]
 async fn test_master_m3u8_e2e() {
     let state = new_state();
     let resp = get(&state, "P1263211745_default.m3u8", None).await;

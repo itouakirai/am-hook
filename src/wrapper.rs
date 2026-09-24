@@ -17,6 +17,12 @@ struct KeyResponse<'a> {
 
 /// 从 wrapper-lite `/key` 接口获取 `data` 并解析为解密模板
 pub async fn fetch_key_template(client: &Client, wrapper_url: &str, adam_id: &str, uri: &str) -> Result<Template, String> {
+    let data = fetch_key_json(client, wrapper_url, adam_id, uri).await?;
+    template_from_json(&data).map_err(|e| format!("Temari failed to parse template: {e}"))
+}
+
+/// 从 wrapper-lite `/key` 接口获取原始模板 JSON（响应中的 `data` 字段），供浏览器端解密使用
+pub async fn fetch_key_json(client: &Client, wrapper_url: &str, adam_id: &str, uri: &str) -> Result<String, String> {
     let resp = client
         .get(format!("{wrapper_url}/key"))
         .query(&[("adamId", adam_id), ("uri", uri)])
@@ -36,5 +42,5 @@ pub async fn fetch_key_template(client: &Client, wrapper_url: &str, adam_id: &st
         return Err(format!("wrapper-lite returned error code {}: {}", v.code, v.msg.as_deref().unwrap_or("unknown error")));
     }
     let data = v.data.ok_or("wrapper-lite response missing 'data' field")?;
-    template_from_json(data.get()).map_err(|e| format!("Temari failed to parse template: {e}"))
+    Ok(data.get().to_string())
 }

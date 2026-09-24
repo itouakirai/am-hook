@@ -21,6 +21,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "am-hook"
 version = "0.1.0"
 dependencies = [
+ "am-mp4",
  "axum",
  "bytes",
  "clap",
@@ -34,6 +35,20 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "am-mp4"
+version = "0.1.0"
+dependencies = [
+ "temari",
+]
+
+[[package]]
+name = "am-wasm"
+version = "0.1.0"
+dependencies = [
+ "am-mp4",
 ]
 
 [[package]]

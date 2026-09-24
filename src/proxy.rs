@@ -8,10 +8,10 @@ use bytes::Bytes;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use tracing::{debug, info, warn};
 
-use crate::embedded_template::get_fixed_template;
+use am_mp4::{decrypt_fragment, fixed_template, patch_init_segment};
+
 use crate::m3u8::{parse_media_m3u8, parse_song_link, to_compat_playlist};
 use crate::monitor::ensure_template;
-use crate::mp4::{decrypt_fragment, patch_init_segment};
 use crate::source::{self, SourceKind, WHITELIST};
 use crate::state::{AppState, Track};
 use crate::ui::song_handler;
@@ -19,13 +19,22 @@ use crate::ui::song_handler;
 const M3U8_TYPE: &str = "application/vnd.apple.mpegurl; charset=utf-8";
 const BYTERANGE_PARAM: &str = "hook=byterange";
 
-/// 反代入口：`/` 后面是源地址，只处理白名单内的请求，按文件名特征分流
+/// 解密代理入口（URL 前缀式：`/` 后面拼接完整的源地址，由客户端指定要访问的 CDN 文件），
+/// 只处理白名单内的请求，按文件名特征分流
 pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, uri: Uri, headers: HeaderMap) -> Response<Body> {
     let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
 
     // Apple Music 页面路径本身也是 "https://..."，交给 song UI
     if parse_song_link(path).is_ok() {
-        return song_handler(uri).await;
+        return song_handler(uri, &headers).await;
+    }
+
+    // 服务端解密默认关闭（节省服务器流量），此时不代理任何 CDN 请求，解密由浏览器完成
+    if !state.config.hook {
+        return text(
+            StatusCode::NOT_FOUND,
+            "Server-side decryption is disabled. Start am-hook with --hook to enable media m3u8 / media file URLs.\n".into(),
+        );
     }
 
     // `hook=byterange` 是给 am-hook 自己的参数（media m3u8 保留原始 BYTERANGE 写法），不转发给 CDN
@@ -297,7 +306,7 @@ async fn load_segment(state: &AppState, track: &Arc<Track>, target: &str, idx: u
             // 解密是 CPU 密集操作（内部用 temari 线程池并行），不能占用 async worker
             let out = tokio::task::spawn_blocking(move || match (idx, tmpl) {
                 (0, _) => Ok(patch_init_segment(&raw)),
-                (1, _) => decrypt_fragment(&raw, get_fixed_template()),
+                (1, _) => decrypt_fragment(&raw, fixed_template()),
                 (_, Some(t)) => decrypt_fragment(&raw, &t),
                 (_, None) => unreachable!("template awaited above"),
             })

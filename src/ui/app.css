@@ -100,6 +100,7 @@ button { cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--line-strong); }
 .btn:disabled { opacity: .55; cursor: default; }
 .btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.btn[hidden] { display: none; }
 .btn-primary { border-color: transparent; background: var(--accent); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: transparent; }
 .btn-lg { height: 50px; padding: 0 22px; border-radius: 10px; font-size: 14px; }
@@ -241,6 +242,14 @@ button { cursor: pointer; }
 .variant-detail { margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .variant-detail code { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .variant-actions { display: flex; gap: 6px; }
+/* 浏览器端下载进度 */
+.dl { margin-top: 8px; display: grid; grid-template-columns: minmax(60px, 180px) minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.dl[hidden] { display: none; }
+.dl-bar { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.dl-fill { width: 0; height: 100%; background: var(--accent); transition: width .2s ease; }
+.dl-text { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dl-cancel { width: 26px; height: 26px; }
+.dl-cancel svg { width: 13px; height: 13px; }
 .variant-group { padding: 8px 18px; background: var(--surface-2); color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; border-bottom: 1px solid var(--line); }
 
 /* ---------- 播放器 ---------- */
