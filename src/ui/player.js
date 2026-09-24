@@ -151,6 +151,14 @@
       });
     }
 
+    flush() {
+      const id = ++this.seq;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, { resolve, reject });
+        this.worker.postMessage({ id, op: 'flush' });
+      });
+    }
+
     destroy() {
       this.worker.terminate();
       for (const job of this.pending.values()) job.reject(new DOMException('stale', 'AbortError'));
@@ -287,8 +295,6 @@
       this.paused = true;
       for (const node of this.nodes) { try { node.stop(); } catch {} node.disconnect(); }
       this.nodes.clear();
-      if (this.decoder) this.decoder.destroy();
-      this.decoder = new Ec3Decoder();
       this.anchorTime = Math.max(0, Math.min(time, this.duration));
       this.anchorContextTime = this.context.currentTime + 0.03;
       this.loadedUntil = this.anchorTime;
@@ -297,6 +303,8 @@
       const task = (async () => {
         await this.context.suspend();
         while (this.busy && gen === this.generation) await new Promise((resolve) => setTimeout(resolve, 10));
+        if (gen !== this.generation) return;
+        await this.decoder.flush();
         if (gen !== this.generation) return;
         this.anchorContextTime = this.context.currentTime + 0.03;
         await this.pump(true);

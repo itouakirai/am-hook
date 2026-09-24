@@ -138,7 +138,11 @@ async function decodeFragment(buffer) {
 
 self.onmessage = async ({ data }) => {
   try {
-    if (data.op === 'flush' && decoder && ctx) { decoder.flush(ctx); self.postMessage({ id: data.id, ok: true }); return; }
+    if (data.op === 'flush') {
+      if (decoder && ctx) decoder.flush(ctx);
+      self.postMessage({ id: data.id, ok: true });
+      return;
+    }
     const result = await decodeFragment(data.buf);
     self.postMessage({ id: data.id, ok: true, result }, [result.pcm]);
   } catch (error) {
