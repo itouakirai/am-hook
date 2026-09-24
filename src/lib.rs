@@ -31,6 +31,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/assets/flac.wasm", get(ui::flac_wasm_handler))
         .route("/assets/flac-init.bin", get(ui::flac_init_handler))
         .route("/assets/flac-transcode-worker.js", get(ui::flac_worker_handler))
+        .route("/assets/ec3-decode-worker.js", get(ui::ec3_worker_handler))
+        .route("/assets/ec3-runtime.mjs", get(ui::ec3_runtime_handler))
+        .route("/assets/ec3.wasm", get(ui::ec3_wasm_handler))
         .fallback(proxy::handle_proxy)
         .with_state(state)
 }

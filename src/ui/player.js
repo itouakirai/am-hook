@@ -4,9 +4,10 @@
  * 播放方式按优先级：
  *   1. MSE：浏览器直接从 Apple CDN 获取 media m3u8 与分段，在 Worker 中用 wasm 解密（decrypt.js）
  *      后逐段喂给 SourceBuffer。只缓冲当前位置之后 ~45s，拖动时直接定位到对应 segment。
- *   2. 原生 HLS（Safari）：把服务端解密的 media m3u8 交给 <audio>，可播放 ALAC / E-AC-3。
- *   3. 直连：<audio src=服务端解密的 media file>，依赖浏览器对 fMP4 的渐进式播放。
- *   2、3 需要服务端以 --hook 启动（item 带 hookM3u8Url / hookFileUrl）。
+ *   2. EC-3 回退：原生 MSE 不可用时，按需加载 ec3.wasm，解码为 5.1/7.1 PCM。
+ *   3. 原生 HLS：把服务端解密的 media m3u8 交给 <audio>（其他编码的可选路径）。
+ *   4. 直连：<audio src=服务端解密的 media file>，依赖浏览器对 fMP4 的渐进式播放。
+ *   3、4 需要服务端以 --hook 启动（item 带 hookM3u8Url / hookFileUrl）。
  */
 (function (global) {
   'use strict';
@@ -48,20 +49,27 @@
    * 该编码在当前浏览器中可尝试的播放方式（按优先级），空数组表示不支持。
    * 注意：canPlayType('application/vnd.apple.mpegurl') 只说明浏览器能播 HLS，
    * 不代表能解码其中的编码（新版 Chrome/Edge 原生支持 HLS 但不支持 ALAC），
-   * 所以 HLS / 直连都必须同时通过编码检测。
+   * 所以 HLS / 直连都必须同时通过编码检测。EC-3 单独按 MSE -> PCM 检测，
+   * 两种方式都由浏览器端解密，不依赖 --hook。
    */
   function detectModes(codecs, audio, hook) {
     if (failedCodecs.has(codecs)) return [];
     const mime = mimeFor(codecs);
     const modes = [];
+    const decrypt = global.AmDecrypt && global.AmDecrypt.supported();
     const MS = global.ManagedMediaSource || global.MediaSource;
-    if (MS && MS.isTypeSupported && MS.isTypeSupported(mime) && global.AmDecrypt && global.AmDecrypt.supported()) modes.push('mse');
+    if (MS && MS.isTypeSupported && MS.isTypeSupported(mime) && decrypt) modes.push('mse');
+    if (/^(ec-3|ec3)$/i.test(String(codecs))) {
+      if (decrypt && global.Worker && global.WebAssembly &&
+          (global.AudioContext || global.webkitAudioContext)) modes.push('ec3');
+      return modes;
+    }
     if (hook && audio && audio.canPlayType(mime) !== '') {
       if (audio.canPlayType('application/vnd.apple.mpegurl') !== '') modes.push('hls');
       modes.push('direct');
     }
     if (String(codecs).toLowerCase() === 'alac' && MS && MS.isTypeSupported &&
-        MS.isTypeSupported(mimeFor('flac')) && global.Worker && global.AmDecrypt && global.AmDecrypt.supported()) modes.push('flac');
+        MS.isTypeSupported(mimeFor('flac')) && global.Worker && decrypt) modes.push('flac');
     return modes;
   }
 
@@ -81,7 +89,7 @@
   }
 
   function modeLabel(mode) {
-    return mode === 'direct' ? t('player.direct') : mode.toUpperCase();
+    return mode === 'direct' ? t('player.direct') : mode === 'ec3' ? t('player.pcmMode') : mode.toUpperCase();
   }
 
   class FlacTranscoder {
@@ -114,6 +122,210 @@
       this.worker.terminate();
       for (const job of this.pending.values()) job.reject(new DOMException('stale', 'AbortError'));
       this.pending.clear();
+    }
+  }
+
+  class Ec3Decoder {
+    constructor() {
+      this.worker = new Worker('/assets/ec3-decode-worker.js');
+      this.pending = new Map();
+      this.seq = 0;
+      this.worker.onmessage = ({ data }) => {
+        const job = this.pending.get(data.id);
+        if (!job) return;
+        this.pending.delete(data.id);
+        if (data.ok) job.resolve(data.result);
+        else job.reject(new Error(data.error));
+      };
+      this.worker.onerror = (event) => {
+        for (const job of this.pending.values()) job.reject(new Error(event.message || 'EC-3 Worker failed'));
+        this.pending.clear();
+      };
+    }
+
+    decode(buf) {
+      const id = ++this.seq;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, { resolve, reject });
+        this.worker.postMessage({ id, op: 'decode', buf }, [buf]);
+      });
+    }
+
+    destroy() {
+      this.worker.terminate();
+      for (const job of this.pending.values()) job.reject(new DOMException('stale', 'AbortError'));
+      this.pending.clear();
+    }
+  }
+
+  /** Bounded, on-demand multichannel PCM playback for EC-3. */
+  class PcmEngine {
+    constructor(onUpdate, onError) {
+      this.onUpdate = onUpdate;
+      this.onError = onError;
+      this.context = new (global.AudioContext || global.webkitAudioContext)();
+      this.gain = this.context.createGain();
+      this.gain.connect(this.context.destination);
+      this.nodes = new Set();
+      this.paused = true;
+      this.anchorTime = 0;
+      this.anchorContextTime = this.context.currentTime + 0.03;
+      this.loadedUntil = 0;
+      this.generation = 0;
+      this.timer = setInterval(() => {
+        if (!this.paused && this.duration && this.currentTime >= this.duration) this.pause();
+        if (!this.paused) this.pump();
+        this.onUpdate();
+      }, 200);
+      // Resume during the click gesture, before the asynchronous playlist request.
+      this.started = this.context.resume().then(() => this.context.suspend());
+    }
+
+    get currentTime() {
+      const time = this.paused ? this.anchorTime
+        : this.anchorTime + Math.max(0, this.context.currentTime - this.anchorContextTime);
+      return Math.min(this.duration || Infinity, time);
+    }
+
+    set currentTime(value) { const pending = this.seek(value); if (pending) pending.catch(() => {}); }
+
+    async load(url) {
+      const gen = this.generation;
+      await this.started;
+      if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
+      this.controller = new AbortController();
+      this.playlist = await global.AmDecrypt.openTrack(url, this.controller.signal);
+      if (gen !== this.generation) throw new DOMException('stale', 'AbortError');
+      this.duration = this.playlist.duration;
+      this.decoder = new Ec3Decoder();
+      this.nextIndex = 0;
+      await this.pump(true);
+    }
+
+    async pump(first = false) {
+      if (this.busy || this.failed || !this.playlist || !this.decoder) return;
+      this.busy = true;
+      const gen = this.generation;
+      const required = first;
+      try {
+        const { segments } = this.playlist;
+        while (this.nextIndex < segments.length && (first || segments[this.nextIndex].time < this.currentTime + 12)) {
+          const seg = segments[this.nextIndex];
+          const encrypted = await this.playlist.load(seg, this.controller.signal);
+          if (gen !== this.generation) return;
+          const decoded = await this.decoder.decode(encrypted);
+          if (gen !== this.generation) return;
+          const { channels, rate, samples, pcm } = decoded;
+          if (this.channels && (this.channels !== channels || this.rate !== rate)) {
+            throw new Error('EC-3 channel layout changed during playback');
+          }
+          this.channels = channels;
+          this.rate = rate;
+          const data = new Float32Array(pcm);
+          const buffer = this.context.createBuffer(channels, samples, rate);
+          for (let ch = 0; ch < channels; ch++) {
+            // FFmpeg's 7.1 order puts back channels before side channels;
+            // Web Audio uses side channels before back channels.
+            const sourceCh = channels === 8 ? [0, 1, 2, 3, 6, 7, 4, 5][ch] : ch;
+            buffer.copyToChannel(data.subarray(sourceCh * samples, (sourceCh + 1) * samples), ch);
+          }
+          const offset = Math.max(0, this.currentTime - seg.time);
+          if (offset < buffer.duration) {
+            const node = this.context.createBufferSource();
+            node.buffer = buffer;
+            node.connect(this.gain);
+            node.onended = () => { this.nodes.delete(node); node.disconnect(); };
+            this.nodes.add(node);
+            const when = Math.max(this.context.currentTime + 0.01,
+              this.anchorContextTime + seg.time - this.anchorTime);
+            node.start(when, offset);
+          }
+          this.loadedUntil = Math.max(this.loadedUntil, seg.time + buffer.duration);
+          this.nextIndex++;
+          first = false;
+          this.onUpdate();
+          if (required) break;
+        }
+      } catch (error) {
+        if (required && gen === this.generation) throw error;
+        if (error.name !== 'AbortError' && gen === this.generation) {
+          this.failed = true;
+          this.pause();
+          this.onError(error);
+        }
+      } finally {
+        this.busy = false;
+      }
+    }
+
+    async play() {
+      if (this.seeking) { this.resumeAfterSeek = true; return this.seekTask; }
+      this.failed = false;
+      await this.context.resume();
+      this.paused = false;
+      this.onUpdate();
+      this.pump();
+    }
+
+    pause() {
+      if (this.seeking) { this.resumeAfterSeek = false; return; }
+      if (this.paused) return;
+      this.anchorTime = this.currentTime;
+      this.anchorContextTime = this.context.currentTime;
+      this.paused = true;
+      this.context.suspend();
+      this.onUpdate();
+    }
+
+    seek(time) {
+      if (!this.playlist) return;
+      this.generation++;
+      const gen = this.generation;
+      this.failed = false;
+      this.resumeAfterSeek = !this.paused || (this.seeking && this.resumeAfterSeek);
+      this.seeking = true;
+      this.paused = true;
+      for (const node of this.nodes) { try { node.stop(); } catch {} node.disconnect(); }
+      this.nodes.clear();
+      if (this.decoder) this.decoder.destroy();
+      this.decoder = new Ec3Decoder();
+      this.anchorTime = Math.max(0, Math.min(time, this.duration));
+      this.anchorContextTime = this.context.currentTime + 0.03;
+      this.loadedUntil = this.anchorTime;
+      this.nextIndex = segmentAt(this.playlist.segments, this.anchorTime);
+      this.onUpdate();
+      const task = (async () => {
+        await this.context.suspend();
+        while (this.busy && gen === this.generation) await new Promise((resolve) => setTimeout(resolve, 10));
+        if (gen !== this.generation) return;
+        this.anchorContextTime = this.context.currentTime + 0.03;
+        await this.pump(true);
+        if (gen === this.generation && this.resumeAfterSeek) {
+          await this.context.resume();
+          this.paused = false;
+          this.onUpdate();
+          this.pump();
+        }
+      })().catch((error) => {
+        if (gen === this.generation && error.name !== 'AbortError') {
+          this.failed = true;
+          this.onError(error);
+        }
+        throw error;
+      })
+        .finally(() => { if (gen === this.generation) { this.seeking = false; this.seekTask = null; } });
+      this.seekTask = task;
+      return task;
+    }
+
+    destroy() {
+      this.generation++;
+      clearInterval(this.timer);
+      if (this.controller) this.controller.abort();
+      if (this.decoder) this.decoder.destroy();
+      for (const node of this.nodes) { try { node.stop(); } catch {} node.disconnect(); }
+      this.nodes.clear();
+      this.context.close();
     }
   }
 
@@ -315,6 +527,7 @@
       this.audio = new Audio();
       this.audio.preload = 'auto';
       this.mse = new MseEngine(this.audio);
+      this.pcm = null;
       this.$ = (sel) => root.querySelector(sel);
       this.listeners = new Set();
       this.unsupportedListeners = new Set();
@@ -332,14 +545,36 @@
     renderLang() {
       this.renderToggle();
       if (this.current) {
-        this.$('.player-mode').textContent = modeLabel(this.current.mode);
+        this.renderMode();
         this.$('.player-title').textContent = this.current.title || t('player.unknownTitle');
       }
       this.renderError();
     }
 
+    renderMode() {
+      if (!this.current) return;
+      const ec3 = this.current.mode === 'ec3';
+      const channels = this.pcm && this.pcm.channels;
+      this.$('.player-mode').textContent = ec3 && channels
+        ? t('player.pcmChannels', { n: channels - 1 }) : modeLabel(this.current.mode);
+      const notice = this.$('.player-notice');
+      const noticeKey = ec3 ? 'player.pcmNotice'
+        : this.current.mode === 'flac' ? 'player.flacNotice' : null;
+      notice.textContent = noticeKey ? t(noticeKey) : '';
+      notice.hidden = !noticeKey;
+    }
+
+    transport() { return this.current && this.current.mode === 'ec3' && this.pcm ? this.pcm : this.audio; }
+
+    updatePcm() {
+      this.renderToggle();
+      this.renderProgress();
+      this.renderMode();
+      this.emit();
+    }
+
     onChange(fn) { this.listeners.add(fn); }
-    emit() { this.listeners.forEach((fn) => fn(this.current, !this.audio.paused)); }
+    emit() { this.listeners.forEach((fn) => fn(this.current, !this.transport().paused)); }
 
     bindUi() {
       const a = this.audio;
@@ -348,6 +583,7 @@
       this.$('.skip-fwd').addEventListener('click', () => this.seekBy(10));
       this.$('.volume').addEventListener('input', (e) => {
         a.volume = Number(e.target.value);
+        if (this.pcm) this.pcm.gain.gain.value = a.volume;
         try { localStorage.setItem('am-hook:volume', String(a.volume)); } catch {}
       });
 
@@ -370,7 +606,7 @@
       });
       const release = () => {
         if (this.dragRatio === undefined) return;
-        a.currentTime = this.dragRatio * this.duration();
+        this.transport().currentTime = this.dragRatio * this.duration();
         this.dragRatio = undefined;
         seek.classList.remove('dragging');
       };
@@ -400,11 +636,11 @@
 
       if ('mediaSession' in navigator) {
         const ms = navigator.mediaSession;
-        ms.setActionHandler('play', () => a.play());
-        ms.setActionHandler('pause', () => a.pause());
+        ms.setActionHandler('play', () => this.transport().play());
+        ms.setActionHandler('pause', () => this.transport().pause());
         ms.setActionHandler('seekbackward', () => this.seekBy(-10));
         ms.setActionHandler('seekforward', () => this.seekBy(10));
-        try { ms.setActionHandler('seekto', (d) => { a.currentTime = d.seekTime; }); } catch {}
+        try { ms.setActionHandler('seekto', (d) => { this.transport().currentTime = d.seekTime; }); } catch {}
       }
     }
 
@@ -425,7 +661,7 @@
         return;
       }
       const token = ++this.playToken;
-      const resumeAt = this.current ? this.audio.currentTime : 0;
+      const resumeAt = this.current ? this.transport().currentTime : 0;
       this.current = { ...item, mode: modes[0], duration: 0 };
       this.root.hidden = false;
       document.body.classList.add('has-player');
@@ -443,7 +679,7 @@
         if (token !== this.playToken) return;
         this.current.mode = mode;
         this.current.duration = 0;
-        this.$('.player-mode').textContent = modeLabel(mode);
+        this.renderMode();
         this.attempting = true;
         try {
           await this.tryMode(mode, item, resumeAt, token);
@@ -473,6 +709,7 @@
 
     teardown() {
       this.mse.destroy();
+      if (this.pcm) { this.pcm.destroy(); this.pcm = null; }
       this.audio.pause();
       this.audio.removeAttribute('src');
       this.audio.load();
@@ -480,6 +717,16 @@
 
     async tryMode(mode, item, resumeAt, token) {
       this.teardown();
+      if (mode === 'ec3') {
+        this.pcm = new PcmEngine(() => this.updatePcm(), (err) => this.showError(err.message || String(err)));
+        this.pcm.gain.gain.value = this.audio.volume;
+        await this.pcm.load(item.m3u8Url);
+        if (token !== this.playToken) return;
+        this.current.duration = this.pcm.duration;
+        if (resumeAt > 0) await this.pcm.seek(resumeAt);
+        await this.pcm.play();
+        return;
+      }
       if (mode === 'mse' || mode === 'flac') {
         await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)), mode === 'flac');
         if (token !== this.playToken) return;
@@ -496,13 +743,15 @@
 
     toggle() {
       if (!this.current) return;
-      if (this.audio.paused) this.audio.play().catch((err) => this.showError(err.message)); else this.audio.pause();
+      const transport = this.transport();
+      if (transport.paused) transport.play().catch((err) => this.showError(err.message)); else transport.pause();
     }
 
     seekBy(delta) {
       const d = this.duration();
       if (!d) return;
-      this.audio.currentTime = Math.min(Math.max(0, this.audio.currentTime + delta), d - 0.1);
+      const transport = this.transport();
+      transport.currentTime = Math.min(Math.max(0, transport.currentTime + delta), d - 0.1);
     }
 
     setLoading(on) {
@@ -511,8 +760,8 @@
     }
 
     renderToggle() {
-      const a = this.audio;
-      const waiting = this.loading && a.paused || (!a.paused && a.readyState < 3);
+      const a = this.transport();
+      const waiting = this.loading && a.paused || (!a.paused && this.current.mode !== 'ec3' && a.readyState < 3);
       if (!a.paused) this.loading = false;
       const btn = this.$('.player-toggle');
       btn.innerHTML = waiting ? ICON_LOADING : (a.paused ? ICON_PLAY : ICON_PAUSE);
@@ -521,14 +770,19 @@
 
     renderProgress() {
       const d = this.duration();
-      const t = this.dragRatio !== undefined ? this.dragRatio * d : this.audio.currentTime;
+      const transport = this.transport();
+      const t = this.dragRatio !== undefined ? this.dragRatio * d : transport.currentTime;
       const ratio = d ? Math.min(1, t / d) : 0;
       this.$('.seek-fill').style.width = `${ratio * 100}%`;
       this.$('.seek-thumb').style.left = `${ratio * 100}%`;
-      const b = this.audio.buffered;
       let bufEnd = 0;
-      for (let i = 0; i < b.length; i++) {
-        if (b.start(i) <= this.audio.currentTime + 0.5) bufEnd = Math.max(bufEnd, b.end(i));
+      if (this.current && this.current.mode === 'ec3' && this.pcm) {
+        bufEnd = this.pcm.loadedUntil;
+      } else {
+        const b = this.audio.buffered;
+        for (let i = 0; i < b.length; i++) {
+          if (b.start(i) <= transport.currentTime + 0.5) bufEnd = Math.max(bufEnd, b.end(i));
+        }
       }
       this.$('.seek-buffer').style.width = `${d ? Math.min(1, bufEnd / d) * 100 : 0}%`;
       this.$('.time-cur').textContent = formatTime(t);
@@ -538,7 +792,7 @@
       seek.setAttribute('aria-valuenow', String(Math.round(t)));
       seek.setAttribute('aria-valuetext', `${formatTime(t)} / ${formatTime(d)}`);
       if ('mediaSession' in navigator && d && navigator.mediaSession.setPositionState) {
-        try { navigator.mediaSession.setPositionState({ duration: d, position: Math.min(this.audio.currentTime, d), playbackRate: 1 }); } catch {}
+        try { navigator.mediaSession.setPositionState({ duration: d, position: Math.min(transport.currentTime, d), playbackRate: 1 }); } catch {}
       }
     }
 

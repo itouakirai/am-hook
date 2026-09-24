@@ -56,6 +56,18 @@ pub async fn flac_init_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "application/octet-stream", include_bytes!("ui/flac-init.bin"))
 }
 
+pub async fn ec3_worker_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/ec3-decode-worker.js"))
+}
+
+pub async fn ec3_runtime_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/ec3-runtime.mjs"))
+}
+
+pub async fn ec3_wasm_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "application/wasm", include_bytes!("ui/ec3.wasm"))
+}
+
 /// 浏览器端解密核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
 pub async fn wasm_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "application/wasm", include_bytes!("ui/hook.wasm"))

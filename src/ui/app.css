@@ -331,6 +331,8 @@ body.has-player { padding-bottom: 96px; }
 .volume { width: 84px; accent-color: var(--accent); }
 .player-msg { grid-column: 1 / -1; margin: -2px 0 0; color: var(--error); font-size: 12px; }
 .player-msg[hidden] { display: none; }
+.player-notice { grid-column: 1 / -1; margin: -2px 0 0; color: var(--muted); font-size: 12px; }
+.player-notice[hidden] { display: none; }
 
 @media (max-width: 760px) {
   .page { padding: 16px 16px 48px; }
