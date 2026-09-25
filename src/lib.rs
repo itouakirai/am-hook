@@ -22,6 +22,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/parse", post(ui::parse_handler))
         .route("/parse/:adam_id", get(ui::master_handler))
         .route("/key", get(ui::key_handler))
+        .route("/lyrics/:adam_id", get(ui::lyrics_handler))
+        .route("/assets/lyrics/:file", get(ui::lyrics_asset_handler))
         .route("/assets/app.css", get(ui::css_handler))
         .route("/assets/player.js", get(ui::player_js_handler))
         .route("/assets/i18n.js", get(ui::i18n_js_handler))

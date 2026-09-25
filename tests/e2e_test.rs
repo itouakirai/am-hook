@@ -137,3 +137,21 @@ async fn test_media_file_without_m3u8_first() {
     assert_eq!(body(b).await.len(), 100);
     assert!(state.get_track(FILEURI).is_some());
 }
+
+#[tokio::test]
+async fn test_lyrics_e2e() {
+    // wrapper-lite /lyrics 的 TTML 原样返回；没有歌词的歌曲为 404，非法 ID 为 400
+    use am_hook::ui::lyrics_handler;
+    use axum::extract::{Path, State};
+    let state = new_state();
+    let resp = lyrics_handler(State(state.clone()), Path("6796864754".into())).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers()["content-type"].to_str().unwrap().starts_with("application/ttml+xml"));
+    let ttml = String::from_utf8(body(resp).await.to_vec()).unwrap();
+    assert!(ttml.starts_with("<tt ") && ttml.contains("itunes:timing=\"Word\""));
+
+    let resp = lyrics_handler(State(state.clone()), Path("1".into())).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let resp = lyrics_handler(State(state), Path("abc".into())).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

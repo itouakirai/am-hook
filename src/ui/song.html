@@ -6,6 +6,7 @@
   <title>am-hook · 音质解析</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23fb2c55'/%3E%3Cpath d='M9.5 16.5V7l7-1.5v9' fill='none' stroke='white' stroke-width='1.8'/%3E%3Ccircle cx='7.5' cy='16.5' r='2' fill='white'/%3E%3Ccircle cx='14.5' cy='14.5' r='2' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/lyrics/lyrics.css">
 </head>
 <body>
   <div class="page">
@@ -74,6 +75,28 @@
   <div class="menu" id="menu" role="menu" hidden></div>
   <div class="toast" id="toast" role="status" hidden></div>
 
+  <section class="lyrics-overlay" id="lyrics-overlay" role="dialog" data-i18n-attr="aria-label=lyrics.title" hidden>
+    <canvas class="lyrics-backdrop" aria-hidden="true" hidden></canvas>
+    <div class="lyrics-stage">
+      <div class="lyrics-side">
+        <img class="lyrics-art" alt="" hidden>
+        <div class="lyrics-meta">
+          <h2 class="lyrics-title"></h2>
+          <p class="lyrics-artist"></p>
+        </div>
+        <div class="lyrics-options">
+          <button class="lyrics-chip" type="button" data-option="translation" aria-pressed="false" data-i18n="lyrics.translation"></button>
+          <button class="lyrics-chip" type="button" data-option="pronunciation" aria-pressed="false" data-i18n="lyrics.pronunciation"></button>
+        </div>
+      </div>
+      <div class="lyric-panel"><div class="lyric-surface"><div class="lyrics-lines"></div></div></div>
+    </div>
+    <button class="lyrics-follow" type="button" data-i18n="lyrics.follow" hidden></button>
+    <button class="lyrics-close" type="button" data-i18n-attr="aria-label=lyrics.close,title=lyrics.close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+  </section>
+
   <div class="player" id="player" hidden>
     <div class="player-track">
       <img class="player-art" alt="">
@@ -98,6 +121,9 @@
       <span class="time time-total">0:00</span>
     </div>
     <div class="player-right">
+      <button class="player-lyrics" type="button" hidden aria-pressed="false" aria-controls="lyrics-overlay" data-i18n-attr="aria-label=lyrics.open,title=lyrics.open">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z"/><path d="M8 7.5h8M8 11h5"/></svg>
+      </button>
       <span class="badge player-mode" data-i18n-attr="title=player.mode"></span>
       <input class="volume" type="range" min="0" max="1" step="0.01" data-i18n-attr="aria-label=player.volume">
     </div>
@@ -710,6 +736,16 @@
       loadVariants();
       loadStatus();
       AmDecrypt.cleanupStale();
+      // 歌词界面（ES module）：有歌词时在播放条上显示「歌词」按钮
+      import('/assets/lyrics/panel.mjs')
+        .then(({ mountLyrics }) => mountLyrics({
+          root: $('lyrics-overlay'),
+          toggle: $('player').querySelector('.player-lyrics'),
+          player, adamId, t,
+          getMeta: () => meta,
+          onLangChange: AmI18n.onChange,
+        }))
+        .catch((err) => console.warn('[am-hook] 歌词界面加载失败', err));
     }
   </script>
 </body>

@@ -1,0 +1,111 @@
+/* Independent layout rules derived from the measured web lyric surface.
+   See research/behavior-model.md for the source and verification of each value.
+   Copied from am-ttml; am-hook does not bundle the SF Pro font, so the system stack is used. */
+:root {
+  --lyric-font: -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'SF Pro', 'SF Pro Icons', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+.lyric-surface {
+  --font-size:28px; --line-height:1.2142857143; --row-gap:34px;
+  --phonetic-size:calc(var(--font-size)*.64); --translation-size:calc(var(--font-size)*.54);
+  --inactive:rgba(255,255,255,.4); --active:rgba(255,255,255,.92);
+  --current-scale:1.05; --current-padding:12px;
+  --row-top:0px; --row-left:0px; --row-right:0px;
+  --lyric-mask:linear-gradient(180deg,transparent,#000 80px,#000 50%,transparent);
+  font-family:var(--lyric-font); height:80%; width:100%;
+}
+@media (min-width:1320px) {
+  .lyric-surface {--font-size:38px;--line-height:1.2105263158;--row-gap:42px;--phonetic-size:calc(var(--font-size)*.5);--translation-size:calc(var(--font-size)*.42)}
+}
+@media (min-width:1680px) {
+  .lyric-surface {--font-size:50px;--line-height:1.2;--row-gap:54px}
+}
+@media (min-width:2000px) {
+  .lyric-surface {--font-size:72px;--line-height:1.1947644444;--row-gap:82px}
+}
+.lyric-scroll {
+  height:100%; overflow-y:auto; overflow-x:visible; position:relative;
+  scrollbar-width:none; mask-image:var(--lyric-mask);
+}
+.lyric-scroll::-webkit-scrollbar {display:none}
+.lyric-scroll * {box-sizing:content-box}
+.lyric-scroll .line-button,.lyric-scroll .row-frame {box-sizing:border-box}
+.lyric-row {transition:filter 250ms linear;}
+.lyric-row:not(.current):not(.first),.lyric-row.past {filter:blur(2px)}
+.lyric-scroll.manual .lyric-row {filter:blur(0)}
+.row-frame {display:block;width:100%;box-sizing:border-box;line-height:0;margin-right:-5%;padding-right:5%;}
+.line-button {
+  border:0;padding:0;background:transparent;appearance:none;outline:none;cursor:pointer;
+  display:inline-block;font-family:var(--lyric-font);font-size:var(--font-size);border-radius:0;user-select:none;
+  font-weight:700;line-height:var(--line-height);letter-spacing:0;text-align:initial;
+  color:var(--inactive);margin:var(--row-top) var(--row-right) var(--row-gap) var(--row-left);
+  transform:scale(1);transform-origin:left center;
+  transition:color .1s,transform .1s ease-in-out,padding .1s ease-in-out,height .4s linear,margin-top .4s linear;
+}
+.line-button:lang(zh) {font-weight:600}
+.current .line-button {color:var(--active);padding:var(--current-padding) 0;transform:scale(var(--current-scale))}
+.line-button:hover,.line-button:focus-visible {color:rgba(255,255,255,.7)}
+.current .line-button:hover {color:var(--active)}
+.near .row-frame {will-change:transform,opacity,color,top,background-image}
+.secondary-vocalist .row-frame {text-align:right}
+.secondary-vocalist .line-button {transform-origin:right center;text-align:right}
+.duet .line-button {width:60%}
+.token-group {display:inline-block;width:auto;text-align:start;vertical-align:top;transition:height .4s linear,margin .4s linear}
+.token-main {display:inline-block;text-align:start;transition:height .4s linear,width .4s linear}
+.space-after>*::after {content:'';margin-right:.3ch}
+.syllable {margin-top:-5px;padding-top:5px;display:inline-block;position:relative;transform-origin:right;line-height:normal;white-space:pre}
+.letter {display:inline-block}
+.current .syllable[style*="--sweep"],.current .letter[style*="--sweep"] {
+  background-image:linear-gradient(to right,rgba(255,255,255,.85) var(--sweep),rgba(255,255,255,.5) calc(var(--sweep) + 20%));
+  background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.current .letter {text-shadow:0 0 var(--glow,0px) rgba(255,255,255,var(--glow-alpha,0))}
+.background-vocals,.background-translation {display:none}
+.current .background-vocals {display:block;margin-top:20px;font-size:14px;line-height:1.2em;color:var(--active)}
+.show-pronunciation:not(.show-translation) .current .line-button:has(.background-vocals .token-pronunciation) .background-vocals {margin-bottom:-.5em}
+.current .background-translation {display:block}
+.translation-text,.pronunciation-text {
+  max-height:0;overflow:hidden;text-wrap:balance;opacity:0;transform:translateY(-10px);
+  transition:max-height .6s linear,opacity .6s linear,transform .6s linear,margin-top .4s linear;
+}
+.translation-text {font-size:var(--translation-size);line-height:1.2em}
+.background-translation {font-size:12px}
+.pronunciation-text {font-size:var(--phonetic-size);line-height:1.2em;white-space:pre-wrap}
+.show-translation .translation-text,.show-pronunciation .pronunciation-text {max-height:50px;overflow:visible;transform:translateY(0);margin-top:.2em}
+.show-translation .translation-text {opacity:.45}
+.show-translation .background-translation {margin-top:0}
+.show-pronunciation .pronunciation-text {opacity:1}
+.token-pronunciation {
+  width:0;max-height:0;display:block;overflow:visible;opacity:0;font-size:var(--phonetic-size);line-height:1.2em;white-space:nowrap;
+  transition:width .4s linear,height .4s linear,margin-top .4s linear,opacity .6s linear;
+}
+.background-vocals .token-pronunciation {font-size:13px;line-height:1.2em}
+.show-pronunciation .token-pronunciation {margin-top:.2em;width:auto;max-height:24px;opacity:1}
+.show-pronunciation .token-group:has(.token-pronunciation) {margin-bottom:.4em}
+.show-pronunciation:not(.show-translation) .line-button:has(.token-pronunciation) .primary-vocals {margin-bottom:-.5em}
+.instrumental .row-frame {height:0;overflow:hidden;animation:collapse-gap .3s ease-in-out}
+.instrumental .line-button {transform:scale(.1)}
+.instrumental.current .row-frame {height:auto;overflow:initial;animation:expand-gap .3s ease-in-out}
+.instrumental.first.current .row-frame {animation:none}
+@keyframes collapse-gap {from{height:80px}to{height:0}}
+@keyframes expand-gap {from{height:0}99%{height:80px}to{height:auto}}
+.instrumental.current .line-button {transform:scale(var(--current-scale))}
+.dots {display:grid;grid-template-columns:repeat(3,10px);column-gap:5px;transform-origin:left center}
+.dot {width:10px;height:10px;border-radius:10px;background:var(--active);display:inline-block}
+.current .dots.playing {animation:heartbeat 5s ease-in infinite}
+.current .dots.playing.ending {animation:heartbeat-end 1s ease-in infinite}
+.current .dots.playing .dot {opacity:.3}
+.current .dots.playing .dot.reached {opacity:1;transition-property:opacity}
+@keyframes heartbeat {50% {transform:scale(1.2)}}
+@keyframes heartbeat-end {from{transform:scale(1.1)}to{transform:scale(1.4)}}
+.credits-content {display:block;width:100%;padding-top:11px;padding-bottom:42px;border-top:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.64)}
+.credit-label,.credit-names,.translation-note {font-size:12px;line-height:1.25;font-weight:400}
+.credit-label {font-weight:600;margin-right:5px}
+.translation-note {margin-top:16px}
+.lyric-scroll:not(.show-translation) .translation-note {display:none}
+.sidebar .lyric-surface {
+  --font-size:22px;--line-height:1.1818181818;--row-gap:0px;--row-top:30px;--row-left:20px;--row-right:45px;
+  --phonetic-size:15px;--translation-size:13px;--current-scale:1.1;
+  --lyric-mask:linear-gradient(180deg,#000,transparent);height:100%;
+}
+.sidebar .row-frame {padding-right:0;margin-right:0}
+@media (prefers-contrast:more) {.show-translation .translation-text{opacity:1}}

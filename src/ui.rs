@@ -11,7 +11,7 @@ use tracing::warn;
 
 use crate::m3u8::{parse_master_variants, parse_song_link};
 use crate::state::AppState;
-use crate::wrapper::fetch_key_json;
+use crate::wrapper::{fetch_key_json, fetch_lyrics, Lyrics};
 
 #[derive(Deserialize)]
 pub struct ParseRequest {
@@ -71,6 +71,47 @@ pub async fn ec3_wasm_handler(headers: HeaderMap) -> Response<Body> {
 /// 浏览器端解密核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
 pub async fn wasm_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "application/wasm", include_bytes!("ui/hook.wasm"))
+}
+
+/// 歌词界面（src/ui/lyrics/）：TTML 解析、时间轴、歌词视图与封面背景，均为 ES module
+pub async fn lyrics_asset_handler(
+    headers: HeaderMap,
+    axum::extract::Path(file): axum::extract::Path<String>,
+) -> Response<Body> {
+    const JS: &str = "text/javascript; charset=utf-8";
+    let (content_type, body): (&'static str, &'static [u8]) = match file.as_str() {
+        "panel.mjs" => (JS, include_bytes!("ui/lyrics/panel.mjs")),
+        "ttml.mjs" => (JS, include_bytes!("ui/lyrics/ttml.mjs")),
+        "timeline.mjs" => (JS, include_bytes!("ui/lyrics/timeline.mjs")),
+        "lyric-view.mjs" => (JS, include_bytes!("ui/lyrics/lyric-view.mjs")),
+        "backdrop.mjs" => (JS, include_bytes!("ui/lyrics/backdrop.mjs")),
+        "lyrics.css" => ("text/css; charset=utf-8", include_bytes!("ui/lyrics/lyrics.css")),
+        _ => return json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "Not found" })),
+    };
+    static_response(&headers, content_type, body)
+}
+
+/// 歌曲的 TTML 歌词：向 wrapper-lite `/lyrics` 获取后原样返回 XML。没有歌词时返回 404。
+pub async fn lyrics_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(adam_id): axum::extract::Path<String>,
+) -> Response<Body> {
+    if adam_id.is_empty() || !adam_id.chars().all(|c| c.is_ascii_digit()) {
+        return bad_request("Invalid adamId");
+    }
+    match fetch_lyrics(&state.http_client, &state.config.wrapper_url, &adam_id).await {
+        Ok(Lyrics::Found(ttml)) => Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "application/ttml+xml; charset=utf-8")
+            .header(axum::http::header::CACHE_CONTROL, "private, max-age=3600")
+            .body(Body::from(ttml))
+            .unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}"))),
+        Ok(Lyrics::NotFound) => json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "lyrics not found" })),
+        Err(error) => {
+            warn!(adam_id = %adam_id, %error, "Lyrics fetch failed");
+            json_response(StatusCode::BAD_GATEWAY, json!({ "code": 1, "msg": error }))
+        }
+    }
 }
 
 #[derive(Deserialize)]

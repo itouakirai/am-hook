@@ -44,3 +44,57 @@ pub async fn fetch_key_json(client: &Client, wrapper_url: &str, adam_id: &str, u
     let data = v.data.ok_or("wrapper-lite response missing 'data' field")?;
     Ok(data.get().to_string())
 }
+
+/// wrapper-lite `/lyrics` 的结果：找到时为 TTML 原文
+pub enum Lyrics {
+    Found(String),
+    NotFound,
+}
+
+#[derive(Deserialize)]
+struct LyricsResponse {
+    code: i64,
+    #[serde(default)]
+    msg: Option<String>,
+    #[serde(default)]
+    data: Option<LyricsData>,
+}
+
+#[derive(Deserialize)]
+struct LyricsData {
+    #[serde(default)]
+    lyrics: Option<String>,
+}
+
+/// 从 wrapper-lite `/lyrics` 接口获取歌曲的 TTML 歌词（响应中的 `data.lyrics`）
+pub async fn fetch_lyrics(client: &Client, wrapper_url: &str, adam_id: &str) -> Result<Lyrics, String> {
+    let resp = client
+        .get(format!("{wrapper_url}/lyrics"))
+        .query(&[("adamId", adam_id)])
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("Request to wrapper-lite failed: {e}"))?;
+
+    let status = resp.status();
+    let body = resp.bytes().await.map_err(|e| format!("Failed to read wrapper-lite response: {e}"))?;
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Lyrics::NotFound);
+    }
+    if !status.is_success() {
+        return Err(format!("wrapper-lite returned HTTP {status}: {}", String::from_utf8_lossy(&body)));
+    }
+
+    let v: LyricsResponse = serde_json::from_slice(&body).map_err(|e| format!("Failed to parse wrapper-lite JSON: {e}"))?;
+    // wrapper-lite 以 HTTP 200 + code 404 表示该歌曲没有歌词
+    if v.code == 404 {
+        return Ok(Lyrics::NotFound);
+    }
+    if v.code != 0 {
+        return Err(format!("wrapper-lite returned error code {}: {}", v.code, v.msg.as_deref().unwrap_or("unknown error")));
+    }
+    match v.data.and_then(|data| data.lyrics).filter(|ttml| !ttml.trim().is_empty()) {
+        Some(ttml) => Ok(Lyrics::Found(ttml)),
+        None => Ok(Lyrics::NotFound),
+    }
+}

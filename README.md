@@ -14,6 +14,7 @@ Server endpoints:
 |---|---|
 | `GET /parse/<adamId>` | Fetches the master m3u8 via wrapper-lite and returns its variants |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | Relays the track decryption template JSON from wrapper-lite `/key` |
+| `GET /lyrics/<adamId>` | Fetches TTML lyrics from wrapper-lite `/lyrics` and returns the XML unchanged; 404 when the song has none |
 | `/assets/hook.wasm`, `/assets/flac.wasm`, etc. | Pages, scripts and on-demand WASM modules (embedded in the binary, `no-cache` + ETag) |
 
 In the browser (`src/ui/decrypt.js`):
@@ -65,6 +66,7 @@ Open `http://127.0.0.1:8888/` in a browser:
   - `--hook` only: download through the server; an **external players** grid (14 players including VLC, PotPlayer, mpv, IINA, Infuse, nPlayer and MX Player, using the same link schemes as OpenList) that plays any variant from the server-decrypted media m3u8, with players for the current platform first and the rest behind a toggle; and **Copy URL**, choosing between M3U8 (for players) and the media file (for download managers such as IDM). Each player must be installed and register its link scheme; desktop VLC, for example, registers no `vlc://` handler by default, so a protocol handler must be installed separately.
   - The "External player" button at the top of the page opens the player grid for the highest quality.
 - Built-in web player: MSE with browser-side decryption, including lossless ALAC-to-FLAC playback when the browser supports FLAC-in-MP4 MSE. EC-3 falls back to multichannel PCM when MSE is unavailable, with a visible notice about its spatial-audio limitation. Downloads retain the original codec. In `--hook` mode, other codecs may use native HLS or a direct media file. Space and arrow keys and system media controls are supported.
+- Lyrics view: when a song has lyrics, a Lyrics button appears on the player bar. The view comes from am-ttml: word- and line-synced highlighting, background vocals, duets, translation and pronunciation, instrumental dots, and click-to-seek on any line. Its moving background is generated from the album artwork. Press Esc to close it.
 
 ## Requirements
 
@@ -140,6 +142,7 @@ src/
   ui/
     home.html / song.html / app.css   Pages and styles
     player.js          Web player (MSE)
+    lyrics/            Lyrics view (ES modules): panel.mjs wires it to the player; the rest is am-ttml's parser, timeline, view and artwork backdrop
     decrypt.js         Browser decryption: m3u8 parsing, Worker pool, templates, download and OPFS
     hook-worker.js     Worker: wasm decryption and OPFS writes
     hook.wasm          Build output of crates/am-wasm

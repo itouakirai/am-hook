@@ -14,6 +14,7 @@
 |---|---|
 | `GET /parse/<adamId>` | 通过 wrapper-lite 获取 master m3u8，返回各音质变体 |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | 转发 wrapper-lite `/key` 返回的轨道解密模板 JSON |
+| `GET /lyrics/<adamId>` | 通过 wrapper-lite `/lyrics` 获取 TTML 歌词，原样返回 XML；没有歌词时返回 404 |
 | `/assets/hook.wasm`、`/assets/flac.wasm` 等 | 页面、脚本与按需加载的 WASM（内嵌在二进制中，`no-cache` + ETag） |
 
 浏览器端流程（`src/ui/decrypt.js`）：
@@ -65,6 +66,7 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
   - 仅 `--hook` 模式：通过服务器下载；**外部播放器**宫格（VLC、PotPlayer、mpv、IINA、Infuse、nPlayer、MX Player 等 14 款，链接协议与 OpenList 相同），用服务端解密的 media m3u8 播放任意音质，当前平台可用的排在前面，其他平台可展开；**复制地址**，可选 M3U8（播放器用）或 media file（IDM 等下载工具用）。需要对应播放器已安装并注册其链接协议，例如桌面版 VLC 默认不注册 `vlc://`，需要自行安装协议处理程序。
   - 页面顶部的「外部播放」按钮直接打开最高音质的外部播放器宫格。
 - 内置在线播放器：用 MSE 加浏览器端解密播放；ALAC 在支持 FLAC-in-MP4 MSE 的浏览器中自动无损转码播放。EC-3 的 MSE 不可用时回退为多声道 PCM，播放条会提示空间音频限制。下载保留原始编码；`--hook` 模式仅给其他编码增加原生 HLS／直连路径。支持空格 / 方向键和系统媒体控制。
+- 歌词界面：歌曲有歌词时，播放条上会出现「歌词」按钮。歌词视图来自 am-ttml：逐词 / 逐行高亮、和声、对唱、翻译与发音、间奏圆点，点击任意一行即可跳转。背景由专辑封面生成流动效果，Esc 收起。
 
 ## 环境要求
 
@@ -140,6 +142,7 @@ src/
   ui/
     home.html / song.html / app.css   页面与样式
     player.js          在线播放器（MSE）
+    lyrics/            歌词界面（ES module）：panel.mjs 接入播放器，其余为 am-ttml 的解析、时间轴、视图与封面背景
     decrypt.js         浏览器端解密：m3u8 解析、Worker 池、模板、下载与 OPFS
     hook-worker.js     Worker：调用 wasm 解密、写入 OPFS
     hook.wasm          crates/am-wasm 的编译产物
