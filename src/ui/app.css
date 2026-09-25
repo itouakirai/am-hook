@@ -437,12 +437,6 @@ body.has-player { padding-bottom: calc(var(--player-height, 110px) + 32px + env(
 .player-lyrics[aria-busy="true"] { opacity: .5; cursor: progress; }
 .player.lyrics-available .player-track { cursor: pointer; }
 body.lyrics-open { overflow: hidden; }
-/* 歌词界面始终是深色，播放条随之使用深色半透明样式 */
-body.lyrics-open .player {
-  --surface-3: rgba(255, 255, 255, .14); --line: rgba(255, 255, 255, .1); --line-strong: rgba(255, 255, 255, .28);
-  --text: #f5f3f1; --muted: rgba(255, 255, 255, .62); --faint: rgba(255, 255, 255, .4); --bg: #101113;
-  color: var(--text); color-scheme: dark; background: rgba(22, 22, 25, .45); box-shadow: 0 18px 50px rgba(0, 0, 0, .3);
-}
 .lyrics-overlay {
   position: fixed; inset: 0; z-index: 9; overflow: hidden; color: #fff; background: #333; color-scheme: dark;
   animation: lyrics-in .35s cubic-bezier(.2, .7, .2, 1);
@@ -452,10 +446,10 @@ body.lyrics-open .player {
 .lyrics-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .lyrics-backdrop[hidden] { display: none; }
 .lyrics-stage {
-  position: relative; height: 100%; display: grid; grid-template-columns: 32vw 40vw; grid-template-rows: minmax(0, 1fr);
-  justify-content: space-between; padding: 0 10vw calc(var(--player-height, 72px) + 24px);
+  position: relative; height: 100%; display: grid; grid-template-columns: 32vw 40vw;
+  grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr); justify-content: space-between; padding: 0 10vw;
 }
-.lyrics-side { align-self: center; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.lyrics-side { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
 .lyrics-art {
   width: min(100%, 44vh); aspect-ratio: 1; object-fit: cover; border-radius: 12px;
   background: rgba(255, 255, 255, .08); box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
@@ -472,7 +466,37 @@ body.lyrics-open .player {
 .lyrics-chip:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
 .lyrics-chip[aria-pressed="true"] { border-color: transparent; background: rgba(255, 255, 255, .9); color: #1b1a19; }
 .lyrics-chip:disabled { display: none; }
-.lyrics-overlay .lyric-panel { display: flex; align-items: center; min-height: 0; mix-blend-mode: plus-lighter; }
+.lyrics-overlay .lyric-panel { grid-column: 2; grid-row: 1 / -1; display: flex; align-items: center; min-height: 0; mix-blend-mode: plus-lighter; }
+/* 打开歌词时播放条并入这里：去掉卡片外观，排成「进度条 / 时间 / 播放控件」三行，与封面同宽 */
+.lyrics-controls { grid-column: 1; grid-row: 3; width: min(100%, 44vh); margin-top: 26px; }
+.lyrics-controls .player {
+  --surface-3: rgba(255, 255, 255, .14); --line: rgba(255, 255, 255, .1); --line-strong: rgba(255, 255, 255, .3);
+  --text: #f5f3f1; --muted: rgba(255, 255, 255, .6); --faint: rgba(255, 255, 255, .4); --bg: #1b1a19;
+  position: static; transform: none; width: 100%; padding: 0; border: 0; border-radius: 0;
+  background: none; backdrop-filter: none; box-shadow: none; color: var(--text); color-scheme: dark;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr); gap: 0 10px; align-items: center;
+}
+.lyrics-controls .player .player-track, .lyrics-controls .player .player-mode { display: none; }
+.lyrics-controls .player .player-center { display: contents; }
+.lyrics-controls .player .seek { grid-row: 1; grid-column: 1 / -1; height: 24px; }
+.lyrics-controls .player .seek-track { height: 4px; background: rgba(255, 255, 255, .18); }
+.lyrics-controls .player .seek-fill { background: rgba(255, 255, 255, .88); }
+.lyrics-controls .player .seek-thumb { background: #fff; }
+.lyrics-controls .player .time { grid-row: 2; min-width: 0; font-size: 11px; color: var(--faint); }
+.lyrics-controls .player .time-cur { grid-column: 1; justify-self: start; text-align: left; }
+.lyrics-controls .player .time-total { grid-column: 5; justify-self: end; text-align: right; }
+.lyrics-controls .player .skip-back { grid-row: 3; grid-column: 2; }
+.lyrics-controls .player .player-toggle { grid-row: 3; grid-column: 3; width: 52px; height: 52px; margin: 8px 6px; background: #f5f3f1; color: #1b1a19; }
+.lyrics-controls .player .player-toggle svg { width: 20px; height: 20px; }
+.lyrics-controls .player .skip-fwd { grid-row: 3; grid-column: 4; }
+.lyrics-controls .player .player-skip { color: rgba(255, 255, 255, .8); }
+/* 歌词按钮在这里由右上角的收起按钮代替；音量单独一行 */
+.lyrics-controls .player .player-lyrics { display: none; }
+.lyrics-controls .player .player-right { grid-row: 4; grid-column: 1 / -1; }
+.lyrics-controls .player .volume { width: 100%; height: 24px; accent-color: #e8e6e3; opacity: .75; }
+/* 播放方式提示（FLAC 转码、EC-3 / Atmos 回退）只在普通播放条显示；播放错误仍显示 */
+.lyrics-controls .player .player-notice { display: none; }
+.lyrics-controls .player .player-msg { grid-row: 5; margin: 4px 0 0; }
 .lyrics-overlay.has-backdrop .lyrics-stage { z-index: 1; }
 .lyrics-close, .lyrics-follow {
   position: absolute; z-index: 2; border: 0; color: #fff; background: rgba(255, 255, 255, .12); backdrop-filter: blur(12px);
@@ -480,12 +504,12 @@ body.lyrics-open .player {
 .lyrics-close { top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
 .lyrics-close svg { width: 22px; height: 22px; }
 .lyrics-close:hover, .lyrics-follow:hover { background: rgba(255, 255, 255, .22); }
-.lyrics-follow { right: 10vw; bottom: calc(var(--player-height, 72px) + 32px); min-height: 36px; padding: 0 16px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.lyrics-follow { right: 10vw; bottom: 32px; min-height: 36px; padding: 0 16px; border-radius: 999px; font-size: 13px; font-weight: 600; }
 .lyrics-follow[hidden] { display: none; }
 @media (min-width: 1680px) { .lyrics-stage { grid-template-columns: 31vw 38vw; padding-inline: 12vw; } }
 @media (min-width: 2000px) { .lyrics-stage { grid-template-columns: 30vw 38vw; padding-inline: 13vw; } }
 @media (max-width: 760px) {
-  .lyrics-stage { display: flex; flex-direction: column; gap: 12px; padding: max(16px, env(safe-area-inset-top)) 20px calc(var(--player-height, 120px) + 16px); }
+  .lyrics-stage { display: flex; flex-direction: column; gap: 12px; padding: max(16px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom)); }
   .lyrics-side { align-self: stretch; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding-right: 52px; }
   .lyrics-art { width: 52px; border-radius: 7px; }
   .lyrics-title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -494,7 +518,9 @@ body.lyrics-open .player {
   .lyrics-chip { min-height: 32px; padding: 0 12px; font-size: 12px; }
   .lyrics-overlay .lyric-panel { flex: 1; }
   .lyrics-overlay .lyric-surface { height: 100%; --font-size: 28px; --row-gap: 32px; }
-  .lyrics-follow { right: 20px; bottom: calc(var(--player-height, 120px) + 24px); }
+  .lyrics-controls { width: 100%; margin-top: 0; }
+  .lyrics-controls .player .player-toggle { width: 56px; height: 56px; margin-block: 4px; }
+  .lyrics-follow { right: 20px; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 136px); }
 }
 @media (prefers-contrast: more) { .lyrics-backdrop { display: none; } }
 @media (prefers-reduced-motion: reduce) {

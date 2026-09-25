@@ -58,6 +58,9 @@ const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.a
           const bar = document.getElementById('player');
           bar.hidden = false;
           document.body.classList.add('has-player');
+          const notice = bar.querySelector('.player-notice');
+          notice.textContent = 'Playback notice';
+          notice.hidden = false;
         });
         await page.locator('.player-lyrics:not([hidden])').waitFor();
         await page.waitForTimeout(300);
@@ -100,8 +103,12 @@ const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.a
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `overflow at ${width}`);
         const panel = await page.locator('.lyric-panel').boundingBox();
         const bar = await page.locator('#player').boundingBox();
-        assert(panel.y + panel.height <= bar.y + 1, 'lyrics must stay above the player bar');
-        if (width === 1440) await page.screenshot({ path: 'target/ui-lyrics.png' });
+        const overlaps = (a, b) => a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1;
+        assert(!overlaps(panel, bar), 'lyrics and the player controls must not overlap');
+        assert(bar.y + bar.height <= 844, 'player controls stay on screen');
+        assert(await page.locator('#lyrics-overlay .lyrics-controls #player').count(), 'the player moves into the lyrics view');
+        assert(await page.locator('.player-notice').isHidden(), 'playback notices are hidden in the lyrics view');
+        await page.screenshot({ path: `target/ui-lyrics-${width}.png` });
 
         await page.keyboard.press('Escape');
         assert(await page.locator('#lyrics-overlay').isHidden());

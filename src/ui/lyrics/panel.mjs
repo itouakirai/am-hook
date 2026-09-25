@@ -14,7 +14,7 @@ import { ArtworkBackdrop } from './backdrop.mjs';
 
 /**
  * root：歌曲页中的 #lyrics-overlay；toggle：播放条上的歌词按钮；bar：播放条，
- * 点击其中非控件区域（封面、标题、空白处）与点击歌词按钮相同。
+ * 点击其中非控件区域（封面、标题、空白处）与点击歌词按钮相同；歌词界面打开时并入 .lyrics-controls。
  * getMeta() 返回当前的 { title, artist, artwork }；t 为界面文案函数；notify 显示提示。
  */
 export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, notify, onLangChange }) {
@@ -32,6 +32,7 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
     },
     labels: () => ({ credits: t('lyrics.credits'), separator: t('lyrics.creditsSeparator'), aiTranslation: t('lyrics.aiTranslation') }),
   });
+  const barHome = document.createComment('player');
   let song = null;
   let request = null;
   let unavailable = false;
@@ -90,6 +91,9 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
   function show() {
     if (!song || open) return;
     open = true;
+    // 播放控件并入歌词界面（桌面在封面下方，手机在底部），关闭时放回原处
+    bar.replaceWith(barHome);
+    $('.lyrics-controls').append(bar);
     root.hidden = false;
     document.body.classList.add('lyrics-open');
     toggle.setAttribute('aria-pressed', 'true');
@@ -112,6 +116,7 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
   function hide() {
     if (!open) return;
     open = false;
+    barHome.replaceWith(bar);
     root.hidden = true;
     document.body.classList.remove('lyrics-open');
     toggle.setAttribute('aria-pressed', 'false');
@@ -172,7 +177,7 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
   bar.classList.add('lyrics-available');
   toggle.addEventListener('click', toggleOpen);
   bar.addEventListener('click', (event) => {
-    if (unavailable || event.target.closest('button, input, a, [role="slider"], .player-msg, .player-notice')) return;
+    if (open || unavailable || event.target.closest('button, input, a, [role="slider"], .player-msg, .player-notice')) return;
     toggleOpen();
   });
   $('.lyrics-close').addEventListener('click', hide);
