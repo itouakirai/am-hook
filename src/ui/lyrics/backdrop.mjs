@@ -100,10 +100,11 @@ export class ArtworkBackdrop {
     if(!image||alpha<=0) return;
     const {width,height}=this.canvas,offset=this.sourcePad;
     const [a,b,c,d]=this.angles;
-    this.drawSprite(image,offset+width/2,offset+height/2,width*1.25,a,alpha);
-    this.drawSprite(image,offset+width/2.5,offset+height/2.5,width*.8,b,alpha);
-    this.drawSprite(image,offset+width/2+width/4*Math.cos(c*.75),offset+height/2+width/4*Math.sin(c*.75),width*.5,-c,alpha);
-    this.drawSprite(image,offset+width/2+width*.1+width/4*Math.cos(d*.75),offset+height/2+width*.1+width/4*Math.sin(d*.75),width*.25,-d,alpha);
+    const msize = Math.max(width,height);
+    this.drawSprite(image,offset+width/2,offset+height/2,msize*1.25,a,alpha);
+    this.drawSprite(image,offset+width/2.5,offset+height/2.5,msize*.8,b,alpha);
+    this.drawSprite(image,offset+width/2+width/4*Math.cos(c*.75),offset+height/2+width/4*Math.sin(c*.75),msize*.5,-c,alpha);
+    this.drawSprite(image,offset+width/2+width*.1+width/4*Math.cos(d*.75),offset+height/2+width*.1+width/4*Math.sin(d*.75),msize*.25,-d,alpha);
   }
 
   twistPixels() {
