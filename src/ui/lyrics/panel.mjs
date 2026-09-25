@@ -39,6 +39,7 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
   let loaded = false;
   let open = false;
   let frame = 0;
+  let lastTimeUpdate = 0;
   let playing = null;
   let artworkSource = '';
   let artworkController = null;
@@ -47,11 +48,16 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
     return player.current ? player.transport().currentTime * 1000 : 0;
   }
 
-  function tick() {
-    const transport = player.current ? player.transport() : null;
-    const now = !!transport && !transport.paused;
-    if (now !== playing) { playing = now; view.setPlaying(now); }
-    view.setTime(currentTime());
+  function tick(timestamp) {
+    // A lyric row only changes a few times per second. Keep the media clock
+    // responsive while avoiding a full row lookup and DOM update on every RAF.
+    if (timestamp-lastTimeUpdate >= 1000/30 || !lastTimeUpdate) {
+      const transport = player.current ? player.transport() : null;
+      const now = !!transport && !transport.paused;
+      if (now !== playing) { playing = now; view.setPlaying(now); }
+      view.setTime(transport ? transport.currentTime*1000 : 0);
+      lastTimeUpdate=timestamp;
+    }
     frame = requestAnimationFrame(tick);
   }
 
@@ -109,6 +115,7 @@ export function mountLyrics({ root, toggle, bar, player, adamId, getMeta, t, not
     view.setTime(currentTime(), { instant: true });
     view.scrollToCurrent(true);
     playing = null;
+    lastTimeUpdate = 0;
     frame = requestAnimationFrame(tick);
     $('.lyrics-close').focus({ preventScroll: true });
   }

@@ -21,12 +21,15 @@ export function displayRows(song) {
 
 export function currentRow(rows, time) {
   const ahead = time + behavior.lineLead;
-  let index = -1;
-  for (let i=0;i<rows.length;i++) {
-    if (rows[i].begin <= ahead && rows[i].end >= ahead) index = i;
+  // Rows are sorted by begin time. The time loop runs continuously while the
+  // lyrics view is open, so avoid scanning the entire song on every frame.
+  let low=0,high=rows.length;
+  while (low<high) {
+    const middle=(low+high)>>>1;
+    if (rows[middle].begin<=ahead) low=middle+1;
+    else high=middle;
   }
-  if (index < 0) index = rows.findIndex(row => ahead < row.begin)-1;
-  return index;
+  return low-1;
 }
 
 export const clamp = value => Math.max(0,Math.min(1,value));

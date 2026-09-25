@@ -21,6 +21,8 @@ export class LyricView {
     this.translation=false;
     this.pronunciation=false;
     this.playing=false;
+    this.dotRow=-1;
+    this.dotDuration=0;
     this.abort=new AbortController();
     const listen=(event,handler)=>container.addEventListener(event,handler,{passive:true,signal:this.abort.signal});
     const intent=()=>{this.intentUntil=performance.now()+behavior.scrollIntentWindow;};
@@ -49,6 +51,7 @@ export class LyricView {
     this.index=-1;
     this.time=0;
     this.activations=new Map();
+    this.dotRow=-1;
     this.element.replaceChildren();
     this.top=node('div','top-spacer');
     this.element.append(this.top);
@@ -231,15 +234,25 @@ export class LyricView {
 
   setPlaying(playing) {this.playing=playing;this.updateDots();}
   updateDots() {
-    this.dom?.forEach((item,index)=>{
-      if (this.rows[index].kind!=='instrumental') return;
-      const row=this.rows[index],dots=item.element.querySelector('.dots');
-      dots.classList.toggle('playing',this.playing);
-      dots.classList.toggle('ending',row.end-this.time>=0&&row.end-this.time<1500);
-      [...dots.children].forEach((dot,i)=>{
-        dot.classList.toggle('reached',this.time>=row.begin+(row.end-row.begin)/3*i&&this.time<row.end);
-        dot.style.transitionDuration=`${(row.end-row.begin)/3}ms`;
-      });
+    const index=this.index;
+    if (this.dotRow!==index) {
+      const previous=this.dom?.[this.dotRow]?.element.querySelector('.dots');
+      previous?.classList.remove('playing','ending');
+      previous?.querySelectorAll('.reached').forEach(dot=>dot.classList.remove('reached'));
+      this.dotRow=index;
+      this.dotDuration=0;
+    }
+    if (!this.dom?.[index] || this.rows[index].kind!=='instrumental') return;
+    const row=this.rows[index],dots=this.dom[index].element.querySelector('.dots');
+    dots.classList.toggle('playing',this.playing);
+    dots.classList.toggle('ending',row.end-this.time>=0&&row.end-this.time<1500);
+    const duration=(row.end-row.begin)/3;
+    if (duration!==this.dotDuration) {
+      dots.querySelectorAll('.dot').forEach(dot=>{dot.style.transitionDuration=`${duration}ms`;});
+      this.dotDuration=duration;
+    }
+    dots.querySelectorAll('.dot').forEach((dot,i)=>{
+      dot.classList.toggle('reached',this.time>=row.begin+duration*i&&this.time<row.end);
     });
   }
 
