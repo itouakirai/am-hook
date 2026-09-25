@@ -59,18 +59,26 @@ const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.a
           bar.hidden = false;
           document.body.classList.add('has-player');
         });
-        for (let i = 0; i < 50 && !lyricRequests.length; i++) await page.waitForTimeout(50);
-        assert.deepEqual(lyricRequests, ['/lyrics/123456789']);
+        await page.locator('.player-lyrics:not([hidden])').waitFor();
+        await page.waitForTimeout(300);
+        assert.deepEqual(lyricRequests, [], 'lyrics are not fetched until requested');
         if (!hasLyrics) {
-          await page.waitForTimeout(300);
-          assert(await page.locator('.player-lyrics').isHidden(), 'no lyrics: button stays hidden');
+          await page.locator('.player-lyrics').click();
+          await page.locator('#toast:not([hidden])').waitFor();
+          assert.equal(await page.locator('#toast').textContent(), '这首歌没有歌词');
+          assert(await page.locator('.player-lyrics').isHidden(), 'no lyrics: button hides');
+          assert(await page.locator('#lyrics-overlay').isHidden());
+          await page.locator('.player-track').click();
+          assert.deepEqual(lyricRequests, ['/lyrics/123456789'], 'the 404 is not refetched');
           assert.deepEqual(errors, []);
           await context.close();
           scenarios++;
           continue;
         }
-        await page.locator('.player-lyrics:not([hidden])').click();
+        // Narrow layout opens from the player bar, wide layout from the button; both fetch once
+        await page.locator(width === 390 ? '.player-track' : '.player-lyrics').click();
         await page.locator('#lyrics-overlay:not([hidden])').waitFor();
+        assert.deepEqual(lyricRequests, ['/lyrics/123456789']);
         assert.equal(await page.locator('.lyric-row').count(), 4, 'three lines and the credits row');
         assert.equal(await page.locator('.lyrics-title').textContent(), 'Lyric song');
         assert.equal(await page.locator('[data-option="pronunciation"]').isDisabled(), true);
@@ -98,6 +106,12 @@ const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.a
         await page.keyboard.press('Escape');
         assert(await page.locator('#lyrics-overlay').isHidden());
         assert(await page.locator('.player-lyrics').evaluate(el => el === document.activeElement), 'focus returns to the lyrics button');
+        await page.locator('.player-track').click();
+        await page.locator('#lyrics-overlay:not([hidden])').waitFor();
+        assert.deepEqual(lyricRequests, ['/lyrics/123456789'], 'reopening uses the cached lyrics');
+        await page.locator('.seek').click();
+        assert(await page.locator('#lyrics-overlay').isVisible(), 'the seek bar seeks instead of toggling lyrics');
+        await page.keyboard.press('Escape');
         assert.deepEqual(errors, []);
         await context.close();
         scenarios++;

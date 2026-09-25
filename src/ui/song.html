@@ -736,12 +736,13 @@
       loadVariants();
       loadStatus();
       AmDecrypt.cleanupStale();
-      // 歌词界面（ES module）：有歌词时在播放条上显示「歌词」按钮
+      // 歌词界面（ES module）：点击「歌词」按钮或播放条时才获取歌词
       import('/assets/lyrics/panel.mjs')
         .then(({ mountLyrics }) => mountLyrics({
           root: $('lyrics-overlay'),
           toggle: $('player').querySelector('.player-lyrics'),
-          player, adamId, t,
+          bar: $('player'),
+          player, adamId, t, notify: toast,
           getMeta: () => meta,
           onLangChange: AmI18n.onChange,
         }))

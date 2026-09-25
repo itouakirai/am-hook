@@ -434,6 +434,8 @@ body.has-player { padding-bottom: calc(var(--player-height, 110px) + 32px + env(
 .player-lyrics svg { width: 19px; height: 19px; }
 .player-lyrics:hover { color: var(--text); background: var(--surface-3); }
 .player-lyrics[aria-pressed="true"] { color: var(--accent); }
+.player-lyrics[aria-busy="true"] { opacity: .5; cursor: progress; }
+.player.lyrics-available .player-track { cursor: pointer; }
 body.lyrics-open { overflow: hidden; }
 /* 歌词界面始终是深色，播放条随之使用深色半透明样式 */
 body.lyrics-open .player {
