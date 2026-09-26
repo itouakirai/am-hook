@@ -6,6 +6,8 @@
 
 默认模式下，**解密完全在浏览器中完成**：服务端只与 wrapper-lite 通信（master 播放列表、解密模板、许可证），媒体数据由浏览器直接从 Apple CDN 获取，并在 Web Worker 中用 WebAssembly 解密，不消耗服务器流量。需要给 VLC、IDM 等外部工具提供歌曲解密地址时，可以用 `--hook` 开启服务端解密代理。
 
+![am-hook 首页](docs/home.zh-CN.png)
+
 ## 快速开始
 
 ```sh

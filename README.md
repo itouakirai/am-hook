@@ -6,6 +6,8 @@ An Apple Music decryption tool written in Rust, covering songs (FairPlay HLS) an
 
 By default **decryption happens entirely in the browser**. The server only talks to wrapper-lite (master playlists, decryption templates, licenses). The browser fetches media straight from Apple's CDN and decrypts it with WebAssembly in Web Workers, so no media traffic goes through the server. When external tools such as VLC or IDM need decrypted song URLs, start the server with `--hook` to enable the server-side decrypting proxy.
 
+![am-hook home page](docs/home.png)
+
 ## Quick Start
 
 ```sh
