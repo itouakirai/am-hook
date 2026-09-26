@@ -60,15 +60,37 @@
 .mv-selection { margin: 4px 0 0; color: var(--muted); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
 .mv-panel > .alert { margin: 14px 16px 0; }
 
-.mv-tracks { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 12px 12px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.mv-tracks { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 16px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .mv-tracks fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
-.mv-tracks fieldset + fieldset { margin-top: 6px; }
+.mv-tracks fieldset + fieldset { margin-top: 4px; }
 .mv-tracks legend {
   width: 100%; padding: 12px 8px 8px; display: flex; align-items: center; gap: 8px;
   color: var(--faint); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase;
 }
 .mv-count { min-width: 20px; height: 18px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--surface-3); color: var(--muted); font: 10px var(--mono); letter-spacing: 0; }
-.mv-options { display: grid; gap: 4px; }
+/* 下拉：收起时只显示当前选中的规格，点开后在下方就地展开全部轨道 */
+.mv-trigger {
+  width: 100%; min-height: 58px; padding: 8px 12px 8px 8px; display: grid; grid-template-columns: minmax(0, 1fr) 18px; gap: 10px; align-items: center;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); text-align: left;
+  transition: border-color .15s ease, background .15s ease;
+}
+.mv-trigger:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-3); }
+.mv-trigger[aria-expanded="true"] { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--surface-3); }
+.mv-trigger:disabled { cursor: default; opacity: .6; }
+.mv-trigger > svg { width: 18px; height: 18px; color: var(--muted); transition: transform .18s ease; }
+.mv-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); color: var(--accent); }
+.mv-trigger-value { min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: center; }
+.mv-trigger-value .mv-tag { border-color: transparent; background: var(--accent); color: #fff; }
+.mv-trigger-value strong { display: block; font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-trigger-value small { display: block; margin-top: 2px; color: var(--muted); font: 11px/1.5 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-trigger-value .badge { height: 20px; margin: 6px 6px 0 0; font-size: 10px; }
+.mv-trigger-empty { grid-column: 1 / -1; padding: 0 6px; color: var(--muted); font-size: 12px; }
+.mv-options {
+  margin-top: 6px; padding: 4px; display: grid; gap: 2px; max-height: min(40vh, 360px); overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px -18px rgba(0, 0, 0, .5);
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; animation: menu-in .12s ease-out;
+}
+.mv-options[hidden] { display: none; }
 
 .mv-option {
   position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr) 18px; gap: 12px; align-items: center;
@@ -96,7 +118,7 @@
 .mv-option input:checked { border-color: var(--accent); box-shadow: inset 0 0 0 4px var(--surface), inset 0 0 0 9px var(--accent); }
 .mv-tracks fieldset:disabled .mv-option { opacity: .55; cursor: default; }
 .mv-tracks fieldset:disabled .mv-option:hover { background: none; }
-.mv-empty { margin: 4px 8px 8px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; text-align: center; }
+.mv-empty { margin: 4px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; text-align: center; }
 
 /* 底部操作坞 */
 .mv-dock { padding: 16px 20px 18px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
@@ -142,8 +164,10 @@
   .mv-info { grid-template-columns: auto minmax(0, 1fr); gap: 14px; margin-top: 18px; }
   .mv-thumb { width: 56px; height: 56px; }
   .mv-apple { grid-column: 1 / -1; justify-self: start; }
-  .mv-tracks { grid-template-columns: minmax(0, 1fr); padding-inline: 8px; }
-  .mv-tracks fieldset + fieldset { margin-top: 6px; }
+  .mv-tracks { grid-template-columns: minmax(0, 1fr); padding-inline: 12px; }
+  .mv-tracks fieldset + fieldset { margin-top: 4px; }
+  /* 展开时整体滚入视口，并让出底部吸附的操作坞 */
+  .mv-options { max-height: 55vh; scroll-margin-bottom: calc(150px + env(safe-area-inset-bottom)); }
   .mv-panel-head { padding: 16px 16px 12px; }
   /* 手机上操作坞吸附在视口底部，挑选轨道时播放/下载始终可点 */
   .mv-dock {
@@ -156,8 +180,10 @@
 @media (max-width: 360px) {
   .mv-actions { grid-template-columns: minmax(0, 1fr); }
   .mv-option { grid-template-columns: 44px minmax(0, 1fr) 18px; gap: 10px; }
+  .mv-trigger-value { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mv-ambient, .mv-screen-play, .mv-option { transition: none; }
+  .mv-ambient, .mv-screen-play, .mv-option, .mv-trigger, .mv-trigger > svg { transition: none; }
+  .mv-options { animation: none; }
   .mv-state-dot { animation: none !important; }
 }

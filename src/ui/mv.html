@@ -42,8 +42,14 @@
         </div>
         <div id="error" class="alert error" role="alert" hidden></div>
         <div class="mv-tracks">
-          <fieldset id="video-tracks" disabled><legend><span data-i18n="mv.video"></span><span class="mv-count" id="video-count">—</span></legend><div class="mv-options" id="videos"><p class="mv-empty" data-i18n="mv.loading"></p></div></fieldset>
-          <fieldset id="audio-tracks" disabled><legend><span data-i18n="mv.audio"></span><span class="mv-count" id="audio-count">—</span></legend><div class="mv-options" id="audios"><p class="mv-empty" data-i18n="mv.loading"></p></div></fieldset>
+          <fieldset id="video-tracks" class="mv-select" disabled><legend><span data-i18n="mv.video"></span><span class="mv-count" id="video-count">—</span></legend>
+            <button id="video-trigger" class="mv-trigger" type="button" aria-expanded="false" aria-controls="videos"><span class="mv-trigger-value" id="video-value"><span class="mv-trigger-empty" data-i18n="mv.loading"></span></span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="mv-options" id="videos" hidden><p class="mv-empty" data-i18n="mv.loading"></p></div>
+          </fieldset>
+          <fieldset id="audio-tracks" class="mv-select" disabled><legend><span data-i18n="mv.audio"></span><span class="mv-count" id="audio-count">—</span></legend>
+            <button id="audio-trigger" class="mv-trigger" type="button" aria-expanded="false" aria-controls="audios"><span class="mv-trigger-value" id="audio-value"><span class="mv-trigger-empty" data-i18n="mv.loading"></span></span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="mv-options" id="audios" hidden><p class="mv-empty" data-i18n="mv.loading"></p></div>
+          </fieldset>
         </div>
         <div class="mv-dock">
           <div class="mv-actions">

@@ -19,6 +19,7 @@ function controls() {
   $('download').disabled = !master || busy;
   $('screen-play').disabled = !master || busy; $('screen-play').hidden = !!playback;
   $('video-tracks').disabled = busy; $('audio-tracks').disabled = busy;
+  if (busy) setOpen(null, false);
   $('cancel').hidden = !busy;
 }
 function stopPlayback() { playback?.stop(); playback = null; $('screen-play').hidden = false; }
@@ -40,10 +41,13 @@ function audioTag(track) {
 function audioCodec(codec) {
   return /^mp4a/.test(codec) ? 'AAC' : /^ec-3/.test(codec) ? 'E-AC-3' : /^ac-3/.test(codec) ? 'AC-3' : /^ac-4/.test(codec) ? 'AC-4' : codec || '—';
 }
-function option(track, video) {
-  const label = document.createElement('label'); label.className = 'mv-option';
-  const input = document.createElement('input'); input.type = 'radio'; input.name = video ? 'video' : 'audio';
-  input.checked = track === (video ? selectedVideo : selectedAudio);
+// 同名音轨（Apple 常见多条 "English"）用 GROUP-ID 末尾的码率区分
+function audioName(track) {
+  const name = track.NAME || track.LANGUAGE || 'Audio', kbps = track['GROUP-ID']?.match(/-(\d+)$/)?.[1];
+  return kbps && master.audios.filter(a => (a.NAME || a.LANGUAGE || 'Audio') === name).length > 1 ? `${name} · ${kbps} kbps` : name;
+}
+// 一条轨道的展示内容：左侧规格标签 + 标题/参数/徽标；下拉触发按钮与选项共用
+function describe(track, video) {
   const tag = document.createElement('span'); tag.className = 'mv-tag';
   const text = document.createElement('span'), heading = document.createElement('strong'), detail = document.createElement('small');
   text.className = 'mv-option-body';
@@ -57,27 +61,60 @@ function option(track, video) {
     if (!supported) text.append(badge(t('mv.downloadOnly'), 'warn'));
   } else {
     tag.textContent = audioTag(track);
-    heading.textContent = track.NAME || track.LANGUAGE || 'Audio';
+    heading.textContent = audioName(track);
     detail.textContent = `${audioCodec(track.codec)} · ${track.CHANNELS || '—'} ${t('mv.channels')} · ${track['GROUP-ID']}`;
     if (track === recommendedAudio(selectedVideo, master.audios)) text.append(badge(t('mv.recommended'), 'accent'));
   }
+  text.prepend(heading, detail); return [tag, text];
+}
+function option(track, video) {
+  const kind = video ? 'video' : 'audio';
+  const label = document.createElement('label'); label.className = 'mv-option';
+  const input = document.createElement('input'); input.type = 'radio'; input.name = kind;
+  input.checked = track === (video ? selectedVideo : selectedAudio);
+  // 鼠标/触摸点选后收起；方向键切换（detail 为 0）保持展开，便于连续浏览
+  label.addEventListener('click', e => { if (e.detail > 0) setOpen(kind, false); });
   input.addEventListener('change', () => {
     stopPlayback();
     if (video) { selectedVideo = track; selectedAudio = recommendedAudio(track, master.audios); }
     else selectedAudio = track;
     renderTracks();
-    $(video ? 'videos' : 'audios').querySelector('input:checked')?.focus();
+    if ($(`${kind}s`).hidden) $(`${kind}-trigger`).focus();
+    else $(`${kind}s`).querySelector('input:checked')?.focus();
     status('mv.ready');
   });
-  text.prepend(heading, detail); label.append(tag, text, input); return label;
+  label.append(...describe(track, video), input); return label;
 }
+// 两个轨道下拉：同一时间只展开一个
+function setOpen(kind, open) {
+  for (const k of ['video', 'audio']) {
+    const on = k === kind && open;
+    $(`${k}-trigger`).setAttribute('aria-expanded', String(on)); $(`${k}s`).hidden = !on;
+  }
+  if (open) {
+    const list = $(`${kind}s`), checked = list.querySelector('input:checked');
+    checked?.focus({ preventScroll: true });
+    list.scrollIntoView({ block: 'nearest' }); checked?.closest('.mv-option')?.scrollIntoView({ block: 'nearest' });
+  }
+}
+for (const kind of ['video', 'audio']) {
+  $(`${kind}-trigger`).addEventListener('click', () => setOpen(kind, $(`${kind}s`).hidden));
+  $(`${kind}s`).addEventListener('keydown', e => {
+    if (e.key !== 'Escape' && e.key !== 'Enter') return;
+    e.preventDefault(); setOpen(kind, false); $(`${kind}-trigger`).focus();
+  });
+}
+document.addEventListener('pointerdown', e => { if (!e.target.closest?.('.mv-select')) setOpen(null, false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(null, false); });
 function renderTracks() {
   if (!master) return;
   $('videos').replaceChildren(...master.videos.map(v => option(v, true)));
   $('audios').replaceChildren(...master.audios.map(a => option(a, false)));
+  $('video-value').replaceChildren(...describe(selectedVideo, true));
+  $('audio-value').replaceChildren(...describe(selectedAudio, false));
   $('video-count').textContent = master.videos.length;
   $('audio-count').textContent = master.audios.length;
-  $('selection').textContent = [selectedVideo.RESOLUTION, videoRange(selectedVideo) || 'SDR', selectedAudio.NAME || selectedAudio.codec].filter(Boolean).join(' · ');
+  $('selection').textContent = [selectedVideo.RESOLUTION, videoRange(selectedVideo) || 'SDR', audioName(selectedAudio) || selectedAudio.codec].filter(Boolean).join(' · ');
 }
 async function metadata() {
   try {
@@ -147,5 +184,8 @@ load().catch(e => {
     const message = document.createElement('p'); message.className = 'mv-empty';
     message.dataset.i18n = 'mv.unavailable'; message.textContent = t('mv.unavailable');
     $(name).replaceChildren(message);
+    const empty = document.createElement('span'); empty.className = 'mv-trigger-empty';
+    empty.dataset.i18n = 'mv.unavailable'; empty.textContent = t('mv.unavailable');
+    $(`${name.slice(0, -1)}-value`).replaceChildren(empty);
   }
 });
