@@ -11,26 +11,39 @@
 <body>
   <div class="page mv-page">
     <header class="topbar">
-      <a class="brand" href="/"><span class="brand-name">am-hook <small>MV</small></span></a>
-      <div class="topbar-right"><a href="/" data-i18n="nav.home"></a><button class="btn lang-btn" type="button" data-lang-toggle><span class="lang-label"></span></button></div>
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span><span class="brand-name">am-hook</span></a>
+      <div class="topbar-right"><button class="btn lang-btn" type="button" data-lang-toggle><span class="lang-label"></span></button><a class="btn" href="/" data-i18n="nav.home"></a></div>
     </header>
     <main>
-      <section class="mv-heading"><img id="artwork" alt="" hidden><div><p class="eyebrow">APPLE MUSIC VIDEO</p><h1 id="title">MV</h1><p id="artist"></p></div></section>
-      <div class="mv-screen"><video id="video" controls playsinline preload="none"></video></div>
-      <div class="mv-actions">
-        <button id="play" class="btn btn-primary" disabled data-i18n="mv.play"></button>
-        <button id="download" class="btn" disabled data-i18n="mv.download"></button>
-        <button id="cancel" class="btn" hidden data-i18n="mv.cancel"></button>
-        <a id="save" class="btn" hidden data-i18n="mv.save"></a>
-      </div>
-      <p id="status" role="status" aria-live="polite"></p>
-      <progress id="progress" max="1" value="0" hidden></progress>
+      <section class="song mv-heading" aria-labelledby="title">
+        <div class="mv-cover"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/></svg><img id="artwork" alt="" hidden></div>
+        <div class="song-info">
+          <p class="eyebrow">MUSIC VIDEO</p><h1 class="song-title" id="title">MV</h1><p class="song-sub" id="artist"></p>
+          <div class="song-meta" id="meta"></div>
+          <div class="song-actions mv-actions">
+            <button id="play" class="btn btn-primary" type="button" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 14 8-14 8z"/></svg><span data-i18n="mv.play"></span></button>
+            <button id="download" class="btn" type="button" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></svg><span data-i18n="mv.download"></span></button>
+            <a id="apple-link" class="btn" target="_blank" rel="noreferrer" hidden>Apple Music ↗</a>
+          </div>
+        </div>
+      </section>
+      <section class="mv-viewer" aria-labelledby="viewer-title">
+        <div class="mv-section-head"><h2 id="viewer-title" data-i18n="mv.preview"></h2><span class="mv-selection" id="selection"></span></div>
+        <div class="mv-screen"><video id="video" controls playsinline preload="none" data-i18n-attr="aria-label=mv.preview"></video></div>
+        <div class="mv-feedback">
+          <div class="mv-status-row"><span class="mv-state-dot" aria-hidden="true"></span><p id="status" role="status" aria-live="polite"></p><button id="cancel" class="btn" type="button" hidden data-i18n="mv.cancel"></button><a id="save" class="btn" hidden data-i18n="mv.save"></a></div>
+          <progress id="progress" max="1" value="0" hidden data-i18n-attr="aria-label=mv.download"></progress>
+        </div>
+      </section>
       <div id="error" class="alert error" role="alert" hidden></div>
-      <p class="hint" data-i18n="mv.hint"></p>
-      <div class="mv-tracks">
-        <fieldset id="video-tracks"><legend data-i18n="mv.video"></legend><div id="videos"></div></fieldset>
-        <fieldset id="audio-tracks"><legend data-i18n="mv.audio"></legend><div id="audios"></div></fieldset>
-      </div>
+      <section class="mv-quality" aria-labelledby="quality-title">
+        <div class="mv-section-head"><h2 id="quality-title" data-i18n="mv.quality"></h2><span class="badge" data-i18n="mv.custom"></span></div>
+        <p class="hint" data-i18n="mv.hint"></p>
+        <div class="mv-tracks">
+          <fieldset id="video-tracks" disabled><legend><span data-i18n="mv.video"></span><span class="mv-count" id="video-count">—</span></legend><div id="videos"><p class="mv-empty" data-i18n="mv.loading"></p></div></fieldset>
+          <fieldset id="audio-tracks" disabled><legend><span data-i18n="mv.audio"></span><span class="mv-count" id="audio-count">—</span></legend><div id="audios"><p class="mv-empty" data-i18n="mv.loading"></p></div></fieldset>
+        </div>
+      </section>
     </main>
     <footer class="footer"><span data-i18n="footer.tagline"></span><span data-i18n="footer.note"></span></footer>
   </div>

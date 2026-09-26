@@ -15,6 +15,11 @@
 
   const dict = {
     zh: {
+      "mv.preview": "视频预览",
+      "mv.quality": "画质与音轨",
+      "mv.custom": "自由组合",
+      "mv.unavailable": "暂无可用轨道",
+      "mv.failed": "MV 加载失败",
       "mv.play": "播放所选轨道",
       "mv.download": "下载 MP4",
       "mv.cancel": "取消",
@@ -157,6 +162,11 @@
       'err.segmentLength': '分段长度不符（{got}/{want}）',
     },
     en: {
+      "mv.preview": "Video preview",
+      "mv.quality": "Video & audio quality",
+      "mv.custom": "Mix & match",
+      "mv.unavailable": "No tracks available",
+      "mv.failed": "Unable to load music video",
       "mv.play": "Play selected tracks",
       "mv.download": "Download MP4",
       "mv.cancel": "Cancel",

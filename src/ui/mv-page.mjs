@@ -15,6 +15,9 @@ function controls() {
   $('cancel').hidden = !busy;
 }
 function stopPlayback() { playback?.stop(); playback = null; }
+function badge(text, kind = '') {
+  const node = document.createElement('span'); node.className = `badge ${kind}`; node.textContent = text; return node;
+}
 function option(track, video) {
   const label = document.createElement('label'); label.className = 'mv-option';
   const input = document.createElement('input'); input.type = 'radio'; input.name = video ? 'video' : 'audio';
@@ -23,23 +26,30 @@ function option(track, video) {
   if (video) {
     heading.textContent = `${track.RESOLUTION} · ${(Number(track.BANDWIDTH) / 1e6).toFixed(2)} Mbps`;
     const supported = globalThis.MediaSource?.isTypeSupported(mime(track, true));
-    detail.textContent = `${track.CODECS.split(',')[0]} · ${track['FRAME-RATE'] || '—'} fps · ${track['VIDEO-RANGE'] || 'SDR'}${supported ? '' : ' · ' + t('mv.downloadOnly')}`;
+    detail.textContent = `${track.CODECS.split(',')[0]} · ${track['FRAME-RATE'] || '—'} fps · ${track['VIDEO-RANGE'] || 'SDR'}`;
+    if (!supported) text.append(badge(t('mv.downloadOnly'), 'warn'));
   } else {
-    heading.textContent = `${track.NAME || track.LANGUAGE || 'Audio'} · ${track['GROUP-ID']}`;
-    detail.textContent = `${track.codec || '—'} · ${track.CHANNELS || '—'} ${t('mv.channels')}${track === recommendedAudio(selectedVideo, master.audios) ? ' · ' + t('mv.recommended') : ''}`;
+    heading.textContent = track.NAME || track.LANGUAGE || 'Audio';
+    detail.textContent = `${track.codec || '—'} · ${track.CHANNELS || '—'} ${t('mv.channels')} · ${track['GROUP-ID']}`;
+    if (track === recommendedAudio(selectedVideo, master.audios)) text.append(badge(t('mv.recommended'), 'accent'));
   }
   input.addEventListener('change', () => {
     stopPlayback();
     if (video) { selectedVideo = track; selectedAudio = recommendedAudio(track, master.audios); }
     else selectedAudio = track;
-    renderTracks(); status('mv.ready');
+    renderTracks();
+    $(video ? 'videos' : 'audios').querySelector('input:checked')?.focus();
+    status('mv.ready');
   });
-  text.append(heading, detail); label.append(input, text); return label;
+  text.prepend(heading, detail); label.append(input, text); return label;
 }
 function renderTracks() {
   if (!master) return;
   $('videos').replaceChildren(...master.videos.map(v => option(v, true)));
   $('audios').replaceChildren(...master.audios.map(a => option(a, false)));
+  $('video-count').textContent = master.videos.length;
+  $('audio-count').textContent = master.audios.length;
+  $('selection').textContent = [selectedVideo.RESOLUTION, selectedVideo['VIDEO-RANGE'] || 'SDR', selectedAudio.NAME || selectedAudio.codec].filter(Boolean).join(' · ');
 }
 async function metadata() {
   try {
@@ -49,9 +59,13 @@ async function metadata() {
     if (!item) return;
     title = item.trackName || title; artist = item.artistName || '';
     $('title').textContent = title; $('artist').textContent = artist; document.title = `${title} · am-hook MV`;
+    const seconds = Math.floor(Number(item.trackTimeMillis) / 1000);
+    $('meta').replaceChildren(...[item.releaseDate?.slice(0, 4), item.primaryGenreName,
+      seconds > 0 ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '', `ID ${id}`].filter(Boolean).map(value => badge(value)));
     if (item.artworkUrl100) {
       const art = item.artworkUrl100.replace('100x100bb', '600x600bb');
       $('artwork').src = art; $('artwork').hidden = false; $('video').poster = art;
+      $('artwork').onerror = () => { $('artwork').hidden = true; };
     }
     try {
       const old = JSON.parse(localStorage.getItem('am-hook:recent') || '[]');
@@ -90,8 +104,18 @@ AmI18n.apply(); status(statusKey);
 async function load() {
   if (!id) throw new Error('Invalid music video ID');
   $('title').textContent = title; void metadata();
+  $('meta').replaceChildren(badge(`ID ${id}`));
+  $('apple-link').href = `https://music.apple.com/${country}/music-video/_/${id}`;
+  $('apple-link').hidden = false;
   const { masterUrl, masterBody } = await fetchMaster(id, pageController.signal);
   master = parseMaster(masterBody, masterUrl); selectedVideo = master.videos[0]; selectedAudio = recommendedAudio(selectedVideo, master.audios);
   renderTracks(); controls(); status('mv.ready');
 }
-load().catch(error);
+load().catch(e => {
+  error(e); status('mv.failed');
+  for (const name of ['videos', 'audios']) {
+    const message = document.createElement('p'); message.className = 'mv-empty';
+    message.dataset.i18n = 'mv.unavailable'; message.textContent = t('mv.unavailable');
+    $(name).replaceChildren(message);
+  }
+});
