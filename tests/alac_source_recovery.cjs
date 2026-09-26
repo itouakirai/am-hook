@@ -66,7 +66,7 @@ const origin = process.env.AM_HOOK_URL || 'http://127.0.0.1:8888';
         for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192));
         return btoa(s);
       };
-      const data = await (await fetch('/parse/1691044818')).json();
+      const data = await (await fetch('/parse/song/1691044818')).json();
       if (!data.hook) throw new Error('This test requires --hook');
       const url = new URL(data.variants.find(v => v.codecs === 'alac').uri, data.masterUrl).href;
       const track = await AmDecrypt.openTrack(url);

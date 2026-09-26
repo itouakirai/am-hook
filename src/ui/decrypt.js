@@ -1,7 +1,7 @@
 /*
  * am-hook 浏览器端解密
  *
- * 服务端只提供 master m3u8（/parse）与轨道解密模板（/key），其余全部在浏览器完成：
+ * 服务端只提供 master m3u8（/parse/song）与轨道解密模板（/key），其余全部在浏览器完成：
  *   - media m3u8 与分片直接从 Apple CDN 获取（aod.itunes.apple.com 允许跨域 + Range）；
  *   - 解密在 Worker 池中由 hook.wasm（crates/am-wasm）完成，不阻塞页面；
  *   - 下载时解密结果按原始偏移写入 OPFS 文件，完成后以磁盘文件交给浏览器保存，

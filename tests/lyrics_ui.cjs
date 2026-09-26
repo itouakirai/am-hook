@@ -33,7 +33,7 @@ const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.a
           const url = new URL(route.request().url());
           if (url.hostname === 'itunes.apple.com') return route.fulfill({ json: { results: [{ trackName: 'Lyric song', artistName: 'Artist' }] } });
           if (url.pathname === '/status') return route.fulfill({ json: { code: 0, regions: ['us'] } });
-          if (url.pathname.startsWith('/parse/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', hook: false, variants } });
+          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', hook: false, variants } });
           if (url.pathname.startsWith('/lyrics/')) {
             lyricRequests.push(url.pathname);
             return hasLyrics

@@ -601,7 +601,7 @@
       $('reparse').disabled = true;
       showAlert('info', () => t('song.loading'));
       try {
-        const res = await fetch(`/parse/${adamId}`);
+        const res = await fetch(`/parse/song/${adamId}`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || t('song.parseFailedHttp', { status: res.status }));
         const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);

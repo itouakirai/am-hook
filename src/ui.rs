@@ -357,8 +357,8 @@ pub async fn parse_handler(
         .map(str::to_owned)
         .or_else(|| base_url_from_headers(&headers));
     let mut target = match base_url.as_deref().filter(|value| !value.is_empty()) {
-        Some(base_url) => format!("{base_url}/parse/{adam_id}"),
-        None => format!("/parse/{adam_id}"),
+        Some(base_url) => format!("{base_url}/parse/song/{adam_id}"),
+        None => format!("/parse/song/{adam_id}"),
     };
     if let Some(query) = uri.query() {
         target.push('?');

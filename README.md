@@ -116,7 +116,7 @@ Box handling shared by both modes: FairPlay metadata boxes (`sinf`, `senc`, `sai
 | `GET /https://music.apple.com/<cc>/song/<slug>/<id>` | Song page |
 | `GET /https://music.apple.com/<cc>/music-video/<slug>/<id>` | MV page |
 | `GET /status` | wrapper-lite status and available regions |
-| `GET /parse/<adamId>` | Song master m3u8 via wrapper-lite, returned as variants |
+| `GET /parse/song/<adamId>` | Song master m3u8 via wrapper-lite, returned as variants |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | Song track decryption template JSON from wrapper-lite `/key` |
 | `GET /lyrics/<adamId>` | TTML lyrics from wrapper-lite `/lyrics`, XML unchanged; 404 when the song has none |
 | `GET /parse/mv/<adamId>` | MV master playlist text and final CDN URL |

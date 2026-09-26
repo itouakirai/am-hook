@@ -20,7 +20,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(ui::home_handler))
         .route("/status", get(ui::status_handler))
         .route("/parse", post(ui::parse_handler))
-        .route("/parse/:adam_id", get(ui::master_handler))
+        .route("/parse/song/:adam_id", get(ui::master_handler))
         .route("/parse/mv/:adam_id", get(ui::mv_master_handler))
         .route("/key", get(ui::key_handler))
         .route("/mv/webplayback/:adam_id", get(ui::mv_webplayback_handler))

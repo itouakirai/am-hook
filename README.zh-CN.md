@@ -116,7 +116,7 @@ http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
 | `GET /https://music.apple.com/<cc>/song/<slug>/<id>` | 歌曲页 |
 | `GET /https://music.apple.com/<cc>/music-video/<slug>/<id>` | MV 页 |
 | `GET /status` | wrapper-lite 状态与可用地区 |
-| `GET /parse/<adamId>` | 通过 wrapper-lite 获取歌曲 master m3u8，返回各音质变体 |
+| `GET /parse/song/<adamId>` | 通过 wrapper-lite 获取歌曲 master m3u8，返回各音质变体 |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | 转发 wrapper-lite `/key` 返回的歌曲轨道解密模板 JSON |
 | `GET /lyrics/<adamId>` | 通过 wrapper-lite `/lyrics` 获取 TTML 歌词，原样返回 XML；没有歌词时返回 404 |
 | `GET /parse/mv/<adamId>` | MV master 播放列表文本与最终 CDN 地址 |
