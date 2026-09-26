@@ -24,6 +24,112 @@ pub async fn home_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/html; charset=utf-8", include_bytes!("ui/home.html"))
 }
 
+pub async fn mv_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(
+        &headers,
+        "text/html; charset=utf-8",
+        include_bytes!("ui/mv.html"),
+    )
+}
+
+pub async fn mv_asset_handler(
+    headers: HeaderMap,
+    axum::extract::Path(file): axum::extract::Path<String>,
+) -> Response<Body> {
+    let (mime, body): (&str, &[u8]) = match file.as_str() {
+        "page.mjs" => ("text/javascript", include_bytes!("ui/mv-page.mjs")),
+        "hls.mjs" => ("text/javascript", include_bytes!("ui/mv-hls.mjs")),
+        "engine.mjs" => ("text/javascript", include_bytes!("ui/mv-engine.mjs")),
+        "captions.mjs" => ("text/javascript", include_bytes!("ui/mv-captions.mjs")),
+        "cea608.mjs" => ("text/javascript", include_bytes!("ui/mv-cea608.mjs")),
+        "worker.js" => ("text/javascript", include_bytes!("ui/mv-worker.js")),
+        "go.js" => ("text/javascript", include_bytes!("ui/mv-go.js")),
+        "core.wasm" => ("application/wasm", include_bytes!("ui/mv-core.wasm")),
+        "style.css" => ("text/css", include_bytes!("ui/mv.css")),
+        _ => return bad_request("Unknown MV asset"),
+    };
+    static_response(&headers, mime, body)
+}
+
+/// MV control plane only: never fetch manifests, segments or extract keys here.
+pub async fn mv_webplayback_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response<Body> {
+    if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return bad_request("Invalid adamId");
+    }
+    mv_forward(
+        state
+            .http_client
+            .get(format!("{}/webplayback", state.config.wrapper_url))
+            .query(&[("adamId", id)]),
+    )
+    .await
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct MvLicenseRequest {
+    #[serde(rename = "adamId")]
+    adam_id: String,
+    challenge: String,
+    uri: String,
+    #[serde(rename = "drm-type")]
+    drm_type: String,
+}
+
+pub async fn mv_license_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Json(body): axum::Json<MvLicenseRequest>,
+) -> Response<Body> {
+    if body.adam_id.is_empty()
+        || body.adam_id.len() > 20
+        || !body.adam_id.bytes().all(|b| b.is_ascii_digit())
+        || body.drm_type != "pr"
+        || body.challenge.is_empty()
+        || body.challenge.len() > 256 * 1024
+        || !body.uri.starts_with("data:")
+        || body.uri.len() > 64 * 1024
+    {
+        return bad_request("Invalid PlayReady license request");
+    }
+    mv_forward(
+        state
+            .http_client
+            .post(format!("{}/license", state.config.wrapper_url))
+            .json(&body),
+    )
+    .await
+}
+
+async fn mv_forward(request: reqwest::RequestBuilder) -> Response<Body> {
+    match request
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            match response.bytes().await {
+                Ok(body) => Response::builder()
+                    .status(status)
+                    .header(CONTENT_TYPE, "application/json")
+                    .header(axum::http::header::CACHE_CONTROL, "no-store")
+                    .body(Body::from(body))
+                    .unwrap(),
+                Err(_) => json_response(
+                    StatusCode::BAD_GATEWAY,
+                    json!({"code":1,"msg":"Failed to read wrapper-lite response"}),
+                ),
+            }
+        }
+        Err(_) => json_response(
+            StatusCode::BAD_GATEWAY,
+            json!({"code":1,"msg":"wrapper-lite request failed"}),
+        ),
+    }
+}
+
 pub async fn css_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/css; charset=utf-8", include_bytes!("ui/app.css"))
 }

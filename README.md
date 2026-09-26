@@ -1,5 +1,41 @@
 # am-hook
 
+## Music videos in the browser
+
+Paste an Apple Music `music-video` link on the home page, or open
+`/mv/1794822079?country=cn`. Video and audio tracks appear in separate columns.
+The highest bitrate video and its recommended default audio are selected.
+Changing the video updates the audio selection; audio can also be chosen manually.
+
+For MVs the server only relays `/mv/webplayback/:adam_id` to wrapper-lite's
+`/webplayback` and `/mv/license` to `/license` (PlayReady only). The browser fetches
+iTunes metadata, playlists and media directly from Apple. Challenges, license
+parsing, CENC/CBCS decryption and fragmented MP4 muxing run in a browser Worker/WASM.
+`--hook` does not proxy MV resources.
+
+Playback uses MediaSource with seeking and bounded buffering. Unsupported codecs
+remain available for download; choose AVC/AAC for broader playback compatibility.
+Independent CEA-608 caption tracks are decoded into native browser text tracks.
+The first caption track is shown by default; use the video's subtitle menu to
+disable or switch captions.
+Downloads stream decrypted, interleaved fragments to OPFS without buffering the
+entire MV in memory. There is no defragmentation, transcoding or tag writing.
+Completion triggers a download and exposes a Save MP4 link. Cancellation and
+failure remove partial files; leaving the page attempts to remove the completed
+temporary file. A browser crash may leave files in site storage.
+
+A modern browser with WASM, Workers, MediaSource and OPFS is required. OPFS needs
+HTTPS or localhost and sufficient disk space; CDN requests require CORS support.
+License errors are displayed without falling back to another DRM. Live playlists,
+discontinuities and changing initialization segments are currently unsupported.
+
+Prebuilt assets are embedded; normal Rust builds do not require Go. After changing
+the core, run `python scripts/build-mv-wasm.py` with Go 1.22+ to rebuild WASM and
+the matching JS runtime. See [source and dependency notes](browser/mvcore/README.md).
+Offline checks: `node tests/mv_hls.cjs` and `cargo test --test mv_api`.
+[tests/mv_live.cjs](tests/mv_live.cjs) verifies real playback, seeking, OPFS cancellation
+and download with a running am-hook/wrapper-lite and Apple CDN access.
+
 [中文](README.zh-CN.md) | English
 
 An Apple Music FairPlay HLS decryption tool written in Rust. By default **decryption happens entirely in the browser**: the server only provides the master m3u8 and per-track decryption templates, while the browser fetches audio straight from Apple's CDN and decrypts it with WebAssembly in Web Workers, so no media traffic goes through the server. When external tools such as VLC or IDM need decrypted URLs, start the server with `--hook` to enable the server-side decrypting proxy.

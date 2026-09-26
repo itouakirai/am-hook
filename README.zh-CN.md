@@ -1,5 +1,35 @@
 # am-hook
 
+## MV 浏览器播放与下载
+
+首页支持 Apple Music `music-video` 链接，也可直接打开
+`/mv/1794822079?country=cn`。视频、音频规格分列显示，默认选择最高码率视频和其
+音频组中的默认音轨；切换视频会更新推荐音轨，也可手动选择音频。
+
+MV 后端仅将 `/mv/webplayback/:adam_id` 转发到 wrapper-lite `/webplayback`，
+将 `/mv/license` 转发到 `/license`（只使用 PlayReady）。展示信息由浏览器通过
+iTunes lookup 获取；所有 m3u8 和分片均由浏览器直连 Apple CDN。challenge 构建、
+license 解析、CENC/CBCS 解密和 MP4 合并在浏览器 Worker/WASM 中完成，
+`--hook` 不提供 MV 资源代理。
+
+播放使用 MediaSource，支持进度跳转和有限缓冲。不支持的编码仍可下载；可选择
+兼容的 AVC/AAC 轨道播放。视频内独立的 CEA-608 字幕轨由前端解码为浏览器字幕，
+默认显示首条字幕，可通过视频原生字幕菜单关闭或切换。下载逐段解密、按时间交错合并写入 OPFS，输出 fragmented
+MP4，不进行 defrag、转码或写 tag，不在内存中拼接整部 MV。完成后自动触发保存，
+也可点击“保存 MP4”；取消或失败会清理临时文件，离开页面时尝试清理已完成文件。
+
+需要支持 WASM、Worker、MediaSource 和 OPFS 的现代浏览器。OPFS 需要 HTTPS 或
+localhost 及足够磁盘空间，CDN 需要允许跨域访问。许可证失败会显示错误，不切换
+其他 DRM。暂不支持直播、discontinuity 或中途更换初始化段的清单。浏览器强制退出
+可能留下 OPFS 文件，可通过浏览器站点数据清理。
+
+已内嵌构建产物，普通 Rust 构建无需 Go。修改 MV 核心后运行
+`python scripts/build-mv-wasm.py`（Go 1.22+）。源码和依赖来源见
+[browser/mvcore](browser/mvcore/README.md)。离线验证：
+`node tests/mv_hls.cjs`、`cargo test --test mv_api`。
+[tests/mv_live.cjs](tests/mv_live.cjs) 用于真实浏览器播放、跳转、取消和下载验证，
+需要启动 am-hook、wrapper-lite 并能访问 Apple CDN。
+
 中文 | [English](README.md)
 
 一个用 Rust 编写的 Apple Music FairPlay HLS 解密工具。默认模式下，**解密完全在浏览器中完成**：服务端只提供 master m3u8 和轨道解密模板，音频数据由浏览器直接从 Apple CDN 获取，并在 Web Worker 中用 WebAssembly 解密，不消耗服务器流量。需要给 VLC、IDM 等外部工具提供解密地址时，可以用 `--hook` 开启服务端解密代理。

@@ -1,0 +1,6 @@
+github.com/Eyevinn/mp4ff v0.56.0 h1:K81hqadHOLqQP+Rr610dwy7Cn3tLLEejCljzIfcNo+k=
+github.com/Eyevinn/mp4ff v0.56.0/go.mod h1:AhC+bOI7GSZmzuN4zFY9U76qMedbHI+8BdQXWrC9+8U=
+github.com/go-test/deep v1.1.0 h1:WOcxcdHcvdgThNXjw0t76K42FXTU7HpNQWHpA2HHNlg=
+github.com/go-test/deep v1.1.0/go.mod h1:5C2ZWiW0ErCdrYzpqxLbTX7MG14M9iiw8DgHncVwcsE=
+github.com/itouakirai/mp4ff v0.0.0-20250930132656-98812935a1c7 h1:KhMNPs/FW9fsiei6qD8h07ArJqYjvpIjk1zqeyv06Xw=
+github.com/itouakirai/mp4ff v0.0.0-20250930132656-98812935a1c7/go.mod h1:epcaTcHNf0fgnK8d2MP/gPQNji50kvZa9ZxzX06UOoA=

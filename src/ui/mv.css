@@ -1,0 +1,21 @@
+.mv-page { max-width: 1200px; }
+.mv-heading { display: flex; gap: 22px; align-items: center; margin: 30px 0; }
+.mv-heading img { width: 140px; height: 90px; object-fit: cover; border-radius: 10px; }
+.mv-heading h1 { font-size: clamp(24px, 4vw, 38px); line-height: 1.2; margin: 10px 0; }
+.mv-heading p { margin: 8px 0; }
+.mv-screen { background: #090909; border-radius: 14px; overflow: hidden; box-shadow: 0 12px 36px #0002; }
+.mv-screen video { width: 100%; max-height: 70vh; aspect-ratio: 16/9; display: block; }
+.mv-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+.mv-tracks { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; margin-top: 25px; }
+.mv-tracks fieldset { min-width: 0; padding: 18px; border: 1px solid #8884; border-radius: 12px; }
+.mv-tracks legend { padding: 0 8px; font-weight: 700; }
+.mv-option { display: flex; gap: 12px; align-items: center; padding: 14px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.mv-option:has(input:checked) { background: #fb2c550c; border-color: #fb2c5555; }
+.mv-option input { accent-color: #fb2c55; flex-shrink: 0; }
+.mv-option strong, .mv-option small { display: block; overflow-wrap: anywhere; }
+.mv-option small { opacity: .65; margin-top: 5px; }
+.mv-option:focus-within { outline: 2px solid #fb2c55; outline-offset: 2px; }
+.mv-page progress { width: 100%; accent-color: #fb2c55; }
+.mv-page #status { min-height: 1.5em; margin: 16px 0 8px; }
+.mv-page #error { margin: 14px 0; }
+@media(max-width: 680px) { .mv-tracks { grid-template-columns: 1fr; gap: 16px; } .mv-heading img { width: 90px; height: 64px; } .mv-heading { gap: 12px; } }

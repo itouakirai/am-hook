@@ -96,6 +96,8 @@
       if (!/(^|\.)music\.apple\.com$/i.test(url.hostname)) return null;
       const parts = url.pathname.split('/').filter(Boolean);
       const cc = /^[a-z]{2}$/i.test(parts[0] || '') ? parts[0].toLowerCase() : 'us';
+      const mv = url.pathname.match(/^\/([a-z]{2})\/music-video\/(?:[^/]+\/)?(\d+)\/?$/i);
+      if (mv) return `https://music.apple.com/${cc}/music-video/_/${mv[2]}`;
       const song = url.pathname.match(/\/song\/([^/]+)\/(\d+)/i);
       if (song) return `https://music.apple.com/${cc}/song/${song[1]}/${song[2]}`;
       const trackId = url.searchParams.get('i');
@@ -114,7 +116,8 @@
         input.focus();
         return;
       }
-      location.href = '/' + link;
+      const mv = new URL(link).pathname.match(/\/music-video\/[^/]+\/(\d+)/);
+      location.href = mv ? `/mv/${mv[1]}?country=${new URL(link).pathname.split('/')[1]}` : '/' + link;
     });
     input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; });
 
@@ -159,7 +162,9 @@
       document.getElementById('recent-list').replaceChildren(...items.map((item) => {
         const a = document.createElement('a');
         a.className = 'recent-item';
-        a.href = '/' + item.link;
+        const link = toSongLink(item.link);
+        const mv = new URL(link).pathname.match(/\/music-video\/[^/]+\/(\d+)/);
+        a.href = mv ? `/mv/${mv[1]}?country=${new URL(link).pathname.split('/')[1]}` : '/' + link;
         const art = item.artwork ? Object.assign(document.createElement('img'), { src: item.artwork.replace('600x600bb', '100x100bb'), alt: '', loading: 'lazy' })
                                  : Object.assign(document.createElement('span'), { className: 'ph' });
         const text = document.createElement('span');
