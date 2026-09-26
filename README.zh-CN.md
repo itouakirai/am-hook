@@ -100,10 +100,10 @@ cp target/wasm32-unknown-unknown/release/am_flac_wasm.wasm src/ui/flac.wasm
 
 ```sh
 # 默认：浏览器端解密，服务端只提供 master m3u8 与解密模板
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://192.168.31.105:3001
+am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
 
 # 同时开启服务端解密代理（VLC / IDM 等外部工具使用，消耗服务器流量）
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://192.168.31.105:3001 --hook
+am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340 --hook
 ```
 
 全部参数：

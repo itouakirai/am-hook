@@ -100,10 +100,10 @@ cp target/wasm32-unknown-unknown/release/am_flac_wasm.wasm src/ui/flac.wasm
 
 ```sh
 # Default: the browser decrypts; the server only serves master m3u8 and templates
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://192.168.31.105:3001
+am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
 
 # Also enable the server-side decrypting proxy (for VLC / IDM; uses server bandwidth)
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://192.168.31.105:3001 --hook
+am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340 --hook
 ```
 
 All options:
