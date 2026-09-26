@@ -25,43 +25,32 @@
       </div>
     </header>
 
-    <main class="hero">
-      <div class="hero-layout">
-      <div class="hero-copy">
-      <p class="eyebrow">APPLE MUSIC · YOUR LISTENING SPACE</p>
-      <h1 data-i18n="home.heading"></h1>
-      <p class="hero-text" data-i18n-html="home.intro"></p>
+    <main class="home">
+      <section class="home-hero">
+        <p class="home-eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>APPLE MUSIC · LOSSLESS · SPATIAL AUDIO</p>
+        <h1 class="hero-lead" data-i18n="home.intro"></h1>
 
-      <div class="search-panel">
-      <p class="input-caption" data-i18n="home.inputLabel"></p>
-      <form class="search" id="form" novalidate>
-        <label class="search-field">
-          <span class="sr-only" data-i18n="home.inputLabel"></span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1L13 19"/></svg>
-          <input id="input" type="text" inputmode="url" enterkeyhint="go" autocomplete="off" spellcheck="false"
-                 placeholder="https://music.apple.com/cn/song/…/1468058171" aria-describedby="error">
-        </label>
-        <button class="btn btn-primary btn-lg" type="submit">
-          <span data-i18n="home.submit"></span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
-        </button>
-      </form>
-      <div class="alert error" id="error" role="alert" hidden></div>
-      <p class="hint" data-i18n="home.formHint"></p>
-      </div>
-      <div class="format-tags"><span>ALAC <b data-i18n="q.lossless"></b></span><span>Dolby Atmos</span><span>AAC</span></div>
-      </div>
-      <div class="listening-art" aria-hidden="true">
-        <div class="art-topline"><span>THE LISTENING ROOM</span><span>01 / AM</span></div>
-        <div class="record"><div class="record-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></div></div>
-        <div class="art-bottomline"><span>LESS NOISE.<br>MORE MUSIC.</span><div class="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-      </div>
-      </div>
-      <div class="workflow">
-        <div><span class="step-number">01</span><span data-i18n="home.step1"></span></div>
-        <div><span class="step-number">02</span><span data-i18n="home.step2"></span></div>
-        <div><span class="step-number">03</span><span data-i18n="home.step3"></span></div>
-      </div>
+        <form class="search" id="form" novalidate>
+          <label class="search-field">
+            <span class="sr-only" data-i18n="home.inputLabel"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1L13 19"/></svg>
+            <input id="input" type="text" inputmode="url" enterkeyhint="go" autocomplete="off" spellcheck="false"
+                   placeholder="https://music.apple.com/cn/song/…/1468058171" aria-describedby="detect error">
+            <span class="detect" id="detect" aria-live="polite" hidden></span>
+            <kbd class="kbd" aria-hidden="true">/</kbd>
+          </label>
+          <button class="btn btn-primary btn-lg" type="submit">
+            <span data-i18n="home.submit"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+          </button>
+        </form>
+        <div class="alert error" id="error" role="alert" hidden></div>
+        <p class="hint" data-i18n="home.formHint"></p>
+        <p class="examples">
+          <span data-i18n="home.example"></span>
+          <button class="example" type="button" data-example="https://music.apple.com/us/song/cruel-summer/1468058171"><b data-i18n="home.detectSong"></b>Cruel Summer</button>
+          <button class="example" type="button" data-example="https://music.apple.com/us/music-video/born-again-feat-doja-cat-raye/1794822079"><b data-i18n="home.detectMv"></b>Born Again</button>
+        </p>      </section>
 
       <section class="recent" id="recent" hidden>
         <div class="section-head">
@@ -70,6 +59,13 @@
         </div>
         <div class="recent-list" id="recent-list"></div>
       </section>
+
+      <ul class="formats">
+        <li class="format" style="--tint: #fb2c55"><span class="format-tag" data-i18n="q.lossless"></span><strong>ALAC</strong><span data-i18n="home.fmtAlac"></span></li>
+        <li class="format" style="--tint: #8b6cf6"><span class="format-tag" data-i18n="home.tagAtmos"></span><strong>Dolby Atmos</strong><span data-i18n="home.fmtAtmos"></span></li>
+        <li class="format" style="--tint: #e8931c"><span class="format-tag" data-i18n="home.tagAac"></span><strong>AAC</strong><span data-i18n="home.fmtAac"></span></li>
+        <li class="format" style="--tint: #19a7a0"><span class="format-tag" data-i18n="home.tagMv"></span><strong>Music Video</strong><span data-i18n="home.fmtMv"></span></li>
+      </ul>
     </main>
 
     <footer class="footer">
@@ -84,6 +80,7 @@
     AmI18n.apply();
     const input = document.getElementById('input');
     const errorEl = document.getElementById('error');
+    const detectEl = document.getElementById('detect');
     /** wrapper-lite 状态：null 表示检查中，否则为 { ok, regions } */
     let wrapperStatus = null;
 
@@ -118,7 +115,33 @@
       }
       location.href = '/' + link;
     });
-    input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; });
+    input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; renderDetect(); });
+
+    /** 输入时即时提示识别结果：歌曲 / MV 与地区，或纯歌曲 ID */
+    function renderDetect() {
+      const value = input.value.trim();
+      const link = value && toSongLink(value);
+      detectEl.hidden = !link;
+      if (!link) return;
+      if (/^\d{5,}$/.test(value)) { detectEl.textContent = t('home.detectId'); return; }
+      const [, cc, kind] = link.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/(song|music-video)\//);
+      detectEl.textContent = `${t(kind === 'song' ? 'home.detectSong' : 'home.detectMv')} · ${cc.toUpperCase()}`;
+    }
+
+    // 示例链接：填入输入框，按“解析”即可打开
+    document.querySelectorAll('[data-example]').forEach((btn) => btn.addEventListener('click', () => {
+      input.value = btn.dataset.example;
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    }));
+
+    // 按 / 聚焦输入框
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]')) return;
+      event.preventDefault();
+      input.focus();
+    });
 
     function renderStatus() {
       const pill = document.getElementById('status');
@@ -144,6 +167,7 @@
 
     AmI18n.onChange(() => {
       renderStatus();
+      renderDetect();
       if (!errorEl.hidden) errorEl.textContent = t('home.invalid');
     });
 
@@ -162,15 +186,14 @@
         const a = document.createElement('a');
         a.className = 'recent-item';
         a.href = '/' + toSongLink(item.link);
-        const art = item.artwork ? Object.assign(document.createElement('img'), { src: item.artwork.replace('600x600bb', '100x100bb'), alt: '', loading: 'lazy' })
-                                 : Object.assign(document.createElement('span'), { className: 'ph' });
-        const text = document.createElement('span');
-        text.className = 'recent-text';
-        text.append(
+        const cover = Object.assign(document.createElement('span'), { className: 'recent-cover' });
+        cover.append(item.artwork ? Object.assign(document.createElement('img'), { src: item.artwork.replace('600x600bb', '300x300bb'), alt: '', loading: 'lazy' })
+                                  : Object.assign(document.createElement('span'), { className: 'ph' }));
+        a.append(
+          cover,
           Object.assign(document.createElement('span'), { className: 'recent-title', textContent: item.title || item.id }),
           Object.assign(document.createElement('span'), { className: 'recent-sub', textContent: item.artist || '' })
         );
-        a.append(art, text);
         return a;
       }));
     }
