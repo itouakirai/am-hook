@@ -455,6 +455,10 @@
     }
 
     ready(i) {
+      // A nearly complete buffered range can still have queued FLAC fragments.
+      // Finish those before starting the next segment: backfilling them later
+      // changes MSE's append position and lets quota eviction remove future audio.
+      if (this.pendingSegments.has(i)) return false;
       return this.isBuffered(this.playlist.segments[i]) || this.appendedSegments.has(i);
     }
 
@@ -462,15 +466,19 @@
       if (this.busy || gen !== this.generation || !this.sb) return;
       const { segments } = this.playlist;
       const now = this.audio.currentTime;
+      const startIndex = segmentAt(segments, now);
       let target = -1;
       const ahead = this.transcoder ? 14 : AHEAD_SECONDS;
-      for (let i = segmentAt(segments, now); i < segments.length; i++) {
+      for (let i = startIndex; i < segments.length; i++) {
         if (segments[i].time > now + ahead) break;
         if (!this.ready(i)) { target = i; break; }
       }
       if (target < 0) {
-        const allDone = segments.every((_, i) => this.ready(i));
-        if (allDone && this.ms.readyState === 'open' && !this.sb.updating) {
+        // After seeking, earlier segments may never have been loaded. Signal
+        // EOF once the remaining audio is appended so the decoder can flush
+        // its final samples. A later seek/append reopens the MediaSource.
+        const tailDone = segments.every((_, i) => i < startIndex || this.ready(i));
+        if (tailDone && this.ms.readyState === 'open' && !this.sb.updating) {
           try { this.ms.endOfStream(); } catch {}
         }
         return;
@@ -910,6 +918,6 @@
   }
 
   const api = { AmPlayer, segmentAt, formatTime, detectMode, detectModes, mimeFor };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine };
   else global.AmHook = api;
 })(typeof window !== 'undefined' ? window : globalThis);

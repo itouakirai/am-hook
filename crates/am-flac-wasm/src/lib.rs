@@ -141,7 +141,10 @@ pub unsafe extern "C" fn flac_encode(
             return 0;
         };
         let samples = pcm.len() / ctx.channels;
-        if !(16..=65535).contains(&samples) {
+        // FLAC permits 1..15 samples in the final frame (RFC 9639 §4.1).
+        // ALAC's final packet can be this short; rejecting it loses the whole
+        // last HLS segment because the worker transcodes a segment atomically.
+        if !(1..=65535).contains(&samples) {
             return 0;
         }
         ctx.samples = samples as u32;
@@ -347,6 +350,50 @@ fn write_verbatim_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn short_alac_packet(samples: u32) -> Vec<u8> {
+        let mut packet = Vec::new();
+        let mut writer = BitWriter::new(&mut packet);
+        writer.write(1, 3); // stereo channel pair
+        writer.write(0, 16); // instance tag and unused header bits
+        writer.write(1, 1); // explicit sample count
+        writer.write(0, 2); // no shifted low bits
+        writer.write(1, 1); // uncompressed ALAC samples
+        writer.write(samples as u64, 32);
+        for i in 0..samples {
+            writer.write(i as u64, 24);
+            writer.write((-(i as i32)) as u64, 24);
+        }
+        writer.write(7, 3); // end of packet
+        writer.finish();
+        packet
+    }
+
+    #[test]
+    fn transcodes_short_final_alac_packets_without_padding() {
+        // 176.4 kHz / 24-bit stereo, 4096 samples per ordinary packet.
+        let cookie = [
+            0, 0, 0x10, 0, 0, 24, 40, 10, 14, 2, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0xb1, 0x10,
+        ];
+        assert_eq!(unsafe { flac_open(cookie.as_ptr(), cookie.len()) }, 1);
+        // Song 269573364 ends with 13 samples. Cover every short final block
+        // and the ordinary 16-sample boundary through the public WASM API.
+        for samples in 1..=16 {
+            let packet = short_alac_packet(samples);
+            assert_eq!(
+                unsafe { flac_encode(packet.as_ptr(), packet.len(), 0, 0) },
+                1
+            );
+            assert_eq!(flac_samples(), samples);
+            let frame = unsafe { std::slice::from_raw_parts(flac_frame_ptr(), flac_frame_len()) };
+            assert_eq!(u16::from_be_bytes([frame[5], frame[6]]) as u32 + 1, samples);
+            assert_eq!(crc8(&frame[..7]), frame[7]);
+            assert_eq!(crc16(frame), 0);
+        }
+        let empty = short_alac_packet(0);
+        assert_eq!(unsafe { flac_encode(empty.as_ptr(), empty.len(), 0, 0) }, 0);
+        flac_close();
+    }
 
     #[test]
     fn frame_has_valid_crc_and_size() {
