@@ -6,31 +6,59 @@ const [, country = 'us', id] = location.pathname.match(/^\/https:\/\/music\.appl
 let master, selectedVideo, selectedAudio, playback, downloadController, result, resultUrl;
 let statusKey = 'mv.loading', statusVars, title = `MV ${id || ''}`, artist = '', busy = false;
 const pageController = new AbortController();
-function status(key, vars) { statusKey = key; statusVars = vars; $('status').textContent = t(key, vars); }
-function error(e) { $('error').textContent = e.message; $('error').hidden = false; }
+// 状态点颜色：进行中闪烁，完成为绿色，失败为红色
+const STATES = { 'mv.loading': 'loading', 'mv.license': 'busy', 'mv.buffering': 'busy', 'mv.downloading': 'busy',
+  'mv.ready': 'idle', 'mv.playing': 'ok', 'mv.pressPlay': 'ok', 'mv.complete': 'ok', 'mv.failed': 'error' };
+function status(key, vars) {
+  statusKey = key; statusVars = vars; $('status').textContent = t(key, vars);
+  $('feedback').dataset.state = STATES[key] || 'idle';
+}
+function error(e) { $('error').textContent = e.message; $('error').hidden = false; $('feedback').dataset.state = 'error'; }
 function controls() {
   $('play').disabled = !master || busy;
   $('download').disabled = !master || busy;
+  $('screen-play').disabled = !master || busy; $('screen-play').hidden = !!playback;
   $('video-tracks').disabled = busy; $('audio-tracks').disabled = busy;
   $('cancel').hidden = !busy;
 }
-function stopPlayback() { playback?.stop(); playback = null; }
+function stopPlayback() { playback?.stop(); playback = null; $('screen-play').hidden = false; }
 function badge(text, kind = '') {
   const node = document.createElement('span'); node.className = `badge ${kind}`; node.textContent = text; return node;
+}
+function videoTag(track) {
+  const height = Number(track.RESOLUTION.split('x')[1]) || 0;
+  return height >= 2160 ? '4K' : height >= 1440 ? '2K' : height ? `${height}p` : '—';
+}
+function videoRange(track) {
+  if (/^dv(h1|he)/.test(track.CODECS)) return 'Dolby Vision';
+  return { PQ: 'HDR10', HLG: 'HLG' }[track['VIDEO-RANGE']] || '';
+}
+function audioTag(track) {
+  const [channels, joc] = String(track.CHANNELS || '').split('/');
+  return joc === 'JOC' ? 'Atmos' : { 1: '1.0', 2: '2.0', 6: '5.1', 8: '7.1' }[channels] || channels || '—';
+}
+function audioCodec(codec) {
+  return /^mp4a/.test(codec) ? 'AAC' : /^ec-3/.test(codec) ? 'E-AC-3' : /^ac-3/.test(codec) ? 'AC-3' : /^ac-4/.test(codec) ? 'AC-4' : codec || '—';
 }
 function option(track, video) {
   const label = document.createElement('label'); label.className = 'mv-option';
   const input = document.createElement('input'); input.type = 'radio'; input.name = video ? 'video' : 'audio';
   input.checked = track === (video ? selectedVideo : selectedAudio);
+  const tag = document.createElement('span'); tag.className = 'mv-tag';
   const text = document.createElement('span'), heading = document.createElement('strong'), detail = document.createElement('small');
+  text.className = 'mv-option-body';
   if (video) {
-    heading.textContent = `${track.RESOLUTION} · ${(Number(track.BANDWIDTH) / 1e6).toFixed(2)} Mbps`;
+    tag.textContent = videoTag(track);
+    heading.textContent = `${track.RESOLUTION.replace('x', '×')} · ${(Number(track.BANDWIDTH) / 1e6).toFixed(2)} Mbps`;
     const supported = globalThis.MediaSource?.isTypeSupported(mime(track, true));
-    detail.textContent = `${track.CODECS.split(',')[0]} · ${track['FRAME-RATE'] || '—'} fps · ${track['VIDEO-RANGE'] || 'SDR'}`;
+    detail.textContent = `${track.CODECS.split(',')[0]} · ${track['FRAME-RATE'] ? `${Math.round(Number(track['FRAME-RATE']) * 100) / 100} fps` : '— fps'}`;
+    const range = videoRange(track);
+    if (range) text.append(badge(range, 'ok'));
     if (!supported) text.append(badge(t('mv.downloadOnly'), 'warn'));
   } else {
+    tag.textContent = audioTag(track);
     heading.textContent = track.NAME || track.LANGUAGE || 'Audio';
-    detail.textContent = `${track.codec || '—'} · ${track.CHANNELS || '—'} ${t('mv.channels')} · ${track['GROUP-ID']}`;
+    detail.textContent = `${audioCodec(track.codec)} · ${track.CHANNELS || '—'} ${t('mv.channels')} · ${track['GROUP-ID']}`;
     if (track === recommendedAudio(selectedVideo, master.audios)) text.append(badge(t('mv.recommended'), 'accent'));
   }
   input.addEventListener('change', () => {
@@ -41,7 +69,7 @@ function option(track, video) {
     $(video ? 'videos' : 'audios').querySelector('input:checked')?.focus();
     status('mv.ready');
   });
-  text.prepend(heading, detail); label.append(input, text); return label;
+  text.prepend(heading, detail); label.append(tag, text, input); return label;
 }
 function renderTracks() {
   if (!master) return;
@@ -49,7 +77,7 @@ function renderTracks() {
   $('audios').replaceChildren(...master.audios.map(a => option(a, false)));
   $('video-count').textContent = master.videos.length;
   $('audio-count').textContent = master.audios.length;
-  $('selection').textContent = [selectedVideo.RESOLUTION, selectedVideo['VIDEO-RANGE'] || 'SDR', selectedAudio.NAME || selectedAudio.codec].filter(Boolean).join(' · ');
+  $('selection').textContent = [selectedVideo.RESOLUTION, videoRange(selectedVideo) || 'SDR', selectedAudio.NAME || selectedAudio.codec].filter(Boolean).join(' · ');
 }
 async function metadata() {
   try {
@@ -65,6 +93,7 @@ async function metadata() {
     if (item.artworkUrl100) {
       const art = item.artworkUrl100.replace('100x100bb', '600x600bb');
       $('artwork').src = art; $('artwork').hidden = false; $('video').poster = art;
+      $('artwork').onload = () => { $('ambient').style.setProperty('--art', `url("${art}")`); $('ambient').classList.add('on'); };
       $('artwork').onerror = () => { $('artwork').hidden = true; };
     }
     try {
@@ -79,7 +108,7 @@ $('play').onclick = async () => {
   const session = new Playback($('video'), key => { if (!downloadController) status(`mv.${key}`); }, error);
   playback = session;
   try { await session.start(id, selectedVideo, selectedAudio, master.captions); }
-  catch (e) { session.stop(); if (e.name !== 'AbortError') error(e); }
+  catch (e) { session.stop(); if (playback === session) playback = null; if (e.name !== 'AbortError') error(e); }
   finally { busy = false; controls(); }
 };
 $('download').onclick = async () => {
@@ -97,7 +126,8 @@ $('download').onclick = async () => {
   } catch (e) { if (e.name === 'AbortError') status('mv.cancelled'); else error(e); }
   finally { downloadController = null; busy = false; $('progress').hidden = true; controls(); }
 };
-$('cancel').onclick = () => { downloadController?.abort(); stopPlayback(); status('mv.cancelled'); };
+$('screen-play').onclick = () => $('play').click();
+$('cancel').onclick =() => { downloadController?.abort(); stopPlayback(); status('mv.cancelled'); };
 window.addEventListener('pagehide', () => { pageController.abort(); downloadController?.abort(); stopPlayback(); if (resultUrl) URL.revokeObjectURL(resultUrl); result?.dispose(); });
 AmI18n.onChange(() => { renderTracks(); status(statusKey, statusVars); });
 AmI18n.apply(); status(statusKey);
