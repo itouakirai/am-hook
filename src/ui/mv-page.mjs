@@ -1,8 +1,8 @@
 import { parseMaster, recommendedAudio } from './hls.mjs';
 import { fetchMaster, Playback, downloadMV, mime } from './engine.mjs';
 const $ = id => document.getElementById(id), { t } = AmI18n;
-const id = location.pathname.match(/^\/mv\/(\d+)$/)?.[1];
-const country = /^[a-z]{2}$/.test(new URLSearchParams(location.search).get('country') || '') ? new URLSearchParams(location.search).get('country') : 'us';
+// 与 song 页一致：/https://music.apple.com/{cc}/music-video/{slug}/{id}
+const [, country = 'us', id] = location.pathname.match(/^\/https:\/\/music\.apple\.com\/([a-z]{2})\/music-video\/[^/]+\/(\d+)\/?$/) || [];
 let master, selectedVideo, selectedAudio, playback, downloadController, result, resultUrl;
 let statusKey = 'mv.loading', statusVars, title = `MV ${id || ''}`, artist = '', busy = false;
 const pageController = new AbortController();

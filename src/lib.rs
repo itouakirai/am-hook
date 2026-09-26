@@ -14,7 +14,7 @@ use axum::Router;
 
 use crate::state::AppState;
 
-/// 首页与解析接口优先，song 页与 --hook 解密代理统一由 fallback 分流
+/// 首页与解析接口优先，song / MV 页与 --hook 解密代理统一由 fallback 分流
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(ui::home_handler))
@@ -23,7 +23,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/parse/:adam_id", get(ui::master_handler))
         .route("/parse/mv/:adam_id", get(ui::mv_master_handler))
         .route("/key", get(ui::key_handler))
-        .route("/mv/:adam_id", get(ui::mv_handler))
         .route("/mv/webplayback/:adam_id", get(ui::mv_webplayback_handler))
         .route("/mv/license", post(ui::mv_license_handler))
         .route("/assets/mv/:file", get(ui::mv_asset_handler))

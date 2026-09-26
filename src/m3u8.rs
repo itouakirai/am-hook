@@ -9,6 +9,8 @@ use crate::state::{Segment, Track};
 
 static SONG_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());
+static MV_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/music-video/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());
 static ATTR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"([A-Z0-9-]+)=("[^"]*"|[^,\r\n]+)"#).unwrap());
 static ADAM_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"_A(\d+)_").unwrap());
 
@@ -39,6 +41,13 @@ pub fn parse_song_link(url: &str) -> Result<String, String> {
         .captures(url.trim())
         .map(|caps| caps[1].to_string())
         .ok_or_else(|| format!("Only Apple Music song links are supported: {url}"))
+}
+
+pub fn parse_mv_link(url: &str) -> Result<String, String> {
+    MV_LINK_RE
+        .captures(url.trim())
+        .map(|caps| caps[1].to_string())
+        .ok_or_else(|| format!("Only Apple Music music-video links are supported: {url}"))
 }
 
 fn parse_attributes(input: &str) -> HashMap<&str, &str> {
@@ -279,6 +288,17 @@ mod tests {
         assert_eq!(parse_song_link("https://music.apple.com/us/song/name/123?l=zh-CN").unwrap(), "123");
         assert!(parse_song_link("https://music.apple.com/us/album/name/123").is_err());
         assert!(parse_song_link("http://music.apple.com/us/song/name/123").is_err());
+    }
+
+    #[test]
+    fn test_parse_mv_link() {
+        assert_eq!(
+            parse_mv_link("https://music.apple.com/cn/music-video/super-bowl-lix-halftime-show-live/1836358807").unwrap(),
+            "1836358807"
+        );
+        assert_eq!(parse_mv_link("https://music.apple.com/us/music-video/_/123?l=zh-CN").unwrap(), "123");
+        assert!(parse_mv_link("https://music.apple.com/us/song/name/123").is_err());
+        assert!(parse_mv_link("https://music.apple.com/us/music-video/123").is_err());
     }
 
     #[test]

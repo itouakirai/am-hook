@@ -87,7 +87,7 @@
     /** wrapper-lite 状态：null 表示检查中，否则为 { ok, regions } */
     let wrapperStatus = null;
 
-    /** 把各种输入规整为 song 页面路径：/https://music.apple.com/{cc}/song/{slug}/{id} */
+    /** 把各种输入规整为页面路径：/https://music.apple.com/{cc}/(song|music-video)/{slug}/{id} */
     function toSongLink(raw) {
       const value = raw.trim();
       if (/^\d{5,}$/.test(value)) return `https://music.apple.com/us/song/_/${value}`;
@@ -96,8 +96,8 @@
       if (!/(^|\.)music\.apple\.com$/i.test(url.hostname)) return null;
       const parts = url.pathname.split('/').filter(Boolean);
       const cc = /^[a-z]{2}$/i.test(parts[0] || '') ? parts[0].toLowerCase() : 'us';
-      const mv = url.pathname.match(/^\/([a-z]{2})\/music-video\/(?:[^/]+\/)?(\d+)\/?$/i);
-      if (mv) return `https://music.apple.com/${cc}/music-video/_/${mv[2]}`;
+      const mv = url.pathname.match(/^\/[a-z]{2}\/music-video\/(?:([^/]+)\/)?(\d+)\/?$/i);
+      if (mv) return `https://music.apple.com/${cc}/music-video/${mv[1] || '_'}/${mv[2]}`;
       const song = url.pathname.match(/\/song\/([^/]+)\/(\d+)/i);
       if (song) return `https://music.apple.com/${cc}/song/${song[1]}/${song[2]}`;
       const trackId = url.searchParams.get('i');
@@ -116,8 +116,7 @@
         input.focus();
         return;
       }
-      const mv = new URL(link).pathname.match(/\/music-video\/[^/]+\/(\d+)/);
-      location.href = mv ? `/mv/${mv[1]}?country=${new URL(link).pathname.split('/')[1]}` : '/' + link;
+      location.href = '/' + link;
     });
     input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); errorEl.hidden = true; });
 
@@ -162,9 +161,7 @@
       document.getElementById('recent-list').replaceChildren(...items.map((item) => {
         const a = document.createElement('a');
         a.className = 'recent-item';
-        const link = toSongLink(item.link);
-        const mv = new URL(link).pathname.match(/\/music-video\/[^/]+\/(\d+)/);
-        a.href = mv ? `/mv/${mv[1]}?country=${new URL(link).pathname.split('/')[1]}` : '/' + link;
+        a.href = '/' + toSongLink(item.link);
         const art = item.artwork ? Object.assign(document.createElement('img'), { src: item.artwork.replace('600x600bb', '100x100bb'), alt: '', loading: 'lazy' })
                                  : Object.assign(document.createElement('span'), { className: 'ph' });
         const text = document.createElement('span');

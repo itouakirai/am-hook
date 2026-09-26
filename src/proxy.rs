@@ -10,11 +10,11 @@ use tracing::{debug, info, warn};
 
 use am_mp4::{alac_track, repair_alac_fragment, decrypt_fragment, fixed_template, patch_init_segment};
 
-use crate::m3u8::{parse_media_m3u8, parse_song_link, to_compat_playlist};
+use crate::m3u8::{parse_media_m3u8, parse_mv_link, parse_song_link, to_compat_playlist};
 use crate::monitor::ensure_template;
 use crate::source::{self, SourceKind, WHITELIST};
 use crate::state::{AppState, Track};
-use crate::ui::song_handler;
+use crate::ui::{mv_handler, song_handler};
 
 const M3U8_TYPE: &str = "application/vnd.apple.mpegurl; charset=utf-8";
 const BYTERANGE_PARAM: &str = "hook=byterange";
@@ -24,9 +24,12 @@ const BYTERANGE_PARAM: &str = "hook=byterange";
 pub async fn handle_proxy(State(state): State<Arc<AppState>>, method: Method, uri: Uri, headers: HeaderMap) -> Response<Body> {
     let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
 
-    // Apple Music 页面路径本身也是 "https://..."，交给 song UI
+    // Apple Music 页面路径本身也是 "https://..."，交给 song / MV UI
     if parse_song_link(path).is_ok() {
         return song_handler(uri, &headers).await;
+    }
+    if parse_mv_link(path).is_ok() {
+        return mv_handler(headers).await;
     }
 
     // 服务端解密默认关闭（节省服务器流量），此时不代理任何 CDN 请求，解密由浏览器完成

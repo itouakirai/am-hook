@@ -7,7 +7,7 @@ const base = process.argv[3] || 'http://127.0.0.1:18888';
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
-    await page.goto(base + '/mv/1794822079?country=cn');
+    await page.goto(base + '/https://music.apple.com/cn/music-video/born-again-feat-doja-cat-raye/1794822079');
     await page.locator('#videos input').first().waitFor({ timeout: 45000 });
     const labels = await page.locator('#videos label').allTextContents();
     const avc = labels.map((v, i) => v.includes('avc1') ? i : -1).filter(i => i >= 0).at(-1);

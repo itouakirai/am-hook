@@ -32,7 +32,7 @@ hd.m3u8`;
       const page = await context.newPage(), errors = [];
       page.on('pageerror', e => errors.push(e.message));
       const fits = async () => assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `overflow ${width}/${lang}`);
-      await page.goto('http://am.test/mv/123');
+      await page.goto('http://am.test/https://music.apple.com/us/music-video/_/123');
       await page.locator('#videos input').first().waitFor();
       assert.equal(await page.locator('#video-count').textContent(), '2');
       assert(await page.locator('#audios input').nth(1).isChecked());
