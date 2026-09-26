@@ -51,7 +51,7 @@ pub async fn mv_asset_handler(
     static_response(&headers, mime, body)
 }
 
-/// MV control plane only: never fetch manifests, segments or extract keys here.
+/// Relay the original wrapper-lite webplayback response.
 pub async fn mv_webplayback_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -66,6 +66,52 @@ pub async fn mv_webplayback_handler(
             .query(&[("adamId", id)]),
     )
     .await
+}
+
+/// Fetch the MV master on the server so its User-Agent is not controlled by the browser.
+pub async fn mv_master_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response<Body> {
+    let response = mv_webplayback_handler(State(state.clone()), axum::extract::Path(id)).await;
+    if !response.status().is_success() {
+        return response;
+    }
+    let payload = match axum::body::to_bytes(response.into_body(), 1024 * 1024).await {
+        Ok(body) => serde_json::from_slice::<serde_json::Value>(&body).ok(),
+        Err(_) => None,
+    };
+    let Some(payload) = payload else {
+        return json_response(StatusCode::BAD_GATEWAY, json!({"code":1,"msg":"Invalid wrapper-lite response"}));
+    };
+    if payload.get("code").and_then(serde_json::Value::as_i64) != Some(0) {
+        return json_response(StatusCode::BAD_GATEWAY, payload);
+    }
+    let Some(master_url) = payload.pointer("/data/m3u8").and_then(serde_json::Value::as_str).filter(|url| !url.is_empty()) else {
+        return json_response(StatusCode::BAD_GATEWAY, json!({"code":1,"msg":"Missing MV master URL"}));
+    };
+    let response = state.http_client.get(master_url)
+        .header(axum::http::header::USER_AGENT, "AM")
+        .timeout(std::time::Duration::from_secs(30))
+        .send().await.and_then(reqwest::Response::error_for_status);
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            warn!(%error, "MV master request failed");
+            return json_response(StatusCode::BAD_GATEWAY, json!({"code":1,"msg":"Failed to fetch MV master playlist"}));
+        }
+    };
+    // Resolve relative track URLs against the final CDN URL after any redirects.
+    let master_url = response.url().to_string();
+    let master_body = match response.text().await {
+        Ok(body) => body,
+        Err(_) => return json_response(StatusCode::BAD_GATEWAY, json!({"code":1,"msg":"Failed to read MV master playlist"})),
+    };
+    let mut response = json_response(StatusCode::OK, json!({
+        "code": 0, "data": { "masterUrl": master_url, "masterBody": master_body }
+    }));
+    response.headers_mut().insert(axum::http::header::CACHE_CONTROL, "no-store".parse().unwrap());
+    response
 }
 
 #[derive(Deserialize, serde::Serialize)]

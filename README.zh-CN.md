@@ -6,9 +6,11 @@
 `/mv/1794822079?country=cn`。视频、音频规格分列显示，默认选择最高码率视频和其
 音频组中的默认音轨；切换视频会更新推荐音轨，也可手动选择音频。
 
-MV 后端仅将 `/mv/webplayback/:adam_id` 转发到 wrapper-lite `/webplayback`，
-将 `/mv/license` 转发到 `/license`（只使用 PlayReady）。展示信息由浏览器通过
-iTunes lookup 获取；所有 m3u8 和分片均由浏览器直连 Apple CDN。challenge 构建、
+MV 页面通过 `/parse/mv/:adam_id` 请求后端：后端从 wrapper-lite `/webplayback`
+获取 master 地址，再以 `User-Agent: AM` 获取内容，返回播放列表文本和最终 CDN 地址。
+后端还将 `/mv/webplayback/:adam_id` 转发到 `/webplayback`，将 `/mv/license` 转发到
+`/license`（只使用 PlayReady）。展示信息由浏览器通过 iTunes lookup 获取；音视频轨道
+m3u8 和分片由浏览器直连 Apple CDN。challenge 构建、
 license 解析、CENC/CBCS 解密和 MP4 合并在浏览器 Worker/WASM 中完成，
 `--hook` 不提供 MV 资源代理。
 

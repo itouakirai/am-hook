@@ -7,9 +7,11 @@ Paste an Apple Music `music-video` link on the home page, or open
 The highest bitrate video and its recommended default audio are selected.
 Changing the video updates the audio selection; audio can also be chosen manually.
 
-For MVs the server only relays `/mv/webplayback/:adam_id` to wrapper-lite's
-`/webplayback` and `/mv/license` to `/license` (PlayReady only). The browser fetches
-iTunes metadata, playlists and media directly from Apple. Challenges, license
+For MVs, `/parse/mv/:adam_id` gets the master URL from wrapper-lite's `/webplayback`
+and fetches it with `User-Agent: AM`, returning the playlist text and final CDN URL.
+The server also relays `/mv/webplayback/:adam_id` to `/webplayback` and `/mv/license`
+to `/license` (PlayReady only). The browser fetches iTunes metadata, track playlists
+and media directly from Apple. Challenges, license
 parsing, CENC/CBCS decryption and fragmented MP4 muxing run in a browser Worker/WASM.
 `--hook` does not proxy MV resources.
 

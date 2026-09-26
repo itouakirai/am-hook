@@ -1,5 +1,5 @@
 import { parseMaster, recommendedAudio } from './hls.mjs';
-import { webplayback, Playback, downloadMV, mime } from './engine.mjs';
+import { fetchMaster, Playback, downloadMV, mime } from './engine.mjs';
 const $ = id => document.getElementById(id), { t } = AmI18n;
 const id = location.pathname.match(/^\/mv\/(\d+)$/)?.[1];
 const country = /^[a-z]{2}$/.test(new URLSearchParams(location.search).get('country') || '') ? new URLSearchParams(location.search).get('country') : 'us';
@@ -90,10 +90,8 @@ AmI18n.apply(); status(statusKey);
 async function load() {
   if (!id) throw new Error('Invalid music video ID');
   $('title').textContent = title; void metadata();
-  const url = await webplayback(id, pageController.signal);
-  const res = await fetch(url, { signal: pageController.signal });
-  if (!res.ok) throw new Error(`Master playlist HTTP ${res.status}`);
-  master = parseMaster(await res.text(), url); selectedVideo = master.videos[0]; selectedAudio = recommendedAudio(selectedVideo, master.audios);
+  const { masterUrl, masterBody } = await fetchMaster(id, pageController.signal);
+  master = parseMaster(masterBody, masterUrl); selectedVideo = master.videos[0]; selectedAudio = recommendedAudio(selectedVideo, master.audios);
   renderTracks(); controls(); status('mv.ready');
 }
 load().catch(error);

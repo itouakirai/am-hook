@@ -27,8 +27,8 @@ async function json(url, options) {
   if (!res.ok || data.code !== 0) throw new Error(data.msg || `HTTP ${res.status}`);
   return data.data;
 }
-export async function webplayback(id, signal) {
-  return (await json(`/mv/webplayback/${id}`, { signal })).m3u8;
+export async function fetchMaster(id, signal) {
+  return json(`/parse/mv/${id}`, { signal });
 }
 export function mime(track, video) {
   const codecs = video ? (track.CODECS || '').split(',').filter(c => /^(avc|hvc|hev|dvh|dvhe|av01)/.test(c)).join(',') : track.codec;

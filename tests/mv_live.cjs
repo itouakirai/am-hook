@@ -44,7 +44,8 @@ const base = process.argv[3] || 'http://127.0.0.1:18888';
     const file = await download; assert.equal(await file.failure(), null);
     await file.saveAs('target/mv-live.mp4');
     assert(await page.locator('#error').isHidden(), await page.locator('#error').textContent());
-    assert(!localRequests.some(p => /mvod|\.m4s|\/key$|\/parse\//.test(p)), 'no MV media or key extraction is proxied');
+    assert(localRequests.includes('/parse/mv/1794822079'), 'MV master is fetched by the server');
+    assert(!localRequests.some(p => /mvod|\.m4s|\/key$/.test(p)), 'no MV segments or key extraction is proxied');
     assert.deepEqual(errors, []);
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 900 });
