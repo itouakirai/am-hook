@@ -84,16 +84,19 @@ function templateHandle(w, key, json) {
   return handle;
 }
 
-async function decrypt({ kind, key, template, buf }) {
+async function decrypt({ kind, key, template, init, buf }) {
   const w = await loadWasm();
   const bytes = new Uint8Array(buf);
   try {
     if (kind === 'init') {
       inWasm(w, bytes, (ptr, len) => w.hook_patch_init(ptr, len));
     } else {
-      const handle = templateHandle(w, key, template);
+      const handle = key ? templateHandle(w, key, template) : 0;
       inWasm(w, bytes, (ptr, len) => {
-        if (!w.hook_decrypt_fragment(handle, ptr, len)) throw new Error(msg('decrypt', lastError(w)));
+        if (handle && !w.hook_decrypt_fragment(handle, ptr, len)) throw new Error(msg('decrypt', lastError(w)));
+        if (init) inWasm(w, new Uint8Array(init), (initPtr, initLen) => {
+          if (!w.hook_repair_alac(ptr, len, initPtr, initLen)) throw new Error(msg('decrypt', lastError(w)));
+        });
       });
     }
   } catch (err) {

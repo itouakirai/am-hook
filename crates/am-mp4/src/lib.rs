@@ -4,6 +4,9 @@
 use std::ops::Range;
 use std::sync::OnceLock;
 
+mod alac;
+pub use alac::{alac_track, repair_alac_fragment, AlacTrack};
+
 pub use temari::rounds::Template;
 pub use temari::template::template_from_json;
 use temari::rounds::{decrypt_ranges_in_place, decrypt_ranges_par};
@@ -294,14 +297,14 @@ impl<'a> Reader<'a> {
 mod tests {
     use super::*;
 
-    fn mk_box(typ: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    pub(super) fn mk_box(typ: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut v = ((body.len() + 8) as u32).to_be_bytes().to_vec();
         v.extend_from_slice(typ);
         v.extend_from_slice(body);
         v
     }
 
-    fn full(flags: u32, rest: &[u8]) -> Vec<u8> {
+    pub(super) fn full(flags: u32, rest: &[u8]) -> Vec<u8> {
         let mut v = flags.to_be_bytes().to_vec();
         v.extend_from_slice(rest);
         v

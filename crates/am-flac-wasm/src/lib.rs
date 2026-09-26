@@ -10,6 +10,7 @@ struct Context {
     decoder: Decoder,
     pcm: Vec<i32>,
     frame: Vec<u8>,
+    repair: Vec<u8>,
     channels: usize,
     bits: u8,
     rate: u32,
@@ -66,6 +67,7 @@ pub unsafe extern "C" fn flac_open(ptr: *const u8, len: usize) -> u32 {
             decoder: Decoder::new(info),
             pcm: vec![0; capacity],
             frame: Vec::new(),
+            repair: Vec::new(),
             channels,
             bits,
             rate,
@@ -137,8 +139,25 @@ pub unsafe extern "C" fn flac_encode(
     CONTEXT.with(|cell| {
         let mut borrow = cell.borrow_mut();
         let Some(ctx) = borrow.as_mut() else { return 0 };
-        let Ok(pcm) = ctx.decoder.decode_packet(packet, &mut ctx.pcm) else {
-            return 0;
+        ctx.samples = 0;
+        ctx.frame.clear();
+        let pcm = match ctx.decoder.decode_packet(packet, &mut ctx.pcm) {
+            Ok(pcm) => pcm,
+            Err(_) => {
+                if !repair_uncompressed_end(
+                    packet,
+                    &mut ctx.repair,
+                    ctx.channels,
+                    ctx.bits,
+                    ctx.max_block,
+                ) {
+                    return 0;
+                }
+                let Ok(pcm) = ctx.decoder.decode_packet(&ctx.repair, &mut ctx.pcm) else {
+                    return 0;
+                };
+                pcm
+            }
         };
         let samples = pcm.len() / ctx.channels;
         // FLAC permits 1..15 samples in the final frame (RFC 9639 §4.1).
@@ -159,6 +178,26 @@ pub unsafe extern "C" fn flac_encode(
         );
         1
     })
+}
+
+/// Some ALAC escape packets (e.g. song 1691044818) contain every PCM bit,
+/// but a missing/damaged TYPE_END. The end is NOT necessarily byte aligned.
+/// Only repair fully present, uncompressed mono/stereo elements: their exact
+/// length follows from the header, without guessing where compressed data ends.
+/// Leave compressed, truncated and oversized packets to the strict decoder.
+fn repair_uncompressed_end(
+    packet: &[u8],
+    repaired: &mut Vec<u8>,
+    channels: usize,
+    bits: u8,
+    max_block: u32,
+) -> bool {
+    am_alac::Config {
+        channels,
+        bits,
+        max_block,
+    }
+    .repair_copy(packet, repaired)
 }
 
 fn crc8(bytes: &[u8]) -> u8 {
@@ -350,6 +389,93 @@ fn write_verbatim_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repairs_end_tags_and_preserves_every_pcm_sample() {
+        for channels in 1..=2 {
+            for bits in [16, 20, 24, 32] {
+                for (samples, partial) in [(1, true), (2, true), (13, true), (4096, false)] {
+                    let cookie = [
+                        0, 0, 0x10, 0, 0, bits, 40, 10, 14, channels, 0, 255, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0xac, 0x44,
+                    ];
+                    let mut payload = Vec::new();
+                    let mut w = BitWriter::new(&mut payload);
+                    w.write(if channels == 2 { 1 } else { 0 }, 3);
+                    w.write(0, 16);
+                    w.write(partial as u64, 1);
+                    w.write(0, 2);
+                    w.write(1, 1);
+                    if partial {
+                        w.write(samples, 32);
+                    }
+                    for i in 0..samples * channels as u64 {
+                        w.write((i as i64 * -37 + 19) as u64, bits);
+                    }
+                    // Save both omitted tag + alignment, and zeroed tag + alignment.
+                    let mut omitted = w.out.clone();
+                    if w.used != 0 {
+                        omitted.push(w.held << (8 - w.used));
+                    }
+                    w.write(7, 3);
+                    w.finish();
+                    let end = 23
+                        + if partial { 32 } else { 0 }
+                        + samples as usize * channels as usize * bits as usize;
+                    let mut zeroed = payload.clone();
+                    for i in end..end + 3 {
+                        zeroed[i / 8] &= !(0x80 >> (i % 8));
+                    }
+
+                    assert_eq!(unsafe { flac_open(cookie.as_ptr(), cookie.len()) }, 1);
+                    let encode = |p: &[u8]| unsafe { flac_encode(p.as_ptr(), p.len(), 123, 1) };
+                    let frame = || unsafe {
+                        std::slice::from_raw_parts(flac_frame_ptr(), flac_frame_len()).to_vec()
+                    };
+                    assert_eq!(encode(&payload), 1);
+                    let expected = frame();
+                    for broken in [&omitted, &zeroed] {
+                        let mut strict = Decoder::new(StreamInfo::from_cookie(&cookie).unwrap());
+                        let mut pcm = vec![0i32; 4096 * channels as usize];
+                        assert!(strict.decode_packet(broken, &mut pcm).is_err());
+                        assert_eq!(encode(broken), 1);
+                        assert_eq!(flac_samples(), samples as u32);
+                        assert_eq!(frame(), expected, "repair must preserve PCM and timestamps");
+                    }
+                    // Song 1691044818 also has bad tags 2 and 4, with garbage
+                    // padding. Exercise every invalid tag at the bit boundary.
+                    for tag in 0..7 {
+                        let mut broken = zeroed.clone();
+                        for offset in 0..3 {
+                            if tag & (4 >> offset) != 0 {
+                                let i = end + offset;
+                                broken[i / 8] |= 0x80 >> (i % 8);
+                            }
+                        }
+                        *broken.last_mut().unwrap() |= 1;
+                        assert_eq!(encode(&broken), 1);
+                        assert_eq!(frame(), expected);
+                    }
+                    assert_eq!(encode(&omitted[..omitted.len() - 3]), 0);
+                    assert_eq!(flac_samples(), 0);
+                    assert_eq!(flac_frame_len(), 0);
+                    let mut extra = zeroed.clone();
+                    extra.push(0);
+                    assert_eq!(encode(&extra), 0);
+                    let mut compressed = zeroed;
+                    compressed[2] &= !2;
+                    assert!(!repair_uncompressed_end(
+                        &compressed,
+                        &mut Vec::new(),
+                        channels as usize,
+                        bits,
+                        4096
+                    ));
+                    flac_close();
+                }
+            }
+        }
+    }
 
     fn short_alac_packet(samples: u32) -> Vec<u8> {
         let mut packet = Vec::new();

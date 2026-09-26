@@ -8,4 +8,5 @@ description = "Small ALAC packet to FLAC frame transcoder for browser playback"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+am-alac = { path = "../am-alac" }
 alac = { version = "0.5", default-features = false }

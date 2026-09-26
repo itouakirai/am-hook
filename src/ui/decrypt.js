@@ -224,13 +224,25 @@
     /** 解密一个分段（init 段只做 box 改写），返回长度不变的 ArrayBuffer；buf 会被转移给 Worker */
     async decryptPiece(piece, buf) {
       if (piece.init) return pool.run({ kind: 'init', buf });
-      if (piece.key === 'fixed') return pool.run({ kind: 'frag', key: 'fixed', buf });
-      if (piece.key === 'track') return pool.run({ kind: 'frag', key: this.keyUri, template: await this.template(), buf });
-      return buf;
+      const init = await this.initData();
+      if (piece.key === 'fixed') return pool.run({ kind: 'frag', key: 'fixed', init, buf });
+      if (piece.key === 'track') return pool.run({ kind: 'frag', key: this.keyUri, template: await this.template(), init, buf });
+      return pool.run({ kind: 'frag', init, buf });
+    }
+
+    initData(signal) {
+      if (!this.initPromise) {
+        const pending = this.fetchPiece(this.init, signal).then(buf => this.decryptPiece(this.init, buf));
+        this.initPromise = pending;
+        pending.catch(() => { if (this.initPromise === pending) this.initPromise = null; });
+      }
+      return this.initPromise;
     }
 
     async load(piece, signal) {
-      const [buf] = await Promise.all([this.fetchPiece(piece, signal), piece.key === 'track' ? this.template() : null]);
+      // Keep the cached init attached: callers may transfer their copy to a worker.
+      if (piece.init) return (await this.initData(signal)).slice(0);
+      const [buf] = await Promise.all([this.fetchPiece(piece, signal), this.initData(signal), piece.key === 'track' ? this.template() : null]);
       return this.decryptPiece(piece, buf);
     }
   }

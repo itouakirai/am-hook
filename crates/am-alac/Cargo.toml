@@ -1,0 +1,5 @@
+[package]
+name = "am-alac"
+version = "0.1.0"
+edition = "2021"
+description = "Conservative ALAC escape-packet end-tag repair"

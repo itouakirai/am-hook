@@ -102,3 +102,31 @@ pub unsafe extern "C" fn hook_decrypt_fragment(tmpl: *const Template, ptr: *mut 
         }
     }
 }
+
+/// Repair an already decrypted fragment using its own track's init segment.
+/// No instance-global codec state: worker pools can interleave different tracks.
+/// # Safety
+/// `ptr` points to `len` writable bytes and `init` to `init_len` readable bytes;
+/// the two regions must not overlap.
+#[no_mangle]
+pub unsafe extern "C" fn hook_repair_alac(
+    ptr: *mut u8,
+    len: usize,
+    init: *const u8,
+    init_len: usize,
+) -> u32 {
+    if ptr.is_null() || init.is_null() {
+        set_error("null ALAC repair input".into());
+        return 0;
+    }
+    let Some(track) = am_mp4::alac_track(std::slice::from_raw_parts(init, init_len)) else {
+        return 1;
+    };
+    match am_mp4::repair_alac_fragment(std::slice::from_raw_parts_mut(ptr, len), &track) {
+        Ok(_) => 1,
+        Err(e) => {
+            set_error(e);
+            0
+        }
+    }
+}

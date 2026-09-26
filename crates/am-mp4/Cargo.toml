@@ -5,4 +5,5 @@ edition = "2021"
 description = "fMP4 fragment sanitizing and FairPlay sample decryption shared by am-hook and its browser wasm"
 
 [dependencies]
+am-alac = { path = "../am-alac" }
 temari = { path = "../temari" }

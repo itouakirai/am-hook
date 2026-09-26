@@ -27,6 +27,8 @@ In the browser (`src/ui/decrypt.js`):
 
 > OPFS is only available in a secure context: HTTPS, or `localhost` / `127.0.0.1`. When the UI is opened over `http://<LAN IP>`, downloads fall back to memory and large files use more RAM. Playback is unaffected.
 
+Both browser `hook.wasm` and server `--hook` repair identifiable ALAC end-tag damage after decryption (for example, song `1691044818`). The init segment's track and sample description identify complete uncompressed mono/stereo packets; a missing or damaged 3-bit `TYPE_END` is restored to `111`. PCM, sample lengths and Range offsets stay unchanged, so playback and downloads both benefit. Compressed packets, truncated PCM and packets without room for the tag are left untouched; FLAC transcoding retains its fallback that can append a missing tag byte.
+
 ### Server-side decrypting proxy (`--hook`)
 
 With `--hook`, the server also serves these proxy URLs (they return 404 otherwise):

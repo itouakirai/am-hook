@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use tracing::{debug, info, warn};
 
-use am_mp4::{decrypt_fragment, fixed_template, patch_init_segment};
+use am_mp4::{alac_track, repair_alac_fragment, decrypt_fragment, fixed_template, patch_init_segment};
 
 use crate::m3u8::{parse_media_m3u8, parse_song_link, to_compat_playlist};
 use crate::monitor::ensure_template;
@@ -290,12 +290,13 @@ fn spawn_readahead(state: &Arc<AppState>, track: &Arc<Track>, target: &str, idx:
 
 /// 取得解密后的 segment：命中缓存直接返回，否则下载 + 解密（同一 segment 并发只做一次）
 async fn load_segment(state: &AppState, track: &Arc<Track>, target: &str, idx: usize) -> Result<Bytes, String> {
+    if idx == 0 { return load_init(state, track, target).await; }
     state
         .segments
         .get_or_load((track.fileuri.clone(), idx), || async {
             let seg = track.segments[idx];
             // 下载与等待模板并行
-            let (raw, tmpl) = tokio::try_join!(download(state, target, seg.offset, seg.length), async {
+            let (raw, init, tmpl) = tokio::try_join!(download(state, target, seg.offset, seg.length), load_init(state, track, target), async {
                 if idx >= 2 {
                     track.wait_template(state.config.template_timeout).await.map(Some)
                 } else {
@@ -304,11 +305,14 @@ async fn load_segment(state: &AppState, track: &Arc<Track>, target: &str, idx: u
             })?;
 
             // 解密是 CPU 密集操作（内部用 temari 线程池并行），不能占用 async worker
-            let out = tokio::task::spawn_blocking(move || match (idx, tmpl) {
-                (0, _) => Ok(patch_init_segment(&raw)),
-                (1, _) => decrypt_fragment(&raw, fixed_template()),
-                (_, Some(t)) => decrypt_fragment(&raw, &t),
-                (_, None) => unreachable!("template awaited above"),
+            let out = tokio::task::spawn_blocking(move || {
+                let mut out = match (idx, tmpl) {
+                    (1, _) => decrypt_fragment(&raw, fixed_template()),
+                    (_, Some(t)) => decrypt_fragment(&raw, &t),
+                    (_, None) => unreachable!("template awaited above"),
+                }?;
+                if let Some(codec) = alac_track(&init) { repair_alac_fragment(&mut out, &codec)?; }
+                Ok::<_, String>(out)
             })
             .await
             .map_err(|e| format!("Decrypt task failed: {e}"))??;
@@ -316,6 +320,14 @@ async fn load_segment(state: &AppState, track: &Arc<Track>, target: &str, idx: u
             Ok(Bytes::from(out))
         })
         .await
+}
+
+async fn load_init(state: &AppState, track: &Track, target: &str) -> Result<Bytes, String> {
+    track.init.get_or_try_init(|| async {
+        let seg = track.segments.first().ok_or("Track has no init segment")?;
+        let raw = download(state, target, seg.offset, seg.length).await?;
+        Ok(Bytes::from(patch_init_segment(&raw)))
+    }).await.cloned()
 }
 
 async fn download(state: &AppState, url: &str, offset: u64, length: u64) -> Result<Bytes, String> {
