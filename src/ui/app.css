@@ -431,9 +431,14 @@ body.has-player { padding-bottom: calc(var(--player-height, 110px) + 32px + env(
   .status-dot { flex-shrink: 0; }
   .home { padding: 44px 0 40px; }
   .home-eyebrow { margin-bottom: 20px; }
-  .search { margin-top: 28px; padding: 6px; flex-direction: column; align-items: stretch; gap: 6px; border-radius: 20px; }
-  .search-field { padding-left: 12px; }
-  .search .btn-lg { width: 100%; border-radius: 14px; }
+  /* 手机上按钮与输入框同行，按钮收成紧凑胶囊，把宽度留给链接 */
+  .search { margin-top: 28px; padding: 5px; gap: 4px; }
+  .search-field { height: 44px; padding: 0 2px 0 12px; gap: 8px; }
+  .search-field > svg { width: 18px; height: 18px; }
+  .search-field input { font-size: 16px; }
+  .detect { height: 22px; padding: 0 8px; font-size: 11px; }
+  .search .btn-lg { height: 44px; padding: 0 14px; gap: 4px; font-size: 14px; }
+  .search .btn-lg svg { width: 15px; height: 15px; }
   .recent, .formats { margin-top: 56px; }
   .section-title { font-size: 18px; }
   /* 手机上最近解析改为横向滑动的一行 */
@@ -473,6 +478,8 @@ body.has-player { padding-bottom: calc(var(--player-height, 110px) + 32px + env(
 @media (max-width: 380px) {
   .topbar-right .status-pill { order: 3; }
   .brand-name { font-size: 15px; }
+  .search-field > svg, .search .btn-lg svg { display: none; }
+  .search .btn-lg { padding: 0 16px; }
   .song { padding: 18px; }
   .variant { gap: 8px; padding-inline: 10px; }
 }
