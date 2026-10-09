@@ -1,5 +1,16 @@
 # 更新日志
 
+## v0.3.2 (2026-10-10)
+
+### 新功能
+- ✨ 可以部署到 serverless 平台（Vercel 或 Cloudflare Workers），不需要运行二进制，README 里有一键部署按钮
+  - 静态资源由平台托管，后端只有一个函数（`serverless/core.mjs`）：amp-api 目录代理与 MV master 获取；amp-api 响应由平台缓存
+  - 默认由浏览器直连你自己的 wrapper-lite（本地模式）；设置环境变量 `AM_HOOK_WRAPPER_URL`（可另设 `AM_HOOK_WRAPPER_AUTH`）后由函数转发，此时没有限速与限并发，请用平台的访问控制限制访问
+  - `node scripts/build-static.mjs` 按 `src/assets.rs` 的资源表生成 `dist/`，构建只需要 Node
+
+### 变更
+- 新增 `/assets/host.js`，告诉页面服务端能否转发 wrapper-lite；不能时「wrapper-lite」设置里只有「本地」。二进制的行为不变
+
 ## v0.3.1 (2026-10-09)
 
 ### 变更

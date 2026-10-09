@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.3.2 (2026-10-10)
+
+### New
+- ✨ Deployable to a serverless platform (Vercel or Cloudflare Workers) without running the binary; the README has one-click deploy buttons
+  - The platform hosts the static assets and the backend is a single function (`serverless/core.mjs`): the amp-api catalog proxy and the MV master fetch; amp-api responses are cached by the platform
+  - By default the browser talks to your own wrapper-lite directly (local mode); set the `AM_HOOK_WRAPPER_URL` environment variable (and optionally `AM_HOOK_WRAPPER_AUTH`) to have the function relay instead, without rate or concurrency limits, so restrict access with the platform's access control
+  - `node scripts/build-static.mjs` builds `dist/` from the asset table in `src/assets.rs`; the build needs only Node
+
+### Changed
+- New `/assets/host.js` tells the page whether the server can relay wrapper-lite; when it cannot, the "wrapper-lite" setting only offers "Local". The binary behaves as before
+
 ## v0.3.1 (2026-10-09)
 
 ### Changed
