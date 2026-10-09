@@ -74,7 +74,7 @@ impl CryptoRng for Entropy<'_> {}
 fn util_to_bytes(fixed: &[u8]) -> Vec<u8> {
     let start = fixed.iter().position(|&b| b != 0).unwrap_or(fixed.len());
     let mut v = fixed[start..].to_vec();
-    if v.len() % 2 != 0 {
+    if !v.len().is_multiple_of(2) {
         v.insert(0, 0);
     }
     v
@@ -305,7 +305,7 @@ impl Cdm {
         let (iv, key): ([u8; 16], [u8; 16]) = (x[..16].try_into().unwrap(), x[16..].try_into().unwrap());
         let mut data = xml.into_bytes();
         let pad = 16 - data.len() % 16;
-        data.extend(std::iter::repeat(pad as u8).take(pad));
+        data.extend(std::iter::repeat_n(pad as u8, pad));
         Aes::new(&key).cbc_encrypt(&mut data, &iv);
         [iv.to_vec(), data].concat()
     }
@@ -368,7 +368,7 @@ fn wrm_header_version(header: &str) -> Result<String> {
 }
 
 fn utf16le(data: &[u8]) -> Result<String> {
-    if data.len() % 2 != 0 {
+    if !data.len().is_multiple_of(2) {
         bail!("UTF-16LE data has odd length");
     }
     let words: Vec<u16> = data.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect();
@@ -376,7 +376,7 @@ fn utf16le(data: &[u8]) -> Result<String> {
 }
 
 fn printable_utf16le(data: &[u8]) -> bool {
-    utf16le(data).map_or(false, |s| s.chars().all(|c| (' '..='~').contains(&c)))
+    utf16le(data).is_ok_and(|s| s.chars().all(|c| (' '..='~').contains(&c)))
 }
 
 fn decode_wrm_header(data: &[u8]) -> Result<String> {
@@ -646,7 +646,7 @@ fn unwrap_symmetric_key(encrypted: &[u8], key: &[u8; 16], aux: [u8; 16]) -> Resu
     }
     const MAGIC_ZERO: [u8; 16] = [0x7e, 0xe9, 0xed, 0x4a, 0xf7, 0x73, 0x22, 0x4f, 0x00, 0xb8, 0xea, 0x7e, 0xfb, 0x02, 0x7c, 0xbb];
     let ecb = |k: &[u8; 16], data: &[u8]| -> Result<Vec<u8>> {
-        if data.is_empty() || data.len() % 16 != 0 {
+        if data.is_empty() || !data.len().is_multiple_of(16) {
             bail!("AES-ECB plaintext length must be a non-zero multiple of 16");
         }
         let mut d = data.to_vec();

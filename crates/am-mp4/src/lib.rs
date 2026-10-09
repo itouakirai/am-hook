@@ -256,11 +256,11 @@ fn parse_traf(
                 next_data = pos;
             }
             b"senc" | b"saiz" | b"saio" => renames.push((b.start, *b"free")),
-            b"sgpd" | b"sbgp" => {
-                // FullBox(4) 后紧跟 grouping_type；只清除加密相关的 'seig' 与 Apple 换钥映射 'seam'
-                if b.body + 8 <= b.end && matches!(&src[b.body + 4..b.body + 8], b"seig" | b"seam") {
-                    renames.push((b.start, *b"free"));
-                }
+            // FullBox(4) 后紧跟 grouping_type；只清除加密相关的 'seig' 与 Apple 换钥映射 'seam'
+            b"sgpd" | b"sbgp"
+                if b.body + 8 <= b.end && matches!(&src[b.body + 4..b.body + 8], b"seig" | b"seam") =>
+            {
+                renames.push((b.start, *b"free"));
             }
             _ => {}
         }

@@ -117,7 +117,7 @@ impl<S: Source> Reader<S> {
     }
 
     pub fn read_vec(&mut self, pos: u64, len: u64) -> Result<Vec<u8>> {
-        if pos.checked_add(len).map_or(true, |end| end > self.size) {
+        if pos.checked_add(len).is_none_or(|end| end > self.size) {
             return Err(Error::new("unexpected EOF"));
         }
         let mut v = vec![0; len as usize];

@@ -81,18 +81,18 @@ pub fn parse_flat_json(input: &str) -> Vec<(String, String)> {
                     b'/' => key.push(b'/'),
                     b'n' => key.push(b'\n'),
                     b't' => key.push(b'\t'),
-                    b'u' => {
-                        if i + 4 < n {
-                            let hex = &input[i + 1..i + 5];
-                            if let Ok(v) = u32::from_str_radix(hex, 16) {
-                                // encode as UTF-8 (handle only BMP, non-surrogate)
-                                if let Some(c) = char::from_u32(v) {
-                                    let mut buf = [0u8; 4];
-                                    key.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-                                }
-                            }
-                            i += 4;
+                    b'u' if i + 4 < n => {
+                        // `get` 而非切片：\u 后若有多字节字符，不会在非字符边界处 panic
+                        if let Some(c) = input
+                            .get(i + 1..i + 5)
+                            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                            .and_then(char::from_u32)
+                        {
+                            // encode as UTF-8 (handle only BMP, non-surrogate)
+                            let mut buf = [0u8; 4];
+                            key.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
                         }
+                        i += 4;
                     }
                     _ => {}
                 }
@@ -128,17 +128,16 @@ pub fn parse_flat_json(input: &str) -> Vec<(String, String)> {
                         b'/' => v.push(b'/'),
                         b'n' => v.push(b'\n'),
                         b't' => v.push(b'\t'),
-                        b'u' => {
-                            if i + 4 < n {
-                                let hex = &input[i + 1..i + 5];
-                                if let Ok(vv) = u32::from_str_radix(hex, 16) {
-                                    if let Some(c) = char::from_u32(vv) {
-                                        let mut buf = [0u8; 4];
-                                        v.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-                                    }
-                                }
-                                i += 4;
+                        b'u' if i + 4 < n => {
+                            if let Some(c) = input
+                                .get(i + 1..i + 5)
+                                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                                .and_then(char::from_u32)
+                            {
+                                let mut buf = [0u8; 4];
+                                v.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
                             }
+                            i += 4;
                         }
                         _ => {}
                     }
@@ -174,11 +173,11 @@ pub fn base64_decode(s: &str) -> Vec<u8> {
     for &c in s.as_bytes() {
         let v = if c == b'=' {
             break;
-        } else if (b'A'..=b'Z').contains(&c) {
+        } else if c.is_ascii_uppercase() {
             (c - b'A') as u32
-        } else if (b'a'..=b'z').contains(&c) {
+        } else if c.is_ascii_lowercase() {
             (c - b'a' + 26) as u32
-        } else if (b'0'..=b'9').contains(&c) {
+        } else if c.is_ascii_digit() {
             (c - b'0' + 52) as u32
         } else if c == b'+' {
             62

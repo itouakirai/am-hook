@@ -199,6 +199,7 @@ cargo build --release
 
 ```sh
 cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings   # CI 也会运行；workspace 现为零警告
 ```
 
 单元测试覆盖浏览器媒体核心（PlayReady license 解密、CENC/CBCS、字幕修复、defrag）、URL 解析、m3u8 解析、MP4 box 修补（含 wasm 原地解密路径与并行路径结果一致）、缓存去重和 MV 接口。离线集成测试还检查 Apple CDN 地址不会被代理。
@@ -228,12 +229,13 @@ src/
   cli.rs               命令行参数解析
   main.rs              服务启动
   lib.rs               路由构建
+  assets.rs            内嵌前端资源：一张表（`ASSETS`）同时决定路由与 MIME，新增浏览器文件只需加一行
   amp.rs               amp-api 目录接口代理（自动获取并刷新 music.apple.com 网页版 developer token）
   log.rs               请求日志
-  m3u8.rs              Apple Music 链接解析、HLS 播放列表解析和加密标记剥离
+  links.rs             Apple Music 链接解析与页面路径判定（共用的正则片段，log.rs 也复用它给请求归类）
   state.rs             配置与共享客户端
   wrapper.rs           wrapper-lite 请求客户端（master m3u8、解密模板、歌词）
-  ui.rs                Web 接口（状态、解析、模板、歌词、MV 转发、静态资源；fallback 为 Apple Music 页面路径返回单页应用）
+  ui.rs                Web 接口（状态、解析、模板、歌词、MV 转发；fallback 为 Apple Music 页面路径返回单页应用）
   ui/
     app.html / app.mjs 单页应用：常驻播放条与歌词界面；前端路由接管站内链接并切换页面视图
     views/             页面视图：<name>.html 页面内容、<name>.mjs 页面脚本（home / song / mv / album / playlist / artist / browse：新发现与编辑页，样式在 browse.css）

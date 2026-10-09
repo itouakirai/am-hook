@@ -28,7 +28,7 @@ fn valid(mut b: &[u8]) -> bool {
     }
     while b.len() >= 10 {
         let size = be32(b, 0) as usize;
-        if size < 10 || size > b.len() || size % 2 != 0 {
+        if size < 10 || size > b.len() || !size.is_multiple_of(2) {
             return false;
         }
         b = &b[size..];

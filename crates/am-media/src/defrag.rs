@@ -405,7 +405,7 @@ fn validate_source_ranges(tracks: &[Track]) -> Result<()> {
             ranges.push((c.mdat, c.offset, c.offset + c.size, t.id, i));
         }
     }
-    ranges.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+    ranges.sort_by_key(|r| (r.0, r.1, r.2));
     for w in ranges.windows(2) {
         let (p, c) = (w[0], w[1]);
         if p.0 == c.0 && c.1 < p.2 {
@@ -795,7 +795,7 @@ fn plan_mdats(tracks: &[Track], order: &[ChunkRef]) -> Result<Vec<u64>> {
     Ok(sizes)
 }
 
-fn stbl_of<'a>(moov: &'a mut Atom, id: u32) -> Result<&'a mut Atom> {
+fn stbl_of(moov: &mut Atom, id: u32) -> Result<&mut Atom> {
     for trak in moov.children_mut().iter_mut().filter(|c| &c.kind == b"trak") {
         if tkhd_track_id(trak)? == id {
             return trak.req_mut(&[b"mdia", b"minf", b"stbl"]);
@@ -989,7 +989,7 @@ mod tests {
         let mut sample = 0;
         (0..be32(stco, 4) as usize)
             .map(|c| {
-                let per = runs.iter().filter(|r| r.0 <= c + 1).last().unwrap().1;
+                let per = runs.iter().rfind(|r| r.0 <= c + 1).unwrap().1;
                 let out = (be32(stco, 8 + 4 * c) as u64, sample, per);
                 sample += per;
                 out

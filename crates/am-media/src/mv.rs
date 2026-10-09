@@ -247,12 +247,10 @@ mod tests {
         if scheme == b"cenc" {
             let mut counter = [0u8; 16];
             counter[..8].copy_from_slice(&iv(i));
-            let mut n = u128::from_be_bytes(counter);
-            for chunk in s[2..].chunks_mut(16) {
+            for (n, chunk) in (u128::from_be_bytes(counter)..).zip(s[2..].chunks_mut(16)) {
                 let mut block = n.to_be_bytes();
                 aes.encrypt(&mut block);
                 chunk.iter_mut().zip(block).for_each(|(b, k)| *b ^= k);
-                n += 1;
             }
         } else {
             // 1 encrypted block out of every 10, one CBC chain per subsample.

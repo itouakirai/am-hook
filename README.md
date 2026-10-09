@@ -199,6 +199,7 @@ The binary is written to `target/release/am-hook` (`am-hook.exe` on Windows). Al
 
 ```sh
 cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings   # CI runs this too; the workspace is warning-free
 ```
 
 Unit tests cover the browser media core (PlayReady license decryption, CENC/CBCS, caption repair, defragmentation), URL parsing, m3u8 parsing, MP4 box patching (including that the in-place wasm path matches the parallel path), cache deduplication and the MV endpoints. Offline integration tests also check that Apple CDN URLs are not proxied.
@@ -228,12 +229,13 @@ src/
   cli.rs               CLI argument parsing
   main.rs              Server startup
   lib.rs               Router construction
+  assets.rs            Embedded front-end assets: one table (`ASSETS`) drives both the routes and the MIME types; add a browser file by adding one line
   amp.rs               amp-api catalog proxy (fetches and refreshes the music.apple.com web developer token)
   log.rs               Request log
-  m3u8.rs              Apple Music link parsing, HLS playlist parsing and key stripping
+  links.rs             Apple Music link parsing and page-path matching (shared regex fragments; log.rs reuses them to classify requests)
   state.rs             Configuration and shared clients
   wrapper.rs           wrapper-lite client (master m3u8, decryption templates, lyrics)
-  ui.rs                Web endpoints (status, parse, templates, lyrics, MV relays, static assets; fallback serves the single-page app for Apple Music page paths)
+  ui.rs                Web endpoints (status, parse, templates, lyrics, MV relays; fallback serves the single-page app for Apple Music page paths)
   ui/
     app.html / app.mjs Single-page app: persistent player bar and lyrics view; the client-side router takes over in-site links and swaps page views
     views/             Page views: <name>.html markup, <name>.mjs script (home / song / mv / album / playlist / artist / browse: New and editorial pages, styles in browse.css)

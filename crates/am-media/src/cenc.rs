@@ -181,7 +181,7 @@ fn parse_senc(payload: &[u8], iv_hint: u8) -> Result<Senc> {
     let count = r.u32()? as usize;
     let body = &payload[8..];
     if flags & 0x2 == 0 {
-        let size = if iv_hint != 0 { iv_hint as usize } else if count == 0 { 0 } else { body.len() / count };
+        let size = if iv_hint != 0 { iv_hint as usize } else { body.len().checked_div(count).unwrap_or(0) };
         let mut s = Senc::default();
         match size {
             0 => {}

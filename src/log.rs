@@ -15,6 +15,8 @@ use axum::response::Response;
 use regex::Regex;
 use tracing::{debug, info, warn, Level};
 use tracing_subscriber::fmt::time::ChronoLocal;
+
+use crate::links::{new_section, page_kinds};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::state::{AppState, Config};
@@ -99,7 +101,12 @@ impl Entry {
 }
 
 static PAGE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^/https:/{1,2}music\.apple\.com/([a-z]{2})/(song|album|playlist|artist|music-video|post|room|multi-room|grouping|curator)/(?:[^/?#]+/)?([^/?#]+?)/?$").unwrap()
+    Regex::new(concat!(
+        r"^/https:/{1,2}music\.apple\.com/([a-z]{2})/(",
+        page_kinds!(),
+        r")/(?:[^/?#]+/)?([^/?#]+?)/?$"
+    ))
+    .unwrap()
 });
 
 static LIBRARY_PAGE_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -107,7 +114,7 @@ static LIBRARY_PAGE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static NEW_PAGE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^/(?:https://music\.apple\.com/([a-z]{2})/)?(new(?:/top-charts(?:/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?)?)/?$").unwrap()
+    Regex::new(concat!(r"^/(?:https://music\.apple\.com/([a-z]{2})/)?(", new_section!(), r")/?$")).unwrap()
 });
 
 /// 只记录定位页面数据所需的参数，省略冗长的 fields/include 等字段。

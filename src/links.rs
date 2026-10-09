@@ -2,6 +2,27 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+// 路径片段的唯一来源：links.rs 用它们判定页面路径，log.rs 用同一份片段给请求归类，增删页面类型只改这里。
+/// 排行榜种类（`/new/top-charts/<kind>`）
+macro_rules! chart_kinds {
+    () => {
+        "songs|playlists|albums|music-videos|city-charts|daily-global-top-charts"
+    };
+}
+/// 「新发现」及其排行榜：`new[/top-charts[/<kind>]]`
+macro_rules! new_section {
+    () => {
+        concat!("new(?:/top-charts(?:/(?:", $crate::links::chart_kinds!(), "))?)?")
+    };
+}
+/// 带地区码的单资源页类型（`/{cc}/<kind>/…`）
+macro_rules! page_kinds {
+    () => {
+        "song|album|playlist|artist|music-video|post|room|multi-room|grouping|curator"
+    };
+}
+pub(crate) use {chart_kinds, new_section, page_kinds};
+
 static SONG_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());
 static MV_LINK_RE: LazyLock<Regex> =
@@ -21,11 +42,16 @@ static ARTIST_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/artist/(?:[^/?#]+/)?([0-9]+)(?:[/?#]|$)").unwrap());
 /// 编辑页（与 music.apple.com 的路由相同）：新发现 `/new`、排行榜 `/new/top-charts[/<kind>]`、room、multi-room、grouping 与 curator（slug 可省略）
 static EDITORIAL_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^https://music\.apple\.com/[a-z]{2}/(?:new(?:/top-charts(?:/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?)?/?(?:[?#]|$)|(?:room|multi-room|grouping)/[0-9]+(?:[/?#]|$)|curator/(?:[^/?#]+/)?[0-9]+(?:[/?#]|$))").unwrap()
+    Regex::new(concat!(
+        r"^https://music\.apple\.com/[a-z]{2}/(?:",
+        new_section!(),
+        r"/?(?:[?#]|$)|(?:room|multi-room|grouping)/[0-9]+(?:[/?#]|$)|curator/(?:[^/?#]+/)?[0-9]+(?:[/?#]|$))"
+    ))
+    .unwrap()
 });
 /// 跟随主地区的排行榜（`/new/top-charts[/<kind>]`，不含开头的 `/`）
 static CHARTS_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^new/top-charts(?:/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?/?$").unwrap()
+    Regex::new(concat!(r"^new/top-charts(?:/(?:", chart_kinds!(), r"))?/?$")).unwrap()
 });
 /// 资料库与本地歌单（与 music.apple.com 的 `/library/...` 相同，数据只保存在浏览器中，不含开头的 `/`）：
 /// `library`、各分类、`library/artists/<名称>`、`library/playlist/p.<id>`、`library/favorite-songs` 与 `library/playlist-folder/f.<id>`

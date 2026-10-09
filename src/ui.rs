@@ -7,8 +7,8 @@ use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::Response;
 use serde::Deserialize;
 use serde_json::json;
-use crate::log;
-use crate::m3u8::{
+use crate::{assets, log};
+use crate::links::{
     is_charts_path, is_editorial_link, is_library_path, parse_album_link, parse_artist_link, parse_mv_link, parse_playlist_link,
     parse_post_link, parse_song_link,
 };
@@ -16,10 +16,9 @@ use crate::state::AppState;
 use crate::wrapper::Lyrics;
 
 /// 站内页面（首页、新发现与歌曲 / MV / 专辑 / 歌单 / 艺人页、编辑页）。与 music.apple.com 相同，整站是单页应用：
-/// 所有页面地址都返回 app.html，页面视图（/assets/views/）由前端路由（app.mjs）切换，
-/// 播放条与歌词界面常驻，站内跳转时播放不中断。目录数据由前端经 `/amp` 代理获取。
+/// 所有页面地址都返回同一个外壳（[`assets::APP_HTML`]）。目录数据由前端经 `/amp` 代理获取。
 pub async fn app_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/html; charset=utf-8", include_bytes!("ui/app.html"))
+    assets::serve(&headers, &assets::APP_HTML)
 }
 
 /// 其余路径：Apple Music 页面路径本身也是 "https://..."（`/` 后拼接官网地址），
@@ -44,82 +43,6 @@ pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
         .body(Body::from("Not found\n"))
         .unwrap();
     log::note(response, "not found")
-}
-
-/// 前端路由
-pub async fn app_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/app.mjs"))
-}
-
-/// 主地区与曲库语言的选择面板
-pub async fn settings_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/settings.mjs"))
-}
-
-/// 资料库与歌单的存储（浏览器 IndexedDB，服务端不保存任何资料库数据）
-pub async fn library_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/library.mjs"))
-}
-
-/// 页面视图（src/ui/views/）：`<name>.html` 为页面内容，`<name>.mjs` 为页面脚本（导出 mount，见 app.mjs）
-pub async fn view_asset_handler(
-    headers: HeaderMap,
-    axum::extract::Path(file): axum::extract::Path<String>,
-) -> Response<Body> {
-    const JS: &str = "text/javascript; charset=utf-8";
-    const HTML: &str = "text/html; charset=utf-8";
-    let (content_type, body): (&'static str, &'static [u8]) = match file.as_str() {
-        "home.html" => (HTML, include_bytes!("ui/views/home.html")),
-        "home.mjs" => (JS, include_bytes!("ui/views/home.mjs")),
-        "song.html" => (HTML, include_bytes!("ui/views/song.html")),
-        "song.mjs" => (JS, include_bytes!("ui/views/song.mjs")),
-        "mv.html" => (HTML, include_bytes!("ui/views/mv.html")),
-        "mv.mjs" => (JS, include_bytes!("ui/views/mv.mjs")),
-        "album.html" => (HTML, include_bytes!("ui/views/album.html")),
-        "album.mjs" => (JS, include_bytes!("ui/views/album.mjs")),
-        "playlist.html" => (HTML, include_bytes!("ui/views/playlist.html")),
-        "playlist.mjs" => (JS, include_bytes!("ui/views/playlist.mjs")),
-        "artist.html" => (HTML, include_bytes!("ui/views/artist.html")),
-        "artist.mjs" => (JS, include_bytes!("ui/views/artist.mjs")),
-        // 编辑页：新发现、room、multi-room、grouping 与 curator 共用（与官网一样由 editorial-elements 区块组成）
-        "browse.html" => (HTML, include_bytes!("ui/views/browse.html")),
-        "browse.mjs" => (JS, include_bytes!("ui/views/browse.mjs")),
-        "browse.css" => ("text/css; charset=utf-8", include_bytes!("ui/views/browse.css")),
-        // 各页面共用的条目操作（封面悬停按钮、「更多」菜单）
-        "actions.mjs" => (JS, include_bytes!("ui/views/actions.mjs")),
-        // 专辑页与歌单页共用的头部（主题色、动态封面）
-        "detail-header.mjs" => (JS, include_bytes!("ui/views/detail-header.mjs")),
-        // 资料库（最近添加、艺人、专辑、歌曲、音乐视频、全部歌单）与本地歌单页
-        "library.html" => (HTML, include_bytes!("ui/views/library.html")),
-        "library.mjs" => (JS, include_bytes!("ui/views/library.mjs")),
-        "library.css" => ("text/css; charset=utf-8", include_bytes!("ui/views/library.css")),
-        "library-playlist.html" => (HTML, include_bytes!("ui/views/library-playlist.html")),
-        "library-playlist.mjs" => (JS, include_bytes!("ui/views/library-playlist.mjs")),
-        // 资料库的对话框、歌单封面拼图、导入与导出（导航与各页面共用）
-        "library-ui.mjs" => (JS, include_bytes!("ui/views/library-ui.mjs")),
-        _ => return json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "Not found" })),
-    };
-    static_response(&headers, content_type, body)
-}
-
-/// 专辑动态封面播放（editorialVideo 的 HLS，MSE 播放）
-pub async fn motion_art_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/motion-art.mjs"))
-}
-
-pub async fn mv_asset_handler(
-    headers: HeaderMap,
-    axum::extract::Path(file): axum::extract::Path<String>,
-) -> Response<Body> {
-    let (mime, body): (&str, &[u8]) = match file.as_str() {
-        "hls.mjs" => ("text/javascript", include_bytes!("ui/mv-hls.mjs")),
-        "engine.mjs" => ("text/javascript", include_bytes!("ui/mv-engine.mjs")),
-        "captions.mjs" => ("text/javascript", include_bytes!("ui/mv-captions.mjs")),
-        "cea608.mjs" => ("text/javascript", include_bytes!("ui/mv-cea608.mjs")),
-        "style.css" => ("text/css", include_bytes!("ui/mv.css")),
-        _ => return bad_request("Unknown MV asset"),
-    };
-    static_response(&headers, mime, body)
 }
 
 /// Relay the original wrapper-lite webplayback response.
@@ -247,89 +170,6 @@ async fn mv_forward(state: &AppState, request: reqwest::RequestBuilder) -> Respo
             .unwrap(),
         Err(error) => log::note(gateway_error("wrapper-lite request failed"), format!("wrapper-lite request failed: {error}")),
     }
-}
-
-pub async fn css_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/css; charset=utf-8", include_bytes!("ui/app.css"))
-}
-
-pub async fn player_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/player.js"))
-}
-
-pub async fn i18n_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/i18n.js"))
-}
-
-/// wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite
-pub async fn wrapper_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/wrapper.js"))
-}
-
-pub async fn decrypt_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/decrypt.js"))
-}
-
-pub async fn worker_js_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/hook-worker.js"))
-}
-
-pub async fn flac_worker_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/flac-transcode-worker.js"))
-}
-
-pub async fn flac_wasm_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "application/wasm", include_bytes!("ui/flac.wasm"))
-}
-
-pub async fn flac_init_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "application/octet-stream", include_bytes!("ui/flac-init.bin"))
-}
-
-pub async fn ec3_worker_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/ec3-decode-worker.js"))
-}
-
-pub async fn ec3_runtime_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/ec3-runtime.mjs"))
-}
-
-pub async fn ec3_wasm_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "application/wasm", include_bytes!("ui/ec3.wasm"))
-}
-
-/// 浏览器端解密核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
-pub async fn wasm_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "application/wasm", include_bytes!("ui/hook.wasm"))
-}
-
-/// MV 与歌曲下载共用的媒体 Worker：PlayReady、CENC/CBCS 解密、合并与 defrag
-pub async fn media_worker_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/media-worker.js"))
-}
-
-/// 媒体核心（crates/am-media-wasm 编译产物，见 scripts/build-wasm.sh）
-pub async fn media_wasm_handler(headers: HeaderMap) -> Response<Body> {
-    static_response(&headers, "application/wasm", include_bytes!("ui/media.wasm"))
-}
-
-/// 歌词界面（src/ui/lyrics/）：TTML 解析、接入播放器的 panel.mjs、打包好的 AMLL（见 browser/amll）与原来的封面背景（backdrop*.mjs）
-pub async fn lyrics_asset_handler(
-    headers: HeaderMap,
-    axum::extract::Path(file): axum::extract::Path<String>,
-) -> Response<Body> {
-    const JS: &str = "text/javascript; charset=utf-8";
-    let (content_type, body): (&'static str, &'static [u8]) = match file.as_str() {
-        "panel.mjs" => (JS, include_bytes!("ui/lyrics/panel.mjs")),
-        "ttml.mjs" => (JS, include_bytes!("ui/lyrics/ttml.mjs")),
-        "amll-core.mjs" => (JS, include_bytes!("ui/lyrics/amll-core.mjs")),
-        "amll.css" => ("text/css; charset=utf-8", include_bytes!("ui/lyrics/amll.css")),
-        "backdrop.mjs" => (JS, include_bytes!("ui/lyrics/backdrop.mjs")),
-        "backdrop-render.mjs" => (JS, include_bytes!("ui/lyrics/backdrop-render.mjs")),
-        "backdrop-worker.mjs" => (JS, include_bytes!("ui/lyrics/backdrop-worker.mjs")),
-        _ => return json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "Not found" })),
-    };
-    static_response(&headers, content_type, body)
 }
 
 #[derive(Deserialize)]
@@ -463,27 +303,6 @@ pub async fn master_handler(
         return internal_error("wrapper-lite returned no master m3u8 URL");
     };
     json_response(StatusCode::OK, json!({ "code": 0, "data": { "masterUrl": master_url } }))
-}
-
-/// 内嵌静态资源：`no-cache` + 内容 ETag。每次使用前都向服务器确认（未变化时 304），
-/// 升级后页面、decrypt.js、Worker 与 wasm 不会因缓存而版本错配。
-fn static_response(headers: &HeaderMap, content_type: &'static str, body: &'static [u8]) -> Response<Body> {
-    // FNV-1a 64：内容指纹，资源最大只有几百 KB，逐请求计算的开销可以忽略
-    let hash = body.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
-    let etag = format!("\"{hash:016x}\"");
-    let fresh = headers
-        .get(axum::http::header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag));
-    let builder = Response::builder()
-        .header(axum::http::header::CACHE_CONTROL, "no-cache")
-        .header(axum::http::header::ETAG, &etag);
-    let response = if fresh {
-        builder.status(StatusCode::NOT_MODIFIED).body(Body::empty())
-    } else {
-        builder.status(StatusCode::OK).header(CONTENT_TYPE, content_type).body(Body::from(body))
-    };
-    response.unwrap_or_else(|error| internal_error(&format!("failed to build response: {error}")))
 }
 
 fn json_response(status: StatusCode, value: serde_json::Value) -> Response<Body> {

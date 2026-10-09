@@ -19,8 +19,11 @@ use std::sync::Arc;
 
 /// Build a Template handle from a 40020-style JSON response body (UTF-8 bytes).
 /// Returns a non-null opaque pointer on success, NULL on any error.
+///
+/// # Safety
+/// `ptr` must be NULL or valid for reads of `len` bytes.
 #[no_mangle]
-pub extern "C" fn tmpl_from_json(ptr: *const c_char, len: usize) -> *mut c_void {
+pub unsafe extern "C" fn tmpl_from_json(ptr: *const c_char, len: usize) -> *mut c_void {
     let res = catch_unwind(AssertUnwindSafe(|| {
         if ptr.is_null() {
             return std::ptr::null_mut();
@@ -42,8 +45,11 @@ pub extern "C" fn tmpl_from_json(ptr: *const c_char, len: usize) -> *mut c_void 
 /// `ptrs[i]` points to sample i; `lens[i]` is its length; `out` must be
 /// writable for sum(lens). Each plaintext is written at the prefix offset.
 /// Returns total bytes written, or 0 on error.
+///
+/// # Safety
+/// `tmpl` must be a live handle from `tmpl_from_json`; `ptrs` / `lens` must be valid for `n` reads and each `ptrs[i]` for `lens[i]` bytes; `out` must be writable for sum(lens) bytes.
 #[no_mangle]
-pub extern "C" fn decrypt_samples_par(
+pub unsafe extern "C" fn decrypt_samples_par(
     tmpl: *const c_void,
     ptrs: *const *const u8,
     lens: *const usize,
@@ -79,8 +85,11 @@ pub extern "C" fn decrypt_samples_par(
 
 /// Free a Template handle previously returned by tmpl_from_json.
 /// NULL is a no-op.
+///
+/// # Safety
+/// `tmpl` must be NULL or a handle from `tmpl_from_json` that has not been destroyed yet.
 #[no_mangle]
-pub extern "C" fn tmpl_destroy(tmpl: *mut c_void) {
+pub unsafe extern "C" fn tmpl_destroy(tmpl: *mut c_void) {
     if tmpl.is_null() {
         return;
     }
@@ -92,8 +101,11 @@ pub extern "C" fn tmpl_destroy(tmpl: *mut c_void) {
 /// `out` must be writable for at least `sample_len` bytes.
 /// Returns the number of plaintext bytes written (always == sample_len),
 /// or 0 on error (null handle / null pointer).
+///
+/// # Safety
+/// `tmpl` must be a live template handle; `sample` readable and `out` writable for `sample_len` bytes.
 #[no_mangle]
-pub extern "C" fn decrypt_sample_ffi(
+pub unsafe extern "C" fn decrypt_sample_ffi(
     tmpl: *const c_void,
     sample: *const u8,
     sample_len: usize,
@@ -124,8 +136,11 @@ pub extern "C" fn decrypt_sample_ffi(
 
 /// Create a streaming decryptor. `tmpl` is cloned into an Arc. `batch_size`
 /// (>=1) bounds the adaptive batch. Returns a non-null handle or NULL on error.
+///
+/// # Safety
+/// `tmpl` must be a live template handle from `tmpl_from_json`.
 #[no_mangle]
-pub extern "C" fn stream_new(tmpl: *const c_void, batch_size: usize) -> *mut c_void {
+pub unsafe extern "C" fn stream_new(tmpl: *const c_void, batch_size: usize) -> *mut c_void {
     let res = catch_unwind(AssertUnwindSafe(|| {
         if tmpl.is_null() {
             return std::ptr::null_mut();
@@ -139,8 +154,11 @@ pub extern "C" fn stream_new(tmpl: *const c_void, batch_size: usize) -> *mut c_v
 
 /// Submit one encrypted sample. Blocks when the internal buffer is full
 /// (backpressure). The handle must not be NULL.
+///
+/// # Safety
+/// `s` must be a live stream handle; `sample` must be valid for reads of `len` bytes.
 #[no_mangle]
-pub extern "C" fn stream_submit(s: *const c_void, sample: *const u8, len: usize) {
+pub unsafe extern "C" fn stream_submit(s: *const c_void, sample: *const u8, len: usize) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if s.is_null() || (len > 0 && sample.is_null()) {
             return;
@@ -154,8 +172,11 @@ pub extern "C" fn stream_submit(s: *const c_void, sample: *const u8, len: usize)
 /// Blocking in-order receive. Returns the plaintext length written into `out`
 /// (out must have capacity >= the sample length), or 0 when the stream is
 /// closed and everything is consumed.
+///
+/// # Safety
+/// `s` must be a live stream handle; `out` must be writable for `cap` bytes.
 #[no_mangle]
-pub extern "C" fn stream_next(s: *const c_void, out: *mut u8, cap: usize) -> usize {
+pub unsafe extern "C" fn stream_next(s: *const c_void, out: *mut u8, cap: usize) -> usize {
     let res = catch_unwind(AssertUnwindSafe(|| {
         if s.is_null() || out.is_null() {
             return 0usize;
@@ -175,8 +196,11 @@ pub extern "C" fn stream_next(s: *const c_void, out: *mut u8, cap: usize) -> usi
 
 /// Non-blocking probe. Returns 1 = plaintext written into `out` (`*out_len` =
 /// length), 0 = no data pending yet, -1 = stream closed.
+///
+/// # Safety
+/// `s` must be a live stream handle; `out` writable for `cap` bytes; `out_len` valid for one `usize` write.
 #[no_mangle]
-pub extern "C" fn stream_try_next(
+pub unsafe extern "C" fn stream_try_next(
     s: *const c_void,
     out: *mut u8,
     cap: usize,
@@ -203,8 +227,11 @@ pub extern "C" fn stream_try_next(
 
 /// Close the input side. Already-submitted samples still drain via
 /// `stream_next` / `stream_try_next`.
+///
+/// # Safety
+/// `s` must be a live stream handle.
 #[no_mangle]
-pub extern "C" fn stream_finish(s: *const c_void) {
+pub unsafe extern "C" fn stream_finish(s: *const c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if s.is_null() {
             return;
@@ -215,8 +242,11 @@ pub extern "C" fn stream_finish(s: *const c_void) {
 }
 
 /// Destroy the stream handle (joins the coordinator thread). NULL is a no-op.
+///
+/// # Safety
+/// `s` must be NULL or a stream handle that has not been destroyed yet.
 #[no_mangle]
-pub extern "C" fn stream_destroy(s: *mut c_void) {
+pub unsafe extern "C" fn stream_destroy(s: *mut c_void) {
     if s.is_null() {
         return;
     }

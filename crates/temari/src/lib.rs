@@ -11,6 +11,8 @@
 pub mod ffi;
 mod pool;
 pub mod rounds;
+// 机器转译产物（见文件头），lint 一律放行；写在这里而不是文件里，重新生成时不会丢失
+#[allow(clippy::all)]
 pub mod rounds_gen;
 pub mod stream;
 pub mod template;

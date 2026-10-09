@@ -72,7 +72,7 @@ pub fn cmac(key: &[u8; 16], message: &[u8]) -> [u8; 16] {
     aes.encrypt(&mut l);
     let k1 = cmac_double(&l);
     let k2 = cmac_double(&k1);
-    let complete = !message.is_empty() && message.len() % 16 == 0;
+    let complete = !message.is_empty() && message.len().is_multiple_of(16);
     let blocks = if message.is_empty() { 1 } else { message.len().div_ceil(16) };
     let mut state = [0u8; 16];
     for i in 0..blocks {
@@ -115,7 +115,7 @@ pub fn base64_encode(data: &[u8]) -> String {
 /// that CR/LF are skipped as Go does.
 pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let bytes: Vec<u8> = text.bytes().filter(|&b| b != b'\r' && b != b'\n').collect();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);

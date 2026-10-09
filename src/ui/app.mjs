@@ -19,7 +19,7 @@ AmI18n.apply();
 const $ = (id) => document.getElementById(id);
 const viewRoot = $('view');
 
-/* ---------- 路由：与服务端（src/m3u8.rs 的 parse_*_link 与 is_editorial_link）识别的页面地址相同 ---------- */
+/* ---------- 路由：与服务端（src/links.rs 的 parse_*_link 与 is_editorial_link）识别的页面地址相同 ---------- */
 const PAGES = [
   ['song', /^https:\/\/music\.apple\.com\/[a-z]{2}\/song\/[^/?#]+\/[0-9]+(?:[/?#]|$)/],
   ['mv', /^https:\/\/music\.apple\.com\/[a-z]{2}\/music-video\/[^/?#]+\/[0-9]+(?:[/?#]|$)/],
@@ -28,7 +28,7 @@ const PAGES = [
   ['album', /^https:\/\/music\.apple\.com\/[a-z]{2}\/album\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
   ['playlist', /^https:\/\/music\.apple\.com\/[a-z]{2}\/playlist\/(?:[^/?#]+\/)?pl\.[0-9A-Za-z_-]+(?:[/?#]|$)/],
   ['artist', /^https:\/\/music\.apple\.com\/[a-z]{2}\/artist\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
-  // 编辑页（与 src/m3u8.rs 的 is_editorial_link 相同）：新发现（官网 /{cc}/new）、room、multi-room、grouping 与 curator
+  // 编辑页（与 src/links.rs 的 is_editorial_link 相同）：新发现（官网 /{cc}/new）、room、multi-room、grouping 与 curator
   ['new', /^https:\/\/music\.apple\.com\/[a-z]{2}\/new\/?$/],
   // 排行榜（官网 /{cc}/new/top-charts）与各榜单的「查看全部」
   ['charts', /^https:\/\/music\.apple\.com\/[a-z]{2}\/new\/top-charts(?:\/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?\/?$/],
@@ -38,9 +38,9 @@ const PAGES = [
 
 /** 页面名 → 视图文件（/assets/views/<file>.html / .mjs）：新发现与各编辑页共用 browse 视图，其余同名 */
 const VIEW_FILES = { new: 'browse', charts: 'browse', editorial: 'browse', post: 'mv' };
-/** 跟随主地区的排行榜路径（与 src/m3u8.rs 的 is_charts_path 相同） */
+/** 跟随主地区的排行榜路径（与 src/links.rs 的 is_charts_path 相同） */
 const CHARTS_PATH = /^\/new\/top-charts(?:\/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?\/?$/;
-/** 资料库（与 src/m3u8.rs 的 is_library_path 相同）：各分类与本地歌单，数据只在浏览器中 */
+/** 资料库（与 src/links.rs 的 is_library_path 相同）：各分类与本地歌单，数据只在浏览器中 */
 const LIBRARY_PATH = /^\/library(?:\/(?:recently-added|albums|songs|music-videos|all-playlists|artists(?:\/[^/?#]+)?|playlist-folder\/f\.[0-9A-Za-z_-]+))?\/?$/;
 /** 本地歌单与「喜爱的歌曲」 */
 const LIBRARY_PLAYLIST_PATH = /^\/library\/(?:playlist\/p\.[0-9A-Za-z_-]+|favorite-songs)\/?$/;
