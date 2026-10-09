@@ -1887,6 +1887,20 @@ body.lyrics-open { overflow: hidden; }
 .picker-filter:focus { outline: none; border-color: var(--accent); }
 .picker-state { margin: 10px; color: var(--muted); font-size: 13px; }
 .picker-state .link-btn { min-height: 0; margin: 0; padding: 0; color: var(--accent); }
+/* wrapper-lite：本地 wrapper-lite 的地址、限速、限并发与 Authorization */
+.picker-form { margin-top: 6px; padding: 6px 0 4px; border-top: .5px solid var(--line); }
+.picker-field { display: grid; margin: 4px 0; }
+.picker-field-label { margin: 4px 10px 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.picker-field-sub { margin: -2px 10px 2px; color: var(--faint); font-size: 11px; }
+.picker-form .picker-note { margin-left: 10px; }
+.picker-save {
+  min-height: 34px; margin: 8px 6px 2px; padding: 0 14px; border: 0; border-radius: 8px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.picker-save:hover { filter: brightness(1.08); }
+.picker-result { margin: 6px 10px 2px; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.picker-result.is-ok { color: var(--ok); }
+.picker-result.is-error { color: var(--error); }
 /* 手机：底部面板，盖在整屏菜单之上，背后加暗 */
 .picker.is-sheet {
   left: 0; right: 0; bottom: 0; max-height: 78dvh; border-width: .5px 0 0; border-radius: 14px 14px 0 0;

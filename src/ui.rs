@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::json;
 use crate::log;
 use crate::m3u8::{
-    is_charts_path, is_editorial_link, is_library_path, parse_album_link, parse_artist_link, parse_master_variants, parse_mv_link,
-    parse_playlist_link, parse_post_link, parse_song_link,
+    is_charts_path, is_editorial_link, is_library_path, parse_album_link, parse_artist_link, parse_mv_link, parse_playlist_link,
+    parse_post_link, parse_song_link,
 };
 use crate::state::AppState;
 use crate::wrapper::Lyrics;
@@ -156,6 +156,33 @@ pub async fn mv_master_handler(
     let Some(master_url) = payload.pointer("/data/m3u8").and_then(serde_json::Value::as_str).filter(|url| !url.is_empty()) else {
         return gateway_error("Missing MV master URL");
     };
+    fetch_mv_master(&state, master_url).await
+}
+
+#[derive(Deserialize)]
+pub struct MvMasterQuery {
+    pub url: String,
+}
+
+/// 浏览器直连本地 wrapper-lite 时，MV master 地址由页面从 `/webplayback` 取得，仍交给服务端以 `User-Agent: AM` 获取
+/// （浏览器无法改 User-Agent，否则可能返回没有 4K 的 master）。只接受 Apple 的 HTTPS 地址，免得被当作任意代理。
+pub async fn mv_master_url_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<MvMasterQuery>,
+) -> Response<Body> {
+    let apple = reqwest::Url::parse(&query.url).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.host_str().is_some_and(|host| host == "apple.com" || host.ends_with(".apple.com"))
+    });
+    if !apple {
+        return bad_request("Invalid MV master URL");
+    }
+    fetch_mv_master(&state, &query.url).await
+}
+
+async fn fetch_mv_master(state: &AppState, master_url: &str) -> Response<Body> {
     let response = state.http_client.get(master_url)
         .header(axum::http::header::USER_AGENT, "AM")
         .timeout(std::time::Duration::from_secs(30))
@@ -230,6 +257,11 @@ pub async fn player_js_handler(headers: HeaderMap) -> Response<Body> {
 
 pub async fn i18n_js_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/i18n.js"))
+}
+
+/// wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite
+pub async fn wrapper_js_handler(headers: HeaderMap) -> Response<Body> {
+    static_response(&headers, "text/javascript; charset=utf-8", include_bytes!("ui/wrapper.js"))
 }
 
 pub async fn decrypt_js_handler(headers: HeaderMap) -> Response<Body> {
@@ -397,6 +429,7 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Response<Body
     log::note(json_response(status, body), note)
 }
 
+/// 歌曲 master m3u8 的地址（wrapper-lite `/m3u8`）。master 由浏览器从 Apple CDN 获取并解析（wrapper.js）
 pub async fn master_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(adam_id): axum::extract::Path<String>,
@@ -424,38 +457,10 @@ pub async fn master_handler(
         return internal_error(msg);
     }
 
-    let master_url = payload
-        .pointer("/data/m3u8")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    let master_response = state.http_client.get(master_url).send().await;
-    let master_response = match master_response {
-        Ok(response) => response,
-        Err(error) => return upstream_error("failed to fetch master m3u8 from Apple", error),
+    let Some(master_url) = payload.pointer("/data/m3u8").and_then(serde_json::Value::as_str).filter(|url| !url.is_empty()) else {
+        return internal_error("wrapper-lite returned no master m3u8 URL");
     };
-    let master_body = match master_response.text().await {
-        Ok(text) => text,
-        Err(error) => return upstream_error("failed to read master m3u8", error),
-    };
-
-    let variants = match parse_master_variants(&master_body) {
-        Ok(variants) => variants,
-        Err(error) => return internal_error(&error),
-    };
-
-    let mut codecs: Vec<&str> = variants.iter().filter_map(|v| v.codecs.as_deref()).collect();
-    codecs.sort_unstable();
-    codecs.dedup();
-    let note = format!("{} variants ({})", variants.len(), codecs.join(", "));
-    let response = json_response(
-        StatusCode::OK,
-        json!({
-            "adamId": adam_id,
-            "masterUrl": master_url,
-            "variants": variants,
-        }),
-    );
-    log::note(response, note)
+    json_response(StatusCode::OK, json!({ "code": 0, "data": { "masterUrl": master_url } }))
 }
 
 /// 内嵌静态资源：`no-cache` + 内容 ETag。每次使用前都向服务器确认（未变化时 304），

@@ -2,7 +2,7 @@
 import { createActions, targetOf } from './actions.mjs';
 
 const { detectMode, artistNodes, qualityBadge, qualityIcon, formatTime } = window.AmHook;
-const { AmDecrypt, AmI18n } = window;
+const { AmDecrypt, AmI18n, AmWrapper } = window;
 const { t } = AmI18n;
 
 /**
@@ -372,16 +372,13 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     $('reparse').disabled = true;
     showAlert('info', () => t('song.loading'));
     try {
-      const res = await fetch(`/parse/song/${adamId}`, { signal });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || t('song.parseFailedHttp', { status: res.status }));
-      const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
+      const data = await AmWrapper.songMaster(adamId, signal);
       variants = data.variants.map((v) => ({
         ...v,
         info: describe(v),
         mode: detectMode(v.codecs),
         // 浏览器直连 CDN 的原始地址（浏览器端解密）
-        m3u8Url: base + v.uri,
+        m3u8Url: v.url,
       })).sort((a, b) => a.info.rank - b.info.rank || b.info.kbps - a.info.kbps || a.info.sub - b.info.sub || (b.bandwidth || 0) - (a.bandwidth || 0));
       renderVariants();
       showAlert('', '');

@@ -112,11 +112,12 @@ am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
 
 浏览器端流程（`src/ui/decrypt.js`）：
 
-1. 直接从 `aod.itunes.apple.com` 获取 media m3u8（CDN 允许跨域和 Range 请求），解析出 init 段、各分片的字节范围，以及每个分片对应的 key。
-2. 首个分片使用内嵌在 wasm 中的固定模板（`skd://itunes.apple.com/P000000000/s1/e1`），其余分片使用经 `/key` 获取的轨道模板。
-3. 分片用 Range 请求拉取，交给 Worker 池（每个 Worker 一个 `hook.wasm` 实例）原地解密；解密逻辑位于 `crates/am-mp4`。
-4. **播放**：浏览器支持原编码时，解密后的分片直接喂给 MSE。不支持 ALAC 但支持 FLAC-in-MP4 时，按需加载 `flac.wasm`，把 ALAC packet 无损转成 FLAC frame 并重新封装成较小的 fMP4 fragment。EC-3 在 MSE 支持时直接播放，否则按需加载 `ec3.wasm`，通过 Web Audio 播放 5.1/7.1 声道 PCM（不渲染 Atmos 对象）。拖动时直接定位到对应原始分片。
-5. **下载**：4 路并发拉取和解密，结果按原始偏移写入 OPFS 临时文件，完成后像参考下载器的 `DefragmentMP4` 那样转为 progressive MP4（`M4A ` ftyp，`moov` 位于媒体数据之前），再交给浏览器保存。不支持 OPFS 时退回内存 Blob。
+1. 从 wrapper-lite 取得 master m3u8 地址后，浏览器直接从 Apple CDN 获取 master 并解析出各音质变体（`src/ui/wrapper.js`）。
+2. 直接从 `aod.itunes.apple.com` 获取 media m3u8（CDN 允许跨域和 Range 请求），解析出 init 段、各分片的字节范围，以及每个分片对应的 key。
+3. 首个分片使用内嵌在 wasm 中的固定模板（`skd://itunes.apple.com/P000000000/s1/e1`），其余分片使用经 `/key` 获取的轨道模板。
+4. 分片用 Range 请求拉取，交给 Worker 池（每个 Worker 一个 `hook.wasm` 实例）原地解密；解密逻辑位于 `crates/am-mp4`。
+5. **播放**：浏览器支持原编码时，解密后的分片直接喂给 MSE。不支持 ALAC 但支持 FLAC-in-MP4 时，按需加载 `flac.wasm`，把 ALAC packet 无损转成 FLAC frame 并重新封装成较小的 fMP4 fragment。EC-3 在 MSE 支持时直接播放，否则按需加载 `ec3.wasm`，通过 Web Audio 播放 5.1/7.1 声道 PCM（不渲染 Atmos 对象）。拖动时直接定位到对应原始分片。
+6. **下载**：4 路并发拉取和解密，结果按原始偏移写入 OPFS 临时文件，完成后像参考下载器的 `DefragmentMP4` 那样转为 progressive MP4（`M4A ` ftyp，`moov` 位于媒体数据之前），再交给浏览器保存。不支持 OPFS 时退回内存 Blob。
 
 `hook.wasm` 会在解密后修复可确认的 ALAC 包尾错误（如歌曲 `1691044818`）：根据 init 中的轨道与 sample description，定位 PCM 完整的未压缩单声道／立体声包，将缺失或损坏的 3-bit `TYPE_END` 恢复为 `111`。修复不改变 PCM、sample 长度或 Range 偏移。压缩包、PCM 截断及没有足够尾部空间的包不做原地修复；转 FLAC 时仍保留可追加结束标记的兜底。
 
@@ -124,11 +125,20 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 
 ### MV
 
-- `/parse/mv/<adamId>` 从 wrapper-lite `/webplayback` 获取 master 地址，再以 `User-Agent: AM` 获取内容，返回播放列表文本和最终 CDN 地址。
+- `/parse/mv/<adamId>` 从 wrapper-lite `/webplayback` 获取 master 地址，再以 `User-Agent: AM` 获取内容，返回播放列表文本和最终 CDN 地址。浏览器的 User-Agent 无法修改，用其他 User-Agent 获取可能拿不到 4K，所以使用本地 wrapper-lite 时 master 也交给服务端（`/parse/mv-master`）获取。
 - `/mv/webplayback/<adamId>` 和 `/mv/license` 分别转发到 wrapper-lite `/webplayback` 和 `/license`（只使用 PlayReady；许可证失败会显示错误，不切换其他 DRM）。
 - 音视频轨道 m3u8 和分片均由浏览器直连 Apple 获取。
 - challenge 构建、license 解析、CENC/CBCS 解密、字幕修复、fragmented MP4 合并以及转为 progressive MP4 在 Worker 中由 `media.wasm` 完成（Rust 实现，见 [crates/am-media](crates/am-media/README.md)）。
 - 暂不支持直播、discontinuity 或中途更换初始化段的清单。
+
+### 使用本地 wrapper-lite
+
+导航底部的「wrapper-lite」设置可以在两种方式间切换（保存在浏览器中）：
+
+- **服务端**（默认）：wrapper-lite 请求经 am-hook 转发，限速、限并发与 `Authorization` 由 `--wrapper-*` 参数决定。
+- **本地**：浏览器直接请求你自己的 wrapper-lite（`/status`、`/m3u8`、`/key`、`/lyrics`、`/webplayback`、`/license`），在面板中填写地址、每秒请求数上限、同时请求数上限与 `Authorization`（规则与 `--wrapper-auth` 相同）。限制只作用于当前页面。
+  - 请求是跨源的：wrapper-lite 需允许跨源请求（返回 `Access-Control-Allow-Origin`，填了 `Authorization` 时还需在预检中允许该请求头），或在浏览器中安装解除跨域限制的插件。
+  - MV 的 master 播放列表仍由 am-hook 以 `User-Agent: AM` 获取，其余 MV 请求（`/webplayback`、`/license`）直连本地 wrapper-lite。
 
 ## 服务端接口
 
@@ -139,10 +149,11 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 | `GET /https://music.apple.com/<cc>/music-video/<slug>/<id>` | MV 页 |
 | `GET /https://music.apple.com/<cc>/post/<id>` | 艺人上传的视频（MV 页） |
 | `GET /status` | wrapper-lite 状态与可用地区 |
-| `GET /parse/song/<adamId>` | 通过 wrapper-lite 获取歌曲 master m3u8，返回各音质变体 |
+| `GET /parse/song/<adamId>` | 通过 wrapper-lite `/m3u8` 获取歌曲 master m3u8 的地址（`{"code":0,"data":{"masterUrl":…}}`），master 由浏览器获取并解析 |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | 转发 wrapper-lite `/key` 返回的歌曲轨道解密模板 JSON |
 | `GET /lyrics/<adamId>?language=<语言>` | 通过 wrapper-lite `/lyrics` 获取 TTML 歌词，原样返回 XML；没有歌词时返回 404。`language` 可选，为歌曲所在地区的曲库语言（选定的语言，否则为地区默认语言，如 `zh-Hans-CN`） |
 | `GET /parse/mv/<adamId>` | MV master 播放列表文本与最终 CDN 地址 |
+| `GET /parse/mv-master?url=<master 地址>` | 同上，master 地址由页面从本地 wrapper-lite 取得；只接受 `apple.com` 的 HTTPS 地址 |
 | `GET /https://music.apple.com/<cc>/album/<slug>/<id>` | 专辑页（与 music.apple.com 相同的 `editorialVideo` 动态封面：宽屏方形、手机全宽 3:4；曲目列表、连续播放、相关推荐货架；数据来自与 music.apple.com 相同的 amp-api `albums` 请求）。带 `?i=` 的专辑链接与 music.apple.com 一样打开专辑页，选中（高亮）该曲目并滚动到它 |
 | `GET /https://music.apple.com/<cc>/playlist/<slug>/<pl.id>` | 歌单页（编辑歌单与公开的用户歌单：与专辑页相同的动态封面；曲目带封面、艺人、专辑列；连续播放；精选艺人、策展人的更多歌单货架；数据来自与 music.apple.com 相同的 amp-api `playlists` 请求，经 `/amp` 获取） |
 | `GET /https://music.apple.com/<cc>/artist/<slug>/<id>` | 艺人页（与 music.apple.com 相同的头部：按目录数据显示动态视频、通栏图片或圆形头像；最新发行、歌曲排行与连续播放、专辑 / MV / 歌单 / 相似艺人货架与「显示全部」、艺人简介；数据来自与 music.apple.com 相同的 amp-api `artists` 请求，经 `/amp` 获取）。歌曲页、MV 页、专辑页的艺人名（多位艺人时各自单独链接）与艺人货架都链接到这里 |
@@ -165,7 +176,7 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 | `-w, --wrapper-url <URL>` | `http://127.0.0.1:12340` | wrapper-lite 密钥服务地址 |
 | `--wrapper-rate <N>` | `24` | 每秒发往 wrapper-lite 的最大请求数（任意 1 秒内，超出的请求按顺序排队）。0 不限 |
 | `--wrapper-concurrency <N>` | `24` | 同时进行的 wrapper-lite 请求上限。0 不限。wrapper-lite 运行在 QEMU 中、负载高时请求超时的话可调低（如 `8`） |
-| `--wrapper-auth <VALUE>` | 不发送 | wrapper-lite 请求的 `Authorization` 头。只填 token 时自动加 `Bearer ` 前缀；已带认证方案（`Bearer …`、`Basic …`）则原样发送。也可用环境变量 `AM_HOOK_WRAPPER_AUTH` 设置（不会出现在进程列表中） |
+| `--wrapper-auth <VALUE>` | 不发送 | wrapper-lite 请求的 `Authorization` 头。只填 token 时自动加 `Bearer ` 前缀；已带认证方案（`Bearer …`、`Basic …`）则原样发送。也可用环境变量 `AM_HOOK_WRAPPER_AUTH` 设置（不会出现在进程列表中）。以上三项只作用于服务端转发；页面切换为本地 wrapper-lite 时在页面中另行设置 |
 | `--amp-keepalive <SECONDS>` | `30` | amp-api 连接保活：空闲达到该时长时发送一个轻量请求（0 关闭）。无论是否开启，启动时都会先获取 token 并建立连接 |
 | `--amp-cache-mb <MB>` | `32` | amp-api 响应缓存（目录 5 分钟、地区表 24 小时；0 关闭）。相同的并发请求始终只请求一次上游 |
 

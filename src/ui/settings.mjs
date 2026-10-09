@@ -5,8 +5,10 @@
 //   主地区：先列出 wrapper-lite 账号所在地区（最佳体验），再列出收藏的地区（默认 us / cn / jp）；
 //          其余地区收在「更多地区」里，展开后可筛选，每个地区右侧的星标按钮收藏 / 取消收藏。
 //   曲库语言：只列出主地区在 /amp/v1/storefronts 里的 supportedLanguageTags，默认为地区的 defaultLanguageTag。
+//   wrapper-lite：服务端（经 am-hook 转发）或本地（浏览器直连，可设地址、限速、限并发与 Authorization），
+//          设置由 wrapper.js 的 AmWrapper 保存；保存后由 app.mjs 重新检查状态，结果显示在面板里。
 
-const { AmI18n } = window;
+const { AmI18n, AmWrapper } = window;
 const { t } = AmI18n;
 
 const mobile = matchMedia('(max-width: 483px)');
@@ -37,7 +39,8 @@ function el(tag, className, text) {
   return node;
 }
 
-export function mountSettings({ picker, scrim }) {
+/** checkStatus：app.mjs 的状态检查，返回 { ok, regions, error } */
+export function mountSettings({ picker, scrim, checkStatus }) {
   const title = picker.querySelector('.picker-title');
   const hint = picker.querySelector('.picker-hint');
   const body = picker.querySelector('.picker-body');
@@ -55,6 +58,12 @@ export function mountSettings({ picker, scrim }) {
     for (const node of document.querySelectorAll('[data-setting-value="storefront"]')) {
       node.textContent = `${regionName(cc, map)} · ${cc.toUpperCase()}`;
       node.closest('[data-picker]')?.classList.toggle('is-outside', outside);
+    }
+    const wrapper = AmWrapper.settings;
+    for (const node of document.querySelectorAll('[data-setting-value="wrapper"]')) {
+      let host = wrapper.url;
+      try { host = new URL(wrapper.url).host; } catch {}
+      node.textContent = wrapper.local ? `${t('wrapper.local')} · ${host}` : t('wrapper.server');
     }
     const tag = await AmI18n.catalogLang(cc);
     if (cc !== AmI18n.storefront) return;
@@ -245,10 +254,82 @@ export function mountSettings({ picker, scrim }) {
     }))));
   }
 
+  /** 本地 wrapper-lite 的一项设置 */
+  function field(label, input, sub) {
+    const row = el('label', 'picker-field');
+    row.append(el('span', 'picker-field-label', label), input);
+    if (sub) row.append(el('span', 'picker-field-sub', sub));
+    return row;
+  }
+
+  function renderWrapper() {
+    title.textContent = t('settings.wrapper');
+    hint.textContent = t('wrapper.hint');
+    // 填写中的值（未保存），面板重绘时保留
+    const draft = (open.draft ||= AmWrapper.settings);
+    const modes = group(null, [
+      option({
+        label: t('wrapper.server'), sub: t('wrapper.serverSub'), checked: !draft.local,
+        onPick: () => { if (AmWrapper.settings.local) AmWrapper.save({ local: false }); close(true); },
+      }),
+      option({
+        label: t('wrapper.local'), sub: t('wrapper.localSub'), checked: draft.local,
+        onPick: () => {
+          draft.local = true;
+          open.result = null;
+          render();
+          body.querySelector('.picker-input')?.focus({ preventScroll: true });
+        },
+      }),
+    ]);
+    if (!draft.local) { body.replaceChildren(modes); return; }
+
+    const input = (type, key, attrs) => {
+      const node = el('input', 'picker-filter picker-input');
+      node.type = type;
+      node.value = draft[key];
+      node.spellcheck = false;
+      node.autocomplete = 'off';
+      Object.assign(node, attrs);
+      node.addEventListener('input', () => { draft[key] = node.value; });
+      return node;
+    };
+    const form = el('form', 'picker-form');
+    form.noValidate = true;
+    form.append(
+      field(t('wrapper.url'), input('url', 'url', { placeholder: AmWrapper.DEFAULTS.url })),
+      field(t('wrapper.rate'), input('number', 'rate', { min: 0, step: 1, inputMode: 'numeric' }), t('wrapper.zero')),
+      field(t('wrapper.concurrency'), input('number', 'concurrency', { min: 0, step: 1, inputMode: 'numeric' }), t('wrapper.zero')),
+      field('Authorization', input('password', 'auth', { placeholder: t('wrapper.authPlaceholder') }), t('wrapper.authSub')),
+      el('p', 'picker-note', t('wrapper.cors')),
+    );
+    const save = el('button', 'picker-save', t('wrapper.save'));
+    save.type = 'submit';
+    form.append(save);
+    if (open.result) form.append(el('p', `picker-result ${open.result.className}`, open.result.text));
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const current = open;
+      const report = (text, className = '') => { current.result = { text, className }; if (open === current) render(); };
+      try {
+        AmWrapper.save({ ...draft, local: true });
+      } catch (error) {
+        report(error.message, 'is-error');
+        return;
+      }
+      report(t('wrapper.checking'));
+      const status = await checkStatus();
+      if (status.ok) report(t('wrapper.ok', { count: status.regions.length }), 'is-ok');
+      else report(t('wrapper.failed', { msg: status.error || t('status.down') }), 'is-error');
+    });
+    body.replaceChildren(modes, form);
+  }
+
   function render() {
     if (!open) return;
     const seq = ++renderSeq;
     if (open.kind === 'storefront') renderStorefront();
+    else if (open.kind === 'wrapper') renderWrapper();
     else void renderAmpLang(seq);
   }
 

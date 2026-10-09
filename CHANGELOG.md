@@ -1,5 +1,16 @@
 # 更新日志
 
+## 未发布
+
+### 新功能
+- ✨ 网页可以改用自己本地的 wrapper-lite：导航底部的「wrapper-lite」设置切换为「本地」后，wrapper-lite 请求由浏览器直接发出
+  - 可设置地址、每秒请求数上限、同时请求数上限与 `Authorization`，保存在浏览器中
+  - wrapper-lite 需允许跨源请求，或在浏览器中安装解除跨域限制的插件
+  - MV 的 master 播放列表仍由服务端以 `User-Agent: AM` 获取（新接口 `/parse/mv-master`），避免拿不到 4K
+
+### 变更
+- 歌曲 master m3u8 改由浏览器获取并解析，`/parse/song/<adamId>` 只返回 master 地址（`{"code":0,"data":{"masterUrl":…}}`），不再返回 `variants`
+
 ## v0.2.7 (2026-10-09)
 
 ### 移除

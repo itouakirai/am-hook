@@ -63,6 +63,35 @@ async fn forwards_mv_requests_without_fetching_media() {
 }
 
 #[tokio::test]
+async fn song_master_returns_only_the_wrapper_url() {
+    // master m3u8 由浏览器获取并解析，服务端只转发 wrapper-lite /m3u8 的地址
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mock = Router::new().route(
+        "/m3u8",
+        get(|axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>| async move {
+            match query["adamId"].as_str() {
+                "1" => Json(json!({"code":0,"data":{"m3u8":"https://unreachable.invalid/P1_default.m3u8"}})),
+                "2" => Json(json!({"code":0,"data":{}})),
+                _ => Json(json!({"code":1,"msg":"not found"})),
+            }
+        }),
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+    let state = Arc::new(AppState::new(format!("http://{addr}")));
+    let response = ui::master_handler(State(state.clone()), Path("1".into())).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body, json!({"code":0,"data":{"masterUrl":"https://unreachable.invalid/P1_default.m3u8"}}));
+    for id in ["2", "3"] {
+        let response = ui::master_handler(State(state.clone()), Path(id.into())).await;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    assert_eq!(ui::master_handler(State(state), Path("abc".into())).await.status(), StatusCode::BAD_REQUEST);
+    task.abort();
+}
+
+#[tokio::test]
 async fn parses_mv_master_with_fixed_user_agent() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -124,6 +153,23 @@ async fn parses_mv_master_with_fixed_user_agent() {
         body["data"]["masterBody"],
         "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100\nvideo.m3u8\n"
     );
+    // 浏览器直连本地 wrapper-lite 时由页面传来 master 地址：只接受 Apple 的 HTTPS 地址
+    for url in [
+        format!("http://{addr}/redirect.m3u8"),
+        "http://play.itunes.apple.com/master.m3u8".to_owned(),
+        "https://example.com/master.m3u8".to_owned(),
+        "https://apple.com.example.com/master.m3u8".to_owned(),
+        "https://play.itunes.apple.com:8443/master.m3u8".to_owned(),
+        "not a url".to_owned(),
+    ] {
+        let response = client
+            .get(format!("http://{app_addr}/parse/mv-master"))
+            .query(&[("url", url.as_str())])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{url}");
+    }
     for (id, status) in [
         ("2", StatusCode::BAD_GATEWAY),
         ("3", StatusCode::BAD_GATEWAY),

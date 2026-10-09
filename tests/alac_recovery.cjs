@@ -19,9 +19,7 @@ const origin = process.env.AM_HOOK_URL || 'http://127.0.0.1:8888';
     await page.waitForFunction(() => window.AmApp);
     await page.evaluate(async () => {
       const { player } = window.AmApp;
-      const response = await fetch('/parse/song/1691044818');
-      if (!response.ok) throw new Error(await response.text());
-      const data = await response.json();
+      const data = await window.AmWrapper.songMaster('1691044818');
       const variant = data.variants.find(v => v.codecs === 'alac');
       if (!variant) throw new Error('ALAC variant unavailable');
       window.recoveryPlayer = player;
@@ -29,7 +27,7 @@ const origin = process.env.AM_HOOK_URL || 'http://127.0.0.1:8888';
       player.audio.addEventListener('ended', () => { window.recoveryEnded = true; });
       await player.play({
         id: '1691044818', codecs: 'alac',
-        m3u8Url: new URL(variant.uri, data.masterUrl).href,
+        m3u8Url: variant.url,
       });
       // Traverse the entire track without seeking; 4x shortens the live test.
       player.audio.playbackRate = 4;

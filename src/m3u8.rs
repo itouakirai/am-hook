@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -33,29 +32,6 @@ static CHARTS_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
 static LIBRARY_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^library(?:/(?:recently-added|albums|songs|music-videos|all-playlists|favorite-songs|artists(?:/[^/?#]+)?|playlist/p\.[0-9A-Za-z_-]+|playlist-folder/f\.[0-9A-Za-z_-]+))?/?$").unwrap()
 });
-static ATTR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"([A-Z0-9-]+)=("[^"]*"|[^,\r\n]+)"#).unwrap());
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MasterVariant {
-    pub uri: String,
-    pub file_uri: String,
-    pub group_id: String,
-    pub audio: String,
-    pub codecs: Option<String>,
-    /// AVERAGE-BANDWIDTH（缺省取 BANDWIDTH），bit/s
-    pub bandwidth: Option<u64>,
-    pub channels: Option<String>,
-    pub sample_rate: Option<u32>,
-    pub bit_depth: Option<u32>,
-}
-
-#[derive(Default)]
-struct AudioGroup {
-    name: String,
-    channels: Option<String>,
-    sample_rate: Option<u32>,
-    bit_depth: Option<u32>,
-}
 
 pub fn parse_song_link(url: &str) -> Result<String, String> {
     SONG_LINK_RE
@@ -112,74 +88,6 @@ pub fn is_charts_path(path: &str) -> bool {
 /// 是否为资料库路径（`library/songs`、`library/playlist/p.xxx` 等），同样返回单页应用
 pub fn is_library_path(path: &str) -> bool {
     LIBRARY_PATH_RE.is_match(path)
-}
-
-fn parse_attributes(input: &str) -> HashMap<&str, &str> {
-    ATTR_RE
-        .captures_iter(input)
-        .map(|caps| {
-            let (k, v) = (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str());
-            (k, v.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(v))
-        })
-        .collect()
-}
-
-pub fn parse_master_variants(content: &str) -> Result<Vec<MasterVariant>, String> {
-    let mut audio_groups = HashMap::<String, AudioGroup>::new();
-    let mut current_stream: Option<HashMap<&str, &str>> = None;
-    let mut variants = Vec::new();
-
-    for line in content.lines().map(str::trim) {
-        if let Some(attrs) = line.strip_prefix("#EXT-X-MEDIA:") {
-            let attrs = parse_attributes(attrs);
-            if attrs.get("TYPE") == Some(&"AUDIO") {
-                if let Some(group_id) = attrs.get("GROUP-ID") {
-                    audio_groups.insert(
-                        group_id.to_string(),
-                        AudioGroup {
-                            name: attrs.get("NAME").unwrap_or(&"").to_string(),
-                            channels: attrs.get("CHANNELS").map(|s| s.to_string()),
-                            sample_rate: attrs.get("SAMPLE-RATE").and_then(|s| s.parse().ok()),
-                            bit_depth: attrs.get("BIT-DEPTH").and_then(|s| s.parse().ok()),
-                        },
-                    );
-                }
-            }
-        } else if let Some(attrs) = line.strip_prefix("#EXT-X-STREAM-INF:") {
-            current_stream = Some(parse_attributes(attrs));
-        } else if !line.is_empty() && !line.starts_with('#') && line.ends_with(".m3u8") {
-            let attrs = current_stream.take().unwrap_or_default();
-            let group_id = attrs.get("AUDIO").unwrap_or(&"").to_string();
-            let group = audio_groups.get(&group_id);
-            variants.push(MasterVariant {
-                uri: line.to_string(),
-                file_uri: media_playlist_to_file(line),
-                audio: group.map(|g| g.name.clone()).unwrap_or_default(),
-                channels: group.and_then(|g| g.channels.clone()),
-                sample_rate: group.and_then(|g| g.sample_rate),
-                bit_depth: group.and_then(|g| g.bit_depth),
-                group_id,
-                codecs: attrs.get("CODECS").map(|s| s.to_string()),
-                bandwidth: attrs
-                    .get("AVERAGE-BANDWIDTH")
-                    .or_else(|| attrs.get("BANDWIDTH"))
-                    .and_then(|s| s.parse().ok()),
-            });
-        }
-    }
-
-    if variants.is_empty() {
-        return Err("No variants found in master m3u8".to_string());
-    }
-    Ok(variants)
-}
-
-/// `xxx.m3u8` -> `xxx_m.mp4`
-pub fn media_playlist_to_file(name: &str) -> String {
-    match name.strip_suffix(".m3u8") {
-        Some(stem) => format!("{stem}_m.mp4"),
-        None => name.to_string(),
-    }
 }
 
 #[cfg(test)]
@@ -282,25 +190,5 @@ mod tests {
         assert!(!is_editorial_link("https://music.apple.com/us/room/abc"));
         assert!(!is_editorial_link("https://music.apple.com/us/curator/name"));
         assert!(!is_editorial_link("https://music.apple.com/us/album/name/123"));
-    }
-
-    #[test]
-    fn test_parse_master_variants() {
-        let content = r#"
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-alac",NAME="songEnhanced",CHANNELS="2",SAMPLE-RATE=44100,BIT-DEPTH=24
-#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=1673776,BANDWIDTH=1788592,CODECS="alac",AUDIO="audio-alac"
-P100_A123_audio_alac.m3u8
-"#;
-        let variants = parse_master_variants(content).unwrap();
-        assert_eq!(variants.len(), 1);
-        assert_eq!(variants[0].uri, "P100_A123_audio_alac.m3u8");
-        assert_eq!(variants[0].file_uri, "P100_A123_audio_alac_m.mp4");
-        assert_eq!(variants[0].group_id, "audio-alac");
-        assert_eq!(variants[0].audio, "songEnhanced");
-        assert_eq!(variants[0].codecs.as_deref(), Some("alac"));
-        assert_eq!(variants[0].bandwidth, Some(1673776));
-        assert_eq!(variants[0].channels.as_deref(), Some("2"));
-        assert_eq!(variants[0].sample_rate, Some(44100));
-        assert_eq!(variants[0].bit_depth, Some(24));
     }
 }

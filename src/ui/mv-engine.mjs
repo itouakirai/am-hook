@@ -22,13 +22,8 @@ export class Core {
     for (const p of this.pending.values()) p.reject(error); this.pending.clear();
   }
 }
-async function json(url, options) {
-  const res = await fetch(url, options); const data = await res.json();
-  if (!res.ok || data.code !== 0) throw new Error(data.msg || `HTTP ${res.status}`);
-  return data.data;
-}
 export async function fetchMaster(id, signal) {
-  return json(`/parse/mv/${id}`, { signal });
+  return window.AmWrapper.mvMaster(id, signal);
 }
 export function mime(track, video) {
   const codecs = video ? (track.CODECS || '').split(',').filter(c => /^(avc|hvc|hev|dvh|dvhe|av01)/.test(c)).join(',') : track.codec;
@@ -44,8 +39,7 @@ async function prepare(core, id, track, name, signal) {
   for (const uri of new Set(playlist.segments.map(s => s.key).filter(Boolean))) {
     const challenge = await core.call('challenge', uri);
     try {
-      const data = await json('/mv/license', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adamId: id, uri: challenge.uri, challenge: challenge.challenge, 'drm-type': 'pr' }) });
+      const data = await window.AmWrapper.license({ adamId: id, uri: challenge.uri, challenge: challenge.challenge, 'drm-type': 'pr' }, signal);
       keys.set(uri, await core.call('license', challenge.session, data.license));
     } finally { if (!signal.aborted) await core.call('closeSession', challenge.session); }
   }

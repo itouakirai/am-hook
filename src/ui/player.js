@@ -256,11 +256,8 @@
   }
 
   async function resolveEntry(entry) {
-    const res = await fetch(`/parse/song/${entry.track}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || `HTTP ${res.status}`);
-    const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
-    const best = data.variants
+    const { variants } = await global.AmWrapper.songMaster(entry.track);
+    const best = variants
       .map((v) => ({ ...v, mode: detectMode(v.codecs) }))
       .filter((v) => v.mode)
       .sort((a, b) => rankVariant(a) - rankVariant(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0];
@@ -270,7 +267,7 @@
       track: entry.track,
       country: entry.country,
       codecs: best.codecs,
-      m3u8Url: base + best.uri,
+      m3u8Url: best.url,
       label: variantLabel(best),
       badge: qualityBadge(best),
       title: entry.name,

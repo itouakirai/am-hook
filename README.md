@@ -112,11 +112,12 @@ File format (version 1):
 
 In the browser (`src/ui/decrypt.js`):
 
-1. The media m3u8 is fetched directly from `aod.itunes.apple.com` (the CDN allows CORS and Range requests) and parsed into the init segment, fragment byte ranges and the key used by each fragment.
-2. The first fragment uses the fixed template embedded in the wasm (`skd://itunes.apple.com/P000000000/s1/e1`); the rest use the track template from `/key`.
-3. Fragments are fetched with Range requests and decrypted in place by a Worker pool (one `hook.wasm` instance per Worker). The decryption code lives in `crates/am-mp4`.
-4. **Playback**: decrypted fragments feed MSE when the original codec is supported. If ALAC is unavailable but FLAC-in-MP4 is, the on-demand `flac.wasm` losslessly converts ALAC packets to FLAC frames and remuxes them into small fMP4 fragments. EC-3 uses MSE when supported, otherwise the on-demand `ec3.wasm` decoder plays 5.1/7.1 PCM through Web Audio (no Atmos object rendering). Seeking jumps to the matching source fragment.
-5. **Download**: 4 lanes fetch and decrypt concurrently and write each result at its original offset into an OPFS temporary file, which is then converted to a progressive MP4 like the reference downloader's `DefragmentMP4` (`M4A ` ftyp, `moov` before the media data) and handed to the browser to save. Without OPFS it falls back to in-memory Blobs.
+1. With the master m3u8 URL from wrapper-lite, the browser fetches the master directly from the Apple CDN and parses its variants (`src/ui/wrapper.js`).
+2. The media m3u8 is fetched directly from `aod.itunes.apple.com` (the CDN allows CORS and Range requests) and parsed into the init segment, fragment byte ranges and the key used by each fragment.
+3. The first fragment uses the fixed template embedded in the wasm (`skd://itunes.apple.com/P000000000/s1/e1`); the rest use the track template from `/key`.
+4. Fragments are fetched with Range requests and decrypted in place by a Worker pool (one `hook.wasm` instance per Worker). The decryption code lives in `crates/am-mp4`.
+5. **Playback**: decrypted fragments feed MSE when the original codec is supported. If ALAC is unavailable but FLAC-in-MP4 is, the on-demand `flac.wasm` losslessly converts ALAC packets to FLAC frames and remuxes them into small fMP4 fragments. EC-3 uses MSE when supported, otherwise the on-demand `ec3.wasm` decoder plays 5.1/7.1 PCM through Web Audio (no Atmos object rendering). Seeking jumps to the matching source fragment.
+6. **Download**: 4 lanes fetch and decrypt concurrently and write each result at its original offset into an OPFS temporary file, which is then converted to a progressive MP4 like the reference downloader's `DefragmentMP4` (`M4A ` ftyp, `moov` before the media data) and handed to the browser to save. Without OPFS it falls back to in-memory Blobs.
 
 `hook.wasm` repairs identifiable ALAC end-tag damage after decryption (for example, song `1691044818`). The init segment's track and sample description identify complete uncompressed mono/stereo packets; a missing or damaged 3-bit `TYPE_END` is restored to `111`. PCM, sample lengths and Range offsets stay unchanged. Compressed packets, truncated PCM and packets without room for the tag are left untouched; FLAC transcoding keeps its fallback that can append a missing tag byte.
 
@@ -124,11 +125,20 @@ Box handling: FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, a
 
 ### Music videos
 
-- `/parse/mv/<adamId>` gets the master URL from wrapper-lite `/webplayback`, fetches it with `User-Agent: AM`, and returns the playlist text and final CDN URL.
+- `/parse/mv/<adamId>` gets the master URL from wrapper-lite `/webplayback`, fetches it with `User-Agent: AM`, and returns the playlist text and final CDN URL. Browsers cannot change their User-Agent, and other User-Agents may get a master without 4K, so with a local wrapper-lite the master is still fetched by the server (`/parse/mv-master`).
 - `/mv/webplayback/<adamId>` and `/mv/license` relay to wrapper-lite `/webplayback` and `/license` (PlayReady only; license errors are shown without falling back to another DRM).
 - Track playlists and media segments are fetched by the browser directly from Apple.
 - Challenge building, license parsing, CENC/CBCS decryption, caption repair, fragmented MP4 muxing and conversion to a progressive MP4 run in a Worker with `media.wasm` (Rust, see [crates/am-media](crates/am-media/README.md)).
 - Live playlists, discontinuities and changing initialization segments are not supported.
+
+### Using a local wrapper-lite
+
+The "wrapper-lite" setting at the bottom of the navigation switches between two modes (saved in the browser):
+
+- **Server** (default): wrapper-lite requests are relayed by am-hook; rate, concurrency and `Authorization` come from the `--wrapper-*` options.
+- **Local**: the browser requests your own wrapper-lite directly (`/status`, `/m3u8`, `/key`, `/lyrics`, `/webplayback`, `/license`). The panel sets its URL, max requests per second, max concurrent requests and `Authorization` (same rules as `--wrapper-auth`). The limits apply to the current page only.
+  - The requests are cross-origin: the wrapper-lite must allow CORS (send `Access-Control-Allow-Origin`, and allow the `Authorization` header in preflights if one is set), or install a browser extension that lifts CORS restrictions.
+  - MV master playlists are still fetched by am-hook with `User-Agent: AM`; the other MV requests (`/webplayback`, `/license`) go to the local wrapper-lite.
 
 ## Server Endpoints
 
@@ -139,10 +149,11 @@ Box handling: FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, a
 | `GET /https://music.apple.com/<cc>/music-video/<slug>/<id>` | MV page |
 | `GET /https://music.apple.com/<cc>/post/<id>` | Artist-uploaded video (MV page) |
 | `GET /status` | wrapper-lite status and available regions |
-| `GET /parse/song/<adamId>` | Song master m3u8 via wrapper-lite, returned as variants |
+| `GET /parse/song/<adamId>` | Song master m3u8 URL from wrapper-lite `/m3u8` (`{"code":0,"data":{"masterUrl":…}}`); the browser fetches and parses the master |
 | `GET /key?adamId=<adamId>&uri=<skd-uri>` | Song track decryption template JSON from wrapper-lite `/key` |
 | `GET /lyrics/<adamId>?language=<tag>` | TTML lyrics from wrapper-lite `/lyrics`, XML unchanged; 404 when the song has none. Optional `language` is the catalog language of the song's storefront (the chosen one, or the storefront default such as `zh-Hans-CN`) |
 | `GET /parse/mv/<adamId>` | MV master playlist text and final CDN URL |
+| `GET /parse/mv-master?url=<master URL>` | Same, for a master URL the page got from a local wrapper-lite; only `apple.com` HTTPS URLs are accepted |
 | `GET /https://music.apple.com/<cc>/album/<slug>/<id>` | Album page (motion artwork from `editorialVideo` like music.apple.com — square on wide screens, full-width 3:4 on phones — tracks, playback queue, related shelves; data from the same amp-api `albums` request as music.apple.com). Album links with `?i=` open the album page with that track selected and scrolled into view, like music.apple.com |
 | `GET /https://music.apple.com/<cc>/playlist/<slug>/<pl.id>` | Playlist page (editorial and public user playlists: motion artwork like the album page, tracks with artwork / artist / album columns, playback queue, featured-artists and more-by-curator shelves; data from the same amp-api `playlists` request as music.apple.com, fetched through `/amp`) |
 | `GET /https://music.apple.com/<cc>/artist/<slug>/<id>` | Artist page (header like music.apple.com: motion video, wide image or circular portrait from the catalog data; latest release, top songs with a playback queue, album / music-video / playlist / similar-artist shelves with See All, bio; data from the same amp-api `artists` request as music.apple.com, fetched through `/amp`). Artist names on song, music-video and album pages (each artist of a multi-artist line separately) and artist shelves link here |
@@ -165,7 +176,7 @@ Box handling: FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, a
 | `-w, --wrapper-url <URL>` | `http://127.0.0.1:12340` | wrapper-lite key server base URL |
 | `--wrapper-rate <N>` | `24` | Max requests per second to wrapper-lite (any 1-second window; extra requests wait in order). 0 = unlimited |
 | `--wrapper-concurrency <N>` | `24` | Max concurrent requests to wrapper-lite. 0 = unlimited. Lower it (e.g. `8`) if wrapper-lite runs in QEMU and requests time out under load |
-| `--wrapper-auth <VALUE>` | not sent | `Authorization` header for wrapper-lite requests. A bare token is sent as `Bearer <token>`; a value with a scheme (`Bearer …`, `Basic …`) is sent as is. Also read from `AM_HOOK_WRAPPER_AUTH` (keeps it out of the process list) |
+| `--wrapper-auth <VALUE>` | not sent | `Authorization` header for wrapper-lite requests. A bare token is sent as `Bearer <token>`; a value with a scheme (`Bearer …`, `Basic …`) is sent as is. Also read from `AM_HOOK_WRAPPER_AUTH` (keeps it out of the process list). These three apply to server relaying only; a page switched to a local wrapper-lite sets its own |
 | `--amp-keepalive <SECONDS>` | `30` | Keeps the amp-api connection warm: after this long idle, sends a tiny request (0 disables). The token is fetched and the connection opened at startup either way |
 | `--amp-cache-mb <MB>` | `32` | amp-api response cache (catalog 5 min, storefronts 24 h; 0 disables). Identical concurrent requests always share one upstream request |
 

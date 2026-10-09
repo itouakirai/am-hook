@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## Unreleased
+
+### New
+- ✨ The web page can use your own local wrapper-lite: switch the "wrapper-lite" setting at the bottom of the navigation to "Local" and the browser sends wrapper-lite requests itself
+  - URL, max requests per second, max concurrent requests and `Authorization` are configurable and saved in the browser
+  - The wrapper-lite must allow cross-origin requests, or install a browser extension that lifts CORS restrictions
+  - MV master playlists are still fetched by the server with `User-Agent: AM` (new `/parse/mv-master` endpoint) so 4K stays available
+
+### Changed
+- The song master m3u8 is now fetched and parsed in the browser; `/parse/song/<adamId>` returns only the master URL (`{"code":0,"data":{"masterUrl":…}}`) instead of `variants`
+
 ## v0.2.7 (2026-10-09)
 
 ### Removed

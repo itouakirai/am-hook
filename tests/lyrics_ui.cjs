@@ -5,7 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
 const root = path.join(__dirname, '../src/ui');
-const variants = [{ group_id: 'audio-stereo-256', codecs: 'mp4a.40.2', channels: '2', uri: 'track.m3u8', file_uri: 'track.mp4' }];
+const master = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-stereo-256",NAME="Stereo",CHANNELS="2"
+#EXT-X-STREAM-INF:BANDWIDTH=256000,CODECS="mp4a.40.2",AUDIO="audio-stereo-256"
+track.m3u8
+`;
 const line = (key, begin, end, words, translation) => ({ key, begin, end, words, translation });
 const lines = [
   line('L1', 1, 4, ['First ', 'line'], 'Primera línea'),
@@ -56,7 +60,9 @@ const amllTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
           }
           if (url.pathname.startsWith('/amp/')) return route.fulfill({ status: 404, json: { errors: [] } });
           if (url.pathname === '/status') return route.fulfill({ json: { code: 0, regions: ['us'] } });
-          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', variants } });
+          // 服务端只返回 master 地址，master m3u8 由页面直接获取并解析（wrapper.js）
+          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { code: 0, data: { masterUrl: 'https://example.com/master.m3u8' } } });
+          if (url.href === 'https://example.com/master.m3u8') return route.fulfill({ body: master, contentType: 'application/vnd.apple.mpegurl' });
           if (url.pathname.startsWith('/lyrics/')) {
             lyricRequests.push(url.pathname);
             return hasLyrics

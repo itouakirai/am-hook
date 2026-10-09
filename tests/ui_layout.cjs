@@ -6,11 +6,17 @@ const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
 const root = path.join(__dirname, '../src/ui');
 const songPath = '/https://music.apple.com/us/song/_/123456789';
-const variants = [
-  { group_id: 'audio-alac-stereo', codecs: 'alac', bit_depth: 24, sample_rate: 96000 },
-  { group_id: 'audio-atmos-2768', codecs: 'ec-3', channels: '6' },
-  { group_id: 'audio-stereo-256', codecs: 'mp4a.40.2', channels: '2' },
-].map(v => ({ ...v, uri: 'track.m3u8', file_uri: 'track.mp4' }));
+const master = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-alac-stereo",NAME="Lossless",BIT-DEPTH=24,SAMPLE-RATE=96000
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-atmos-2768",NAME="Atmos",CHANNELS="6"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-stereo-256",NAME="Stereo",CHANNELS="2"
+#EXT-X-STREAM-INF:CODECS="alac",AUDIO="audio-alac-stereo"
+track.m3u8
+#EXT-X-STREAM-INF:CODECS="ec-3",AUDIO="audio-atmos-2768"
+track.m3u8
+#EXT-X-STREAM-INF:CODECS="mp4a.40.2",AUDIO="audio-stereo-256"
+track.m3u8
+`;
 
 /** 切换界面语言：手机宽度（< 484px）下语言按钮在导航菜单里，先展开菜单，切换后收起 */
 async function toggleLang(page) {
@@ -61,7 +67,9 @@ async function checkNav(page, width) {
           }
           if (url.pathname.startsWith('/amp/')) return route.fulfill({ status: 404, json: { errors: [] } });
           if (url.pathname === '/status') return route.fulfill({ json: { code: 0, regions: ['us', 'cn'] } });
-          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', variants } });
+          // 服务端只返回 master 地址，master m3u8 由页面直接获取并解析（wrapper.js）
+          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { code: 0, data: { masterUrl: 'https://example.com/master.m3u8' } } });
+          if (url.href === 'https://example.com/master.m3u8') return route.fulfill({ body: master, contentType: 'application/vnd.apple.mpegurl' });
           if (url.pathname.startsWith('/lyrics/')) return route.fulfill({ status: 404, json: { code: 1, msg: 'lyrics not found' } });
           // 单页应用：页面地址返回 app.html，页面视图在 /assets/views/
           const file = url.pathname.startsWith('/assets/lyrics/') ? path.join('lyrics', path.basename(url.pathname))

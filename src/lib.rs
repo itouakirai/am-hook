@@ -23,6 +23,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/status", get(ui::status_handler))
         .route("/parse/song/:adam_id", get(ui::master_handler))
         .route("/parse/mv/:adam_id", get(ui::mv_master_handler))
+        // 浏览器直连本地 wrapper-lite 时，MV master 仍由服务端获取
+        .route("/parse/mv-master", get(ui::mv_master_url_handler))
         .route("/key", get(ui::key_handler))
         .route("/amp/v1/catalog/*path", get(amp::catalog_handler))
         .route("/amp/v1/editorial/*path", get(amp::editorial_handler))
@@ -40,6 +42,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/assets/motion-art.mjs", get(ui::motion_art_handler))
         .route("/assets/player.js", get(ui::player_js_handler))
         .route("/assets/i18n.js", get(ui::i18n_js_handler))
+        .route("/assets/wrapper.js", get(ui::wrapper_js_handler))
         .route("/assets/decrypt.js", get(ui::decrypt_js_handler))
         .route("/assets/hook-worker.js", get(ui::worker_js_handler))
         .route("/assets/hook.wasm", get(ui::wasm_handler))

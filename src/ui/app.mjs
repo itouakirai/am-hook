@@ -12,7 +12,7 @@ import { newPlaylist, newFolder, playlistName, folderName, LIB_ICON } from '/ass
 import { openMenu, createActions, nowPlayingTarget, songTarget } from '/assets/views/actions.mjs';
 
 const { AmPlayer } = window.AmHook;
-const { AmI18n } = window;
+const { AmI18n, AmWrapper } = window;
 const { t } = AmI18n;
 AmI18n.apply();
 
@@ -325,7 +325,7 @@ newButton.addEventListener('click', (event) => {
 });
 
 /* ---------- 设置：主地区与曲库语言的选择面板 ---------- */
-const settings = mountSettings({ picker: $('picker'), scrim: $('picker-scrim') });
+const settings = mountSettings({ picker: $('picker'), scrim: $('picker-scrim'), checkStatus: () => loadStatus() });
 
 /* ---------- wrapper-lite 状态：导航底部的状态块；账号所在地区为推荐的主地区（没有选择过时即为主地区） ----------
    上行为状态点、名称、地区数（或状态文字）与展开箭头；下行为地区代码，当前主地区排在最前并高亮。
@@ -361,7 +361,9 @@ function renderStatus() {
   // 有地区时上行显示地区数（在线由绿点表示），否则显示状态文字
   const count = t(regions.length === 1 ? 'status.region' : 'status.regions', { count: regions.length });
   statusState.textContent = !wrapperStatus ? t('status.checking') : !ok ? t('status.down') : regions.length ? count : t('status.online');
-  statusHead.title = regions.length ? `wrapper-lite · ${t('status.online')} · ${count}` : `wrapper-lite · ${statusState.textContent}`;
+  const name = AmWrapper.settings.local ? `wrapper-lite (${t('wrapper.local')})` : 'wrapper-lite';
+  statusBox.querySelector('.wrapper-status-name').textContent = name;
+  statusHead.title = regions.length ? `${name} · ${t('status.online')} · ${count}` : `${name} · ${statusState.textContent}`;
 
   const current = AmI18n.storefront;
   const ordered = regions.includes(current) ? [current, ...regions.filter((cc) => cc !== current)] : regions;
@@ -432,19 +434,21 @@ statusHead.addEventListener('click', () => setStatusExpanded(!statusExpanded));
 new ResizeObserver(() => fitStatusRegions()).observe(statusList);
 AmI18n.onSettingsChange(({ kind }) => { if (kind === 'storefront') renderStatus(); });
 
-/** 重新检查状态（进行中的检查直接复用），返回 { ok, regions } */
+/** 重新检查状态（进行中的检查直接复用；切换 wrapper-lite 后作废旧的检查），返回 { ok, regions } */
+let statusSeq = 0;
 function loadStatus() {
+  const seq = statusSeq;
   statusPending ||= (async () => {
+    let result;
     try {
-      const res = await fetch('/status');
-      const data = await res.json();
-      if (!res.ok || data.code !== 0) throw new Error();
-      wrapperStatus = { ok: true, regions: (data.regions || []).map(String) };
-      AmI18n.setRegions(wrapperStatus.regions);
-    } catch {
+      result = { ok: true, regions: (await AmWrapper.status()).regions };
+    } catch (error) {
       // 暂时连不上时保留上次的地区
-      wrapperStatus = { ok: false, regions: [] };
+      result = { ok: false, regions: [], error: error.message };
     }
+    if (seq !== statusSeq) return loadStatus();
+    wrapperStatus = result;
+    if (result.ok) AmI18n.setRegions(result.regions);
     statusPending = null;
     renderStatus();
     settings.refresh();
@@ -453,6 +457,14 @@ function loadStatus() {
   return statusPending;
 }
 AmI18n.onChange(renderStatus);
+// 切换 wrapper-lite（服务端 / 本地）后重新检查
+AmWrapper.onChange(() => {
+  statusSeq++;
+  statusPending = null;
+  wrapperStatus = null;
+  renderStatus();
+  loadStatus();
+});
 renderStatus();
 loadStatus();
 

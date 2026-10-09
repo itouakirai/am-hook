@@ -136,6 +136,14 @@
             <span class="nav-setting-value lang-label"></span>
           </span>
         </button>
+        <!-- 使用的 wrapper-lite：服务端转发或浏览器直连本地 wrapper-lite（settings.mjs，设置由 wrapper.js 保存） -->
+        <button class="nav-link nav-setting" type="button" data-picker="wrapper" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4.5" width="16" height="6" rx="1.8"/><rect x="4" y="13.5" width="16" height="6" rx="1.8"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></svg></span>
+          <span class="nav-setting-text">
+            <span class="nav-setting-caption" data-i18n="settings.wrapper"></span>
+            <span class="nav-setting-value" data-setting-value="wrapper"></span>
+          </span>
+        </button>
         <!-- wrapper-lite 状态（app.mjs）：上行为状态与地区数，下行为地区代码；一行放不下时折叠为「+N」，点击展开全部 -->
         <div class="wrapper-status" id="nav-status">
           <button class="wrapper-status-head" type="button" aria-expanded="false" aria-controls="nav-status-regions" disabled>
@@ -237,6 +245,7 @@
   </div>
 
   <script src="/assets/i18n.js"></script>
+  <script src="/assets/wrapper.js"></script>
   <script src="/assets/decrypt.js"></script>
   <script src="/assets/player.js"></script>
   <script type="module" src="/assets/app.mjs"></script>
