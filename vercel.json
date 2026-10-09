@@ -6,10 +6,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/assets/host.js", "destination": "/api/handler?__path=/assets/host.js" },
-    { "source": "/amp/:path*", "destination": "/api/handler?__path=/amp/:path*" },
-    { "source": "/parse/:path*", "destination": "/api/handler?__path=/parse/:path*" },
-    { "source": "/mv/:path*", "destination": "/api/handler?__path=/mv/:path*" },
-    { "source": "/lyrics/:id", "destination": "/api/handler?__path=/lyrics/:id" },
+    { "source": "/amp/:__rest*", "destination": "/api/handler?__path=/amp/:__rest*" },
+    { "source": "/parse/:__rest*", "destination": "/api/handler?__path=/parse/:__rest*" },
+    { "source": "/mv/:__rest*", "destination": "/api/handler?__path=/mv/:__rest*" },
+    { "source": "/lyrics/:__id", "destination": "/api/handler?__path=/lyrics/:__id" },
     { "source": "/status", "destination": "/api/handler?__path=/status" },
     { "source": "/key", "destination": "/api/handler?__path=/key" },
     { "source": "/(https:/+music\\.apple\\.com/[a-z]{2}/.+)", "destination": "/index.html" },
@@ -18,6 +18,6 @@
     { "source": "/new/top-charts/:kind", "destination": "/index.html" },
     { "source": "/library", "destination": "/index.html" },
     { "source": "/library/:section", "destination": "/index.html" },
-    { "source": "/library/:section/:id", "destination": "/index.html" }
+    { "source": "/library/:section/:__id", "destination": "/index.html" }
   ]
 }

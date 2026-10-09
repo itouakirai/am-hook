@@ -6,12 +6,14 @@ export const config = { runtime: 'edge' };
 
 /**
  * 改写后函数看到的应是原始地址；万一平台给的是改写后的 `/api/handler`，
- * 则用 vercel.json 附在查询参数里的 `__path` 还原
+ * 则用 vercel.json 附在查询参数里的 `__path` 还原。
+ * Vercel 还会把改写规则里的具名片段（`:__rest*`、`:__id`）作为查询参数附上，
+ * 这些 `__` 开头的参数都要去掉，否则会被转发给 amp-api（它拒绝未知参数）
  */
 function original(request) {
   const url = new URL(request.url);
   const path = url.searchParams.get('__path');
-  const search = url.search.replace(/^\?/, '').split('&').filter((part) => part && !part.startsWith('__path=')).join('&');
+  const search = url.search.replace(/^\?/, '').split('&').filter((part) => part && !part.startsWith('__')).join('&');
   url.search = search ? `?${search}` : '';
   if (url.pathname !== '/api/handler' || !path) {
     return url.href === request.url ? request : new Request(url, request);

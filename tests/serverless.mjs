@@ -294,12 +294,18 @@ test('Vercel entry: handles the original URL and the rewritten /api/handler?__pa
   assert.equal(calls.at(-1).url, 'https://amp-api-edge.music.apple.com/v1/catalog/us/search?term=x');
   assert.equal((await vercel(new Request('https://v.test/api/handler?__path=%2Famp%2Fv1%2Fcatalog%2Fus%2Fsearch&term=y'))).status, 200);
   assert.equal(calls.at(-1).url, 'https://amp-api-edge.music.apple.com/v1/catalog/us/search?term=y');
+  // Vercel appends the rewrite's named segments to the query; they must not reach amp-api
+  assert.equal((await vercel(new Request('https://v.test/amp/v1/catalog/us/search?term=z&__rest=v1%2Fcatalog%2Fus%2Fsearch&__path=%2Famp%2Fv1%2Fcatalog%2Fus%2Fsearch'))).status, 200);
+  assert.equal(calls.at(-1).url, 'https://amp-api-edge.music.apple.com/v1/catalog/us/search?term=z');
   assert.equal((await vercel(new Request('https://v.test/api/handler?__path=/status'))).status, 501);
   assert.equal((await vercel(new Request('https://v.test/api/handler'))).status, 404);
 
   const rewrites = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).rewrites;
   for (const { source, destination } of rewrites) {
     assert(destination === '/index.html' || destination === `/api/handler?__path=${source}`, source);
+    // named segments are stripped by the handler only when they start with `__`
+    if (destination === '/index.html') continue;
+    for (const [, name] of source.matchAll(/:(\w+)/g)) assert(name.startsWith('__'), source);
   }
 });
 
