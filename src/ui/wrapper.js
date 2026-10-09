@@ -81,6 +81,21 @@
     return run;
   }
 
+  /**
+   * 本地 wrapper-lite 的请求地址与地址中的认证：fetch 不接受带用户信息的地址（https://token@host），
+   * 去掉后改为 Basic 认证（与服务端 reqwest 处理 --wrapper-url 的方式相同）。地址无效时 base 为原值
+   */
+  function localTarget() {
+    let url;
+    try { url = new URL(settings.url); } catch { return { base: settings.url, basic: '' }; }
+    if (!url.username && !url.password) return { base: settings.url, basic: '' };
+    const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+    const basic = `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(credentials)))}`;
+    url.username = '';
+    url.password = '';
+    return { base: url.href.replace(/\/+$/, ''), basic };
+  }
+
   /** 直接请求本地 wrapper-lite，读完响应体后才释放并发名额。返回 { res, text } */
   async function localRequest(path, { method = 'GET', body, signal } = {}) {
     if (!settings.url) throw new Error(t('wrapper.noUrl'));
@@ -89,20 +104,22 @@
       signal?.throwIfAborted();
       await acquireRate();
       signal?.throwIfAborted();
+      const { base, basic } = localTarget();
       const headers = {};
-      const auth = normalizeAuth(settings.auth);
+      // 单独填写的 Authorization 优先于地址中的用户信息
+      const auth = normalizeAuth(settings.auth) || basic;
       if (auth) headers.Authorization = auth;
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       let res;
       try {
-        res = await fetch(settings.url + path, {
+        res = await fetch(base + path, {
           method, headers, signal, cache: 'no-store', credentials: 'omit',
           body: body === undefined ? undefined : JSON.stringify(body),
         });
       } catch (error) {
         if (error && error.name === 'AbortError') throw error;
         // 跨源被拒绝与连不上在页面里无法区分，一并提示
-        throw new Error(t('wrapper.unreachable', { url: settings.url }));
+        throw new Error(t('wrapper.unreachable', { url: base }));
       }
       return { res, text: await res.text() };
     } finally {

@@ -151,6 +151,32 @@ const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers
     const at = wrapperRequests.map((r) => r.at);
     for (let i = 3; i < at.length; i++) assert(at[i] - at[i - 3] >= 950, `request ${i} waited for the 1 s window`);
 
+    // Credentials in the URL (https://token@host) become Basic auth, as reqwest does for --wrapper-url;
+    // a separately set Authorization wins
+    await page.waitForTimeout(1100);
+    wrapperRequests.length = 0;
+    const withUserinfo = await page.evaluate(async () => {
+      const w = window.AmWrapper;
+      w.save({ url: 'http://AAN_tok-en@wrapper.test:12340/', auth: '' });
+      const regions = (await w.status()).regions;
+      w.save({ auth: 'Bearer explicit' });
+      await w.status();
+      w.save({ url: 'http://AAN_tok-en@down.test:1', auth: '' });
+      const error = await w.status().catch((e) => e.message);
+      return { regions, error };
+    });
+    assert.deepEqual(withUserinfo.regions, ['jp', 'us']);
+    // 每次保存后 app.mjs 也会重新检查状态，只比较先后用到的认证
+    assert(wrapperRequests.every((r) => r.path === '/status'));
+    assert.deepEqual([...new Set(wrapperRequests.map((r) => r.auth))], [
+      'Basic ' + Buffer.from('AAN_tok-en:').toString('base64'),
+      'Bearer explicit',
+    ]);
+    assert.match(withUserinfo.error, /Could not reach http:\/\/down\.test:1 /);
+    assert(!withUserinfo.error.includes('AAN_tok-en'), 'the token is not shown in errors');
+    await page.evaluate(() => window.AmWrapper.save({ url: 'http://wrapper.test:12340', auth: 'secret-token' }));
+    await page.locator('#nav-status.ok').waitFor();
+
     // A wrapper-lite that cannot be reached is reported in the panel
     await page.locator('[data-picker="wrapper"]').click();
     await page.locator('.picker-input').nth(0).fill('http://down.test:1');
