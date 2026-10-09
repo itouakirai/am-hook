@@ -42,7 +42,8 @@ pub static ASSETS: &[Asset] = &[
     asset!("/assets/i18n.js", JS, "i18n.js"),
     // 专辑动态封面播放（editorialVideo 的 HLS，MSE 播放）
     asset!("/assets/motion-art.mjs", JS, "motion-art.mjs"),
-    // wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite
+    // 部署环境（serverless 部署由函数生成，见 serverless/core.mjs）与 wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite
+    asset!("/assets/host.js", JS, "host.js"),
     asset!("/assets/wrapper.js", JS, "wrapper.js"),
     // 浏览器端解密：主线程入口、Worker 与核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
     asset!("/assets/decrypt.js", JS, "decrypt.js"),

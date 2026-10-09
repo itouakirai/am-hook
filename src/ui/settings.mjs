@@ -267,8 +267,9 @@ export function mountSettings({ picker, scrim, checkStatus }) {
     hint.textContent = t('wrapper.hint');
     // 填写中的值（未保存），面板重绘时保留
     const draft = (open.draft ||= AmWrapper.settings);
+    // 服务端没有 wrapper-lite（serverless 部署未配置）时只有本地模式
     const modes = group(null, [
-      option({
+      AmWrapper.serverAvailable && option({
         label: t('wrapper.server'), sub: t('wrapper.serverSub'), checked: !draft.local,
         onPick: () => { if (AmWrapper.settings.local) AmWrapper.save({ local: false }); close(true); },
       }),
@@ -281,7 +282,7 @@ export function mountSettings({ picker, scrim, checkStatus }) {
           body.querySelector('.picker-input')?.focus({ preventScroll: true });
         },
       }),
-    ]);
+    ].filter(Boolean));
     if (!draft.local) { body.replaceChildren(modes); return; }
 
     const input = (type, key, attrs) => {

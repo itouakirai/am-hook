@@ -56,3 +56,8 @@ jobs:
 
       - name: Run offline tests
         run: cargo test --workspace --verbose
+
+      - name: Run serverless tests
+        # serverless 后端（Vercel / Cloudflare）与 dist/ 的生成，只需要 runner 自带的 Node
+        if: runner.os == 'Linux'
+        run: node --test tests/serverless.mjs

@@ -3,6 +3,7 @@
  *
  * 两种模式，选择保存在 localStorage：
  *   服务端（默认）：经 am-hook 转发，限速、限并发与 Authorization 由命令行参数决定；
+ *         serverless 部署没有配置服务端 wrapper-lite 时不可用（host.js 的 serverWrapper 为 false），页面只用本地模式；
  *   本地：浏览器直接请求用户自己的 wrapper-lite（例如 http://127.0.0.1:12340），
  *         限速、限并发与 Authorization 在页面里设置（见 settings.mjs），只作用于当前页面。
  *         wrapper-lite 须允许跨源请求（带 Authorization 时还要允许该请求头），或安装解除跨域限制的浏览器插件。
@@ -21,7 +22,9 @@
   'use strict';
 
   const STORAGE_KEY = 'am-hook-wrapper';
-  const DEFAULTS = { local: false, url: 'http://127.0.0.1:12340', rate: 24, concurrency: 24, auth: '' };
+  /** 服务端能否转发 wrapper-lite（见 host.js） */
+  const SERVER = !(global.AM_HOOK_HOST && global.AM_HOOK_HOST.serverWrapper === false);
+  const DEFAULTS = { local: !SERVER, url: 'http://127.0.0.1:12340', rate: 24, concurrency: 24, auth: '' };
   const RATE_WINDOW = 1000;
 
   const t = (key, vars) => (global.AmI18n ? global.AmI18n.t(key, vars) : key);
@@ -39,7 +42,7 @@
     const s = { ...DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) };
     const count = (n, fallback) => (/^\d+$/.test(String(n).trim()) ? Number(n) : fallback);
     return {
-      local: s.local === true,
+      local: s.local === true || !SERVER,
       url: String(s.url || '').trim().replace(/\/+$/, ''),
       rate: count(s.rate, DEFAULTS.rate),
       concurrency: count(s.concurrency, DEFAULTS.concurrency),
@@ -194,6 +197,7 @@
   const AmWrapper = {
     get settings() { return { ...settings }; },
     DEFAULTS,
+    serverAvailable: SERVER,
     normalizeAuth,
     parseSongMaster,
 

@@ -1,0 +1,16 @@
+# Cloudflare Workers 部署（静态资源 + Worker），见 README 的「Serverless 部署」。
+#   npx wrangler deploy
+# 可选的服务端 wrapper-lite：
+#   npx wrangler secret put AM_HOOK_WRAPPER_URL
+#   npx wrangler secret put AM_HOOK_WRAPPER_AUTH
+name = "am-hook"
+main = "serverless/cloudflare.mjs"
+compatibility_date = "2025-06-01"
+
+[build]
+command = "node scripts/build-static.mjs"
+
+# 能匹配到文件的请求由平台直接提供，其余（后端接口与页面地址）交给 Worker
+[assets]
+directory = "./dist"
+binding = "ASSETS"
