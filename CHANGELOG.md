@@ -1,10 +1,11 @@
 # 更新日志
 
-## 未发布
+## v0.3.0 (2026-10-09)
 
 ### 新功能
 - ✨ 网页可以改用自己本地的 wrapper-lite：导航底部的「wrapper-lite」设置切换为「本地」后，wrapper-lite 请求由浏览器直接发出
   - 可设置地址、每秒请求数上限、同时请求数上限与 `Authorization`，保存在浏览器中
+  - 地址可以带用户信息（如 `https://<token>@host`），与 `--wrapper-url` 相同，转为 `Authorization: Basic …` 发送
   - wrapper-lite 需允许跨源请求，或在浏览器中安装解除跨域限制的插件
   - MV 的 master 播放列表仍由服务端以 `User-Agent: AM` 获取（新接口 `/parse/mv-master`），避免拿不到 4K
 
