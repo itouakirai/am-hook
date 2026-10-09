@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.3.1 (2026-10-09)
+
+### Changed
+- Code quality pass with no functional change: `cargo clippy --workspace --all-targets -- -D warnings` is warning-free and now runs in CI
+  - Embedded front-end assets are registered from a single table in `src/assets.rs`; unknown `/assets/views|lyrics|mv/*` paths now return a plain-text 404, and MV JS / CSS responses carry `charset=utf-8`
+  - `src/m3u8.rs` is renamed `src/links.rs` (it only handles links and page paths), and shares its path regex fragments with the request log
+  - temari's FFI exports are `unsafe extern "C"` with `# Safety` docs (C ABI unchanged)
+
+### Bug Fixes
+- 🐛 temari panicked when a `\u` escape in JSON was followed by a multi-byte character (surfaced as NULL over FFI); the escape is now ignored
+
 ## v0.3.0 (2026-10-09)
 
 ### New

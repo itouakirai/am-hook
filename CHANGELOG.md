@@ -1,5 +1,16 @@
 # 更新日志
 
+## v0.3.1 (2026-10-09)
+
+### 变更
+- 代码质量整理，无功能变化：`cargo clippy --workspace --all-targets -- -D warnings` 零警告，并加入 CI
+  - 内嵌前端资源改由 `src/assets.rs` 的一张表统一注册路由；未知的 `/assets/views|lyrics|mv/*` 现在返回纯文本 404，MV 的 JS / CSS 响应带 `charset=utf-8`
+  - `src/m3u8.rs` 改名为 `src/links.rs`（实际只做链接与页面路径判定），`links.rs` 与请求日志共用同一份路径正则片段
+  - temari 的 FFI 导出函数标为 `unsafe extern "C"` 并补充 `# Safety` 文档（C ABI 不变）
+
+### 修复
+- 🐛 temari 解析 JSON 时，`\u` 转义后紧跟多字节字符会 panic（FFI 中表现为返回 NULL），现在按无效转义忽略
+
 ## v0.3.0 (2026-10-09)
 
 ### 新功能
