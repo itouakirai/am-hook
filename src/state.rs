@@ -19,6 +19,8 @@ pub struct Config {
 pub struct AppState {
     pub config: Config,
     pub http_client: reqwest::Client,
+    /// 同 `http_client`，但重定向只允许跳到 apple.com（处理不受信任的 URL）
+    pub apple_client: reqwest::Client,
     /// wrapper-lite 客户端（限速、限并发、鉴权）
     pub wrapper: crate::wrapper::Wrapper,
     /// amp-api（Apple Music 目录 / 搜索）代理：专用连接、developer token 与响应缓存
@@ -40,18 +42,38 @@ impl AppState {
 
     pub fn with_config(config: Config) -> Self {
         // wrapper-lite 与 Apple CDN（master m3u8）：保持 HTTP/1.1、不请求压缩（amp-api 另用专用客户端）
-        let http_client = reqwest::Client::builder()
+        let builder = || reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(30))
             .tcp_nodelay(true)
             .pool_max_idle_per_host(32)
             .http1_only()
             .no_gzip()
-            .no_brotli()
+            .no_brotli();
+        let http_client = builder().build().expect("Failed to build reqwest HTTP client");
+        // 用于页面传来的 master 地址：重定向只允许留在 apple.com 的 HTTPS 地址，最多 10 跳
+        let apple_client = builder()
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 10 {
+                    attempt.error("too many redirects")
+                } else if is_apple_https(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
             .build()
-            .expect("Failed to build reqwest HTTP client");
+            .expect("Failed to build reqwest Apple-only HTTP client");
         let amp = Arc::new(crate::amp::Amp::new(config.amp_cache_mb * 1024 * 1024));
         let wrapper = crate::wrapper::Wrapper::new(&config);
-        Self { config, http_client, wrapper, amp }
+        Self { config, http_client, apple_client, wrapper, amp }
     }
+}
+
+/// HTTPS、无端口、无用户名，且主机为 apple.com 或其子域名
+pub fn is_apple_https(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.host_str().is_some_and(|host| host == "apple.com" || host.ends_with(".apple.com"))
 }

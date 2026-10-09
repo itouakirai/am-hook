@@ -156,7 +156,7 @@ pub async fn mv_master_handler(
     let Some(master_url) = payload.pointer("/data/m3u8").and_then(serde_json::Value::as_str).filter(|url| !url.is_empty()) else {
         return gateway_error("Missing MV master URL");
     };
-    fetch_mv_master(&state, master_url).await
+    fetch_mv_master(&state.http_client, master_url).await
 }
 
 #[derive(Deserialize)]
@@ -170,24 +170,26 @@ pub async fn mv_master_url_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<MvMasterQuery>,
 ) -> Response<Body> {
-    let apple = reqwest::Url::parse(&query.url).ok().is_some_and(|url| {
-        url.scheme() == "https"
-            && url.port().is_none()
-            && url.username().is_empty()
-            && url.host_str().is_some_and(|host| host == "apple.com" || host.ends_with(".apple.com"))
-    });
+    let apple = reqwest::Url::parse(&query.url)
+        .ok()
+        .is_some_and(|url| crate::state::is_apple_https(&url) && url.path().ends_with(".m3u8"));
     if !apple {
         return bad_request("Invalid MV master URL");
     }
-    fetch_mv_master(&state, &query.url).await
+    fetch_mv_master(&state.apple_client, &query.url).await
 }
 
-async fn fetch_mv_master(state: &AppState, master_url: &str) -> Response<Body> {
-    let response = state.http_client.get(master_url)
+async fn fetch_mv_master(client: &reqwest::Client, master_url: &str) -> Response<Body> {
+    let response = client.get(master_url)
         .header(axum::http::header::USER_AGENT, "AM")
         .timeout(std::time::Duration::from_secs(30))
         .send().await.and_then(reqwest::Response::error_for_status);
     let response = match response {
+        // 重定向策略遇到非 apple.com 目标会停下并原样返回 3xx，按失败处理
+        Ok(response) if response.status().is_redirection() => {
+            let response = gateway_error("Failed to fetch MV master playlist");
+            return log::note(response, "MV master redirected outside apple.com".to_string());
+        }
         Ok(response) => response,
         Err(error) => {
             let response = gateway_error("Failed to fetch MV master playlist");

@@ -160,6 +160,10 @@ async fn parses_mv_master_with_fixed_user_agent() {
         "https://example.com/master.m3u8".to_owned(),
         "https://apple.com.example.com/master.m3u8".to_owned(),
         "https://play.itunes.apple.com:8443/master.m3u8".to_owned(),
+        // 只接受 .m3u8：看路径而不是整串（查询串里带 .m3u8 也不行）
+        "https://play.itunes.apple.com/master.mp4".to_owned(),
+        "https://play.itunes.apple.com/master.m3u8/x".to_owned(),
+        "https://play.itunes.apple.com/master?f=.m3u8".to_owned(),
         "not a url".to_owned(),
     ] {
         let response = client
@@ -184,5 +188,28 @@ async fn parses_mv_master_with_fixed_user_agent() {
         assert_eq!(response.status(), status);
     }
     app.abort();
+    upstream.abort();
+}
+
+#[tokio::test]
+async fn apple_client_does_not_follow_redirects_outside_apple() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mock = Router::new()
+        .route("/redirect.m3u8", get(|| async { axum::response::Redirect::temporary("/cdn/master.m3u8") }))
+        .route("/cdn/master.m3u8", get(|| async { "#EXTM3U\n" }));
+    let upstream = tokio::spawn(async move {
+        axum::serve(listener, mock).await.unwrap();
+    });
+    let state = AppState::new(format!("http://{addr}"));
+    let url = format!("http://{addr}/redirect.m3u8");
+    // 目标不是 apple.com 的 HTTPS 地址：停在 3xx，不跟随
+    let response = state.apple_client.get(&url).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(response.url().as_str(), url);
+    // 普通 client 照常跟随
+    let response = state.http_client.get(&url).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.url().path(), "/cdn/master.m3u8");
     upstream.abort();
 }
