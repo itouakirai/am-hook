@@ -47,12 +47,9 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   const country = (linkMatch[1] || 'us').toLowerCase();
   const adamId = linkMatch[2];
   const $ = (id) => root.querySelector(`#${id}`);
-  const probe = document.createElement('audio');
   let meta = {};
   let variants = [];
   let rows = new Map();
-  /** 服务端是否以 --hook 启动（提供服务端解密地址，可用 VLC / IDM） */
-  let hook = false;
   /** group_id -> { ctl, done, total }，本歌曲进行中的浏览器端下载（见 downloadsBySong） */
   if (adamId && !downloadsBySong.has(adamId)) downloadsBySong.set(adamId, new Map());
   const downloads = downloadsBySong.get(adamId) || new Map();
@@ -74,10 +71,8 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   const ICON = {
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
-    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
     more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
-    server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   };
 
@@ -132,70 +127,8 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     return { group: 'AAC', rank: 2, kbps, name: kbps ? `AAC · ${kbps} kbps` : v.group_id, tags, sub: variantRank };
   }
 
-  function hookUrl(absolute) {
-    return `${location.origin}/${absolute}`;
-  }
-
   function safeName(s) {
     return s.replace(/[\\/:*?"<>|]+/g, '_').trim();
-  }
-
-  /** doneKey：复制成功后提示的文案 key */
-  function copy(text, doneKey) {
-    const done = () => toast(t(doneKey));
-    const fallback = () => {
-      const area = el('textarea', { value: text });
-      area.style.cssText = 'position:fixed;opacity:0';
-      document.body.append(area);
-      area.select();
-      document.execCommand('copy');
-      area.remove();
-      done();
-    };
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
-    else fallback();
-  }
-
-  /* ---------- 外部播放器：协议与 OpenList 相同，打开服务端解密的 media m3u8，所有音质都能播 ---------- */
-  // scheme 占位符：$durl 为地址，前缀 e = encodeURIComponent、b = base64（从右往左套用）；$name 为标题
-  const PLAYERS = [
-    { name: 'VLC', logo: 'VLC', color: '#ff8800', os: ['windows', 'macos', 'linux', 'android', 'ios'], scheme: 'vlc://$durl' },
-    { name: 'PotPlayer', logo: 'Pot', color: '#f4c20d', ink: '#1b1a19', os: ['windows'], scheme: 'potplayer://$durl' },
-    { name: 'mpv', logo: 'mpv', color: '#6b2a74', os: ['windows', 'macos', 'linux', 'android'], scheme: 'mpv://$edurl' },
-    { name: 'IINA', logo: 'IINA', color: '#5e5ce6', os: ['macos'], scheme: 'iina://weblink?url=$edurl' },
-    { name: 'Infuse', logo: 'If', color: '#f08a24', os: ['macos', 'ios'], scheme: 'infuse://x-callback-url/play?url=$durl' },
-    { name: 'nPlayer', logo: 'nP', color: '#e53935', os: ['android', 'ios'], scheme: 'nplayer-$durl' },
-    { name: 'OmniPlayer', logo: 'Om', color: '#1e88e5', os: ['macos'], scheme: 'omniplayer://weblink?url=$durl' },
-    { name: 'Fig Player', logo: 'Fig', color: '#12a37f', os: ['windows', 'macos'], scheme: 'figplayer://weblink?url=$durl' },
-    { name: 'Vivid Player', logo: 'Vi', color: '#ff5a36', os: ['windows'], scheme: 'vividplayer://play?src=direct&u=$edurl&title=$name' },
-    { name: 'Fileball', logo: 'Fb', color: '#2f80ed', os: ['macos', 'ios'], scheme: 'filebox://play?url=$durl' },
-    { name: 'iPlay', logo: 'iP', color: '#8e44ad', os: ['ios'], scheme: 'iplay://play/any?type=url&url=$bdurl' },
-    { name: 'MX Player', logo: 'MX', color: '#1a73e8', os: ['android'], scheme: 'intent:$durl#Intent;package=com.mxtech.videoplayer.ad;S.title=$name;end' },
-    { name: 'MX Player Pro', logo: 'MX', color: '#0d47a1', os: ['android'], scheme: 'intent:$durl#Intent;package=com.mxtech.videoplayer.pro;S.title=$name;end' },
-    { name: 'Android', logo: 'And', color: '#3ddc84', ink: '#0b2e1b', os: ['android'], scheme: 'intent:$durl#Intent;type=video/*;S.title=$name;end' },
-  ];
-  const OS_NAMES = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android', ios: 'iOS' };
-  const OS = (() => {
-    const ua = navigator.userAgent;
-    if (/android/i.test(ua)) return 'android';
-    // iPadOS 默认伪装成 Mac，靠触点数区分
-    if (/iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
-    if (/mac os x|macintosh/i.test(ua)) return 'macos';
-    if (/windows/i.test(ua)) return 'windows';
-    if (/linux|cros/i.test(ua)) return 'linux';
-    return '';
-  })();
-  /** 是否展开其他平台的播放器（本页会话内记住） */
-  let showAllPlayers = false;
-
-  function playerHref(scheme, url, name) {
-    return scheme
-      .replace('$name', () => encodeURIComponent(name))
-      .replace(/\$([eb]*)durl/, (_, ops) => [...ops].reverse().reduce((u, o) => (o === 'e' ? encodeURIComponent(u) : btoa(u)), url));
-  }
-
-  function playerTitle(v) {
-    return [meta.artist, meta.title || adamId].filter(Boolean).join(' - ') + ` [${v.info.name}]`;
   }
 
   function formatSize(bytes) {
@@ -315,62 +248,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     menu.el.style.left = `${Math.min(Math.max(8, r.right - m.width), innerWidth - m.width - 8)}px`;
   }
 
-  /** 外部播放器宫格：本平台的排在前面，其他平台折叠 */
-  function playerSection(v) {
-    const local = PLAYERS.filter((p) => !OS || p.os.includes(OS));
-    const others = PLAYERS.filter((p) => !local.includes(p));
-    const title = playerTitle(v);
-    const tile = (p) => {
-      const node = el('a', {
-        className: 'player-tile', tabIndex: -1,
-        href: playerHref(p.scheme, v.hookM3u8Url, title),
-        title: `${p.name} · ${p.os.map((o) => OS_NAMES[o]).join(' / ')}`,
-      }, el('span', { className: 'player-logo', textContent: p.logo }), el('span', { className: 'player-name', textContent: p.name }));
-      node.style.setProperty('--logo', p.color);
-      if (p.ink) node.style.setProperty('--logo-ink', p.ink);
-      node.setAttribute('role', 'menuitem');
-      node.addEventListener('click', () => { closeMenu(false); toast(t('toast.player', { name: p.name })); });
-      return node;
-    };
-
-    const section = el('div', { className: 'menu-section' },
-      el('div', { className: 'menu-caption' },
-        el('span', { textContent: t('menu.players') }),
-        el('span', { className: 'menu-caption-hint', textContent: t('menu.playersHint') })),
-      el('div', { className: 'player-grid' }, ...local.map(tile)));
-    if (!others.length) return section;
-
-    const extra = el('div', { className: 'player-grid', hidden: !showAllPlayers }, ...others.map(tile));
-    const toggle = el('button', { className: 'menu-toggle', type: 'button', tabIndex: -1 });
-    toggle.setAttribute('role', 'menuitem');
-    const sync = () => {
-      extra.hidden = !showAllPlayers;
-      toggle.textContent = t(showAllPlayers ? 'menu.lessPlayers' : 'menu.morePlayers', { n: others.length });
-      toggle.setAttribute('aria-expanded', String(showAllPlayers));
-    };
-    toggle.addEventListener('click', () => { showAllPlayers = !showAllPlayers; sync(); positionMenu(); toggle.focus(); });
-    sync();
-    section.append(extra, toggle);
-    return section;
-  }
-
-  /** 复制地址：一行内选择 media m3u8 或 media file */
-  function copyRow(v) {
-    const choice = (label, url, doneKey) => {
-      const node = el('button', { className: 'seg-btn', type: 'button', tabIndex: -1, textContent: label, title: url });
-      node.setAttribute('role', 'menuitem');
-      node.addEventListener('click', () => { closeMenu(false); copy(url, doneKey); });
-      return node;
-    };
-    return el('div', { className: 'menu-row', innerHTML: ICON.copy },
-      el('span', { className: 'menu-text' },
-        el('span', { className: 'menu-label', textContent: t('menu.copy') }),
-        el('span', { className: 'menu-hint', textContent: t('menu.copyHint') })),
-      el('div', { className: 'seg', role: 'group', ariaLabel: t('menu.copy') },
-        choice('M3U8', v.hookM3u8Url, 'toast.copiedM3u8'),
-        choice(t('menu.copyFile'), v.hookFileUrl, 'toast.copiedFile')));
-  }
-
   menu.el.addEventListener('keydown', (e) => {
     const items = menuItems();
     const i = items.indexOf(document.activeElement);
@@ -394,19 +271,9 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   }, { capture: true, signal });
 
   function variantMenu(v, fileName) {
-    const items = [
+    return [
       { icon: ICON.download, label: t('menu.download'), hint: t('menu.downloadHint', { file: fileName }), onSelect: () => startDownload(v, fileName) },
     ];
-    if (hook) {
-      items.push(
-        { icon: ICON.server, label: t('menu.serverDownload'), hint: t('menu.serverDownloadHint'), href: v.hookFileUrl, download: fileName },
-        '-',
-        playerSection(v),
-        '-',
-        copyRow(v),
-      );
-    }
-    return items;
   }
 
   function playItem(v) {
@@ -416,8 +283,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       country: meta.country || country,
       codecs: v.codecs,
       m3u8Url: v.m3u8Url,
-      hookM3u8Url: v.hookM3u8Url,
-      hookFileUrl: v.hookFileUrl,
       label: v.info.name,
       badge: qualityBadge(v),
       title: meta.title,
@@ -444,13 +309,13 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const playBtn = el('button', { className: 'play-btn', type: 'button', innerHTML: ICON.play, disabled: !playable });
       playBtn.setAttribute('aria-label', playable ? t('row.play', { name: v.info.name }) : t('row.unsupported'));
       playBtn.title = playable ? t('row.playTitle')
-        : t('row.unsupportedTitle', { codecs: v.codecs, hint: t(hook ? 'player.hintExternal' : 'player.hintDownload') });
+        : t('row.unsupportedTitle', { codecs: v.codecs, hint: t('player.hintDownload') });
       playBtn.addEventListener('click', () => player.play(playItem(v)));
 
       const name = el('div', { className: 'variant-name' }, v.info.name,
         qualityIcon(qualityBadge(v)),
         ...v.info.tags.map((tag) => el('span', { className: 'badge', textContent: tag })),
-        el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: t(playable ? 'row.playable' : hook ? 'row.external' : 'row.downloadOnly') }));
+        el('span', { className: `badge ${playable ? 'ok' : 'warn'}`, textContent: t(playable ? 'row.playable' : 'row.downloadOnly') }));
       const detail = el('div', { className: 'variant-detail' },
         [v.codecs, formatRate(v.bandwidth), v.channels && t('row.channels', { n: v.channels })].filter(Boolean).join(' · ') + ' · ',
         el('code', { textContent: v.group_id }));
@@ -480,8 +345,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     $('count').textContent = t('song.count', { total: variants.length, playable: variants.filter((v) => v.mode).length });
     $('variants').hidden = false;
     $('play-best').disabled = !variants.some((v) => v.mode);
-    $('ext-best').hidden = !hook;
-    $('ext-best').disabled = variants.length === 0;
     syncRows(player.current, !player.transport().paused);
   }
 
@@ -499,9 +362,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     renderVariants();
   });
 
-  // 外部播放器能播所有音质，直接取最高音质
-  $('ext-best').addEventListener('click', () => { if (variants[0]) openMenu($('ext-best'), [playerSection(variants[0])]); });
-
   $('play-best').addEventListener('click', () => {
     // 优先播放浏览器能播的最高音质
     const best = variants.find((v) => v.mode);
@@ -516,16 +376,12 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || t('song.parseFailedHttp', { status: res.status }));
       const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
-      hook = !!data.hook;
       variants = data.variants.map((v) => ({
         ...v,
         info: describe(v),
-        mode: detectMode(v.codecs, probe, hook),
+        mode: detectMode(v.codecs),
         // 浏览器直连 CDN 的原始地址（浏览器端解密）
         m3u8Url: base + v.uri,
-        // 服务端解密地址，仅 --hook 时可用
-        hookM3u8Url: hook ? hookUrl(base + v.uri) : null,
-        hookFileUrl: hook ? hookUrl(base + v.file_uri) : null,
       })).sort((a, b) => a.info.rank - b.info.rank || b.info.kbps - a.info.kbps || a.info.sub - b.info.sub || (b.bandwidth || 0) - (a.bandwidth || 0));
       renderVariants();
       showAlert('', '');

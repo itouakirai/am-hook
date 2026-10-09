@@ -6,7 +6,7 @@
  *   - 解密在 Worker 池中由 hook.wasm（crates/am-wasm）完成，不阻塞页面；
  *   - 下载时解密结果按原始偏移写入 OPFS 文件，完成后以磁盘文件交给页面保存，
  *     大文件也不会占用大量内存；不支持 OPFS 时退回内存 Blob。
- * 解密不改变字节长度，解密结果与服务端 --hook 模式的 media file 完全一致；
+ * 解密不改变字节长度；
  * 下载最后再像参考实现 rip.go 那样用 DefragmentMP4 解碎片为普通 MP4（ftyp, moov, mdat）。
  */
 (function (global) {

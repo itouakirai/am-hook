@@ -1,9 +1,9 @@
 //! Offline checks for MV control-plane relays and server-side master fetching.
-use am_hook::{proxy, state::AppState, ui};
+use am_hook::{state::AppState, ui};
 use axum::{
     body::to_bytes,
     extract::{Path, State},
-    http::{HeaderMap, Method, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     routing::{get, post},
     Json, Router,
 };
@@ -23,7 +23,7 @@ async fn forwards_mv_requests_without_fetching_media() {
     let task = tokio::spawn(async move {
         axum::serve(listener, mock).await.unwrap();
     });
-    let state = Arc::new(AppState::new(format!("http://{addr}"), 60, 1));
+    let state = Arc::new(AppState::new(format!("http://{addr}")));
     let response =
         ui::mv_webplayback_handler(State(state.clone()), Path("1794822079".into())).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -48,16 +48,17 @@ async fn forwards_mv_requests_without_fetching_media() {
             .status(),
         StatusCode::BAD_REQUEST
     );
-    // AppState::new enables hook; video CDN resources must still be rejected.
-    let uri: Uri = "/https://mvod.itunes.apple.com/itunes-assets/test/segment.m4s"
-        .parse()
-        .unwrap();
-    assert_eq!(
-        proxy::handle_proxy(State(state), Method::GET, uri, HeaderMap::new())
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
-    );
+    // CDN resources are never proxied; decryption happens in the browser.
+    for path in [
+        "/https://mvod.itunes.apple.com/itunes-assets/test/segment.m4s",
+        "/https://aod.itunes.apple.com/itunes-assets/test/P1_A2_audio_m.mp4",
+    ] {
+        let uri: Uri = path.parse().unwrap();
+        assert_eq!(
+            ui::fallback_handler(uri, HeaderMap::new()).await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
     task.abort();
 }
 
@@ -99,7 +100,7 @@ async fn parses_mv_master_with_fixed_user_agent() {
     let upstream = tokio::spawn(async move {
         axum::serve(listener, mock).await.unwrap();
     });
-    let state = Arc::new(AppState::new(format!("http://{addr}"), 60, 1));
+    let state = Arc::new(AppState::new(format!("http://{addr}")));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let app_addr = listener.local_addr().unwrap();
     let app = tokio::spawn(async move {

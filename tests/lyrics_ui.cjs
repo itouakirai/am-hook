@@ -56,7 +56,7 @@ const amllTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
           }
           if (url.pathname.startsWith('/amp/')) return route.fulfill({ status: 404, json: { errors: [] } });
           if (url.pathname === '/status') return route.fulfill({ json: { code: 0, regions: ['us'] } });
-          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', hook: false, variants } });
+          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', variants } });
           if (url.pathname.startsWith('/lyrics/')) {
             lyricRequests.push(url.pathname);
             return hasLyrics

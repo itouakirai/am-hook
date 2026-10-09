@@ -61,7 +61,7 @@ async function checkNav(page, width) {
           }
           if (url.pathname.startsWith('/amp/')) return route.fulfill({ status: 404, json: { errors: [] } });
           if (url.pathname === '/status') return route.fulfill({ json: { code: 0, regions: ['us', 'cn'] } });
-          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', hook: true, variants } });
+          if (url.pathname.startsWith('/parse/song/')) return route.fulfill({ json: { masterUrl: 'https://example.com/master.m3u8', variants } });
           if (url.pathname.startsWith('/lyrics/')) return route.fulfill({ status: 404, json: { code: 1, msg: 'lyrics not found' } });
           // 单页应用：页面地址返回 app.html，页面视图在 /assets/views/
           const file = url.pathname.startsWith('/assets/lyrics/') ? path.join('lyrics', path.basename(url.pathname))

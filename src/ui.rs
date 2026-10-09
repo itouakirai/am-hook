@@ -3,12 +3,15 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::Response;
 use serde::Deserialize;
 use serde_json::json;
 use crate::log;
-use crate::m3u8::{parse_master_variants, parse_song_link};
+use crate::m3u8::{
+    is_charts_path, is_editorial_link, is_library_path, parse_album_link, parse_artist_link, parse_master_variants, parse_mv_link,
+    parse_playlist_link, parse_post_link, parse_song_link,
+};
 use crate::state::AppState;
 use crate::wrapper::Lyrics;
 
@@ -17,6 +20,30 @@ use crate::wrapper::Lyrics;
 /// 播放条与歌词界面常驻，站内跳转时播放不中断。目录数据由前端经 `/amp` 代理获取。
 pub async fn app_handler(headers: HeaderMap) -> Response<Body> {
     static_response(&headers, "text/html; charset=utf-8", include_bytes!("ui/app.html"))
+}
+
+/// 其余路径：Apple Music 页面路径本身也是 "https://..."（`/` 后拼接官网地址），
+/// 歌曲 / MV / post / 专辑 / 歌单 / 艺人页、编辑页与资料库页都返回单页应用，其他一律 404
+pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
+    let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
+    if parse_song_link(path).is_ok()
+        || parse_mv_link(path).is_ok()
+        || parse_post_link(path).is_ok()
+        || parse_album_link(path).is_ok()
+        || parse_playlist_link(path).is_ok()
+        || parse_artist_link(path).is_ok()
+        || is_editorial_link(path)
+        || is_charts_path(path)
+        || is_library_path(path)
+    {
+        return app_handler(headers).await;
+    }
+    let response = Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from("Not found\n"))
+        .unwrap();
+    log::note(response, "not found")
 }
 
 /// 前端路由
@@ -341,7 +368,6 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Response<Body
         "msg": "wrapper-lite unavailable",
         "regions": [],
         "wrapperUrl": state.config.wrapper_url,
-        "hook": state.config.hook,
     });
     let mut status = StatusCode::BAD_GATEWAY;
     let mut note = String::from("wrapper-lite unavailable");
@@ -427,8 +453,6 @@ pub async fn master_handler(
             "adamId": adam_id,
             "masterUrl": master_url,
             "variants": variants,
-            // 为 true 时前端额外提供服务端解密地址（VLC / IDM / 原生 HLS）
-            "hook": state.config.hook,
         }),
     );
     log::note(response, note)

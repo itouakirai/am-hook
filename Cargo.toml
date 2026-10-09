@@ -17,7 +17,6 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "http2", "gzip", "brotli"] }
 base64 = "0.22"
-temari = { path = "crates/temari" }
 am-mp4 = { path = "crates/am-mp4" }
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }

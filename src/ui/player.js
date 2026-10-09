@@ -5,9 +5,7 @@
  *   1. MSE：浏览器直接从 Apple CDN 获取 media m3u8 与分段，在 Worker 中用 wasm 解密（decrypt.js）
  *      后逐段喂给 SourceBuffer。只缓冲当前位置之后 ~45s，拖动时直接定位到对应 segment。
  *   2. EC-3 回退：原生 MSE 不可用时，按需加载 ec3.wasm，解码为 5.1/7.1 PCM。
- *   3. 原生 HLS：把服务端解密的 media m3u8 交给 <audio>（其他编码的可选路径）。
- *   4. 直连：<audio src=服务端解密的 media file>，依赖浏览器对 fMP4 的渐进式播放。
- *   3、4 需要服务端以 --hook 启动（item 带 hookM3u8Url / hookFileUrl）。
+ *   3. ALAC 回退：浏览器不支持 ALAC 时转为 FLAC-in-MP4 后交给 MSE。
  */
 (function (global) {
   'use strict';
@@ -25,11 +23,6 @@
   const FLAC_MIN_AHEAD_SECONDS = 4;
   const FLAC_BEHIND_SECONDS = 2;
   const BEHIND_SECONDS = 30;
-
-  /** 服务端默认 media m3u8 是每段独立 URL 的通用写法；Safari 原生 HLS 用原始 EXT-X-MAP + BYTERANGE 写法 */
-  function byterangeUrl(m3u8Url) {
-    return m3u8Url + (m3u8Url.includes('?') ? '&' : '?') + 'hook=byterange';
-  }
 
   /** time 所在 segment 下标 */
   function segmentAt(segments, time) {
@@ -58,12 +51,9 @@
 
   /**
    * 该编码在当前浏览器中可尝试的播放方式（按优先级），空数组表示不支持。
-   * 注意：canPlayType('application/vnd.apple.mpegurl') 只说明浏览器能播 HLS，
-   * 不代表能解码其中的编码（新版 Chrome/Edge 原生支持 HLS 但不支持 ALAC），
-   * 所以 HLS / 直连都必须同时通过编码检测。EC-3 单独按 MSE -> PCM 检测，
-   * 两种方式都由浏览器端解密，不依赖 --hook。
+   * 全部由浏览器端解密；EC-3 按 MSE -> PCM 检测，ALAC 可回退为 FLAC。
    */
-  function detectModes(codecs, audio, hook) {
+  function detectModes(codecs) {
     if (failedCodecs.has(codecs)) return [];
     const mime = mimeFor(codecs);
     const modes = [];
@@ -75,18 +65,13 @@
           (global.AudioContext || global.webkitAudioContext)) modes.push('ec3');
       return modes;
     }
-    if (hook && audio && audio.canPlayType(mime) !== '') {
-      if (audio.canPlayType('application/vnd.apple.mpegurl') !== '') modes.push('hls');
-      modes.push('direct');
-    }
     if (String(codecs).toLowerCase() === 'alac' && MS && MS.isTypeSupported &&
         MS.isTypeSupported(mimeFor('flac')) && global.Worker && decrypt) modes.push('flac');
     return modes;
   }
 
-  /** hook：服务端是否以 --hook 启动（决定能否使用原生 HLS / 直连） */
-  function detectMode(codecs, audio, hook) {
-    return detectModes(codecs, audio, hook)[0] || null;
+  function detectMode(codecs) {
+    return detectModes(codecs)[0] || null;
   }
 
   /** 界面文案（i18n.js）；未加载时直接返回 key */
@@ -95,12 +80,12 @@
   }
 
   /** 不能在浏览器内播放时给用户的建议 */
-  function fallbackHint(item) {
-    return t(item && item.hookM3u8Url ? 'player.hintExternal' : 'player.hintDownload');
+  function fallbackHint() {
+    return t('player.hintDownload');
   }
 
   function modeLabel(mode) {
-    return mode === 'direct' ? t('player.direct') : mode === 'ec3' ? t('player.pcmMode') : mode.toUpperCase();
+    return mode === 'ec3' ? t('player.pcmMode') : mode.toUpperCase();
   }
 
   /* ---------- 播放队列的曲目：逐首解析 master，选浏览器能播放的最高音质 ---------- */
@@ -119,8 +104,6 @@
     const kbps = Number((g.match(/stereo-(\d+)/) || [])[1]) || 0;
     return `${g.includes('he-') ? 'HE-AAC' : 'AAC'}${kbps ? ' · ' + kbps + ' kbps' : ''}`;
   }
-
-  let probe = null;
 
   /**
    * 艺人行（如「KAROL G, Judeline & rusowsky」）中每位艺人的名字链接到其艺人页，分隔符保持原样；
@@ -276,11 +259,9 @@
     const res = await fetch(`/parse/song/${entry.track}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.masterUrl || !Array.isArray(data.variants)) throw new Error(data.msg || `HTTP ${res.status}`);
-    const hook = !!data.hook;
     const base = data.masterUrl.slice(0, data.masterUrl.lastIndexOf('/') + 1);
-    probe = probe || document.createElement('audio');
     const best = data.variants
-      .map((v) => ({ ...v, mode: detectMode(v.codecs, probe, hook) }))
+      .map((v) => ({ ...v, mode: detectMode(v.codecs) }))
       .filter((v) => v.mode)
       .sort((a, b) => rankVariant(a) - rankVariant(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0];
     if (!best) throw Object.assign(new Error(t('album.noPlayable', { name: entry.name })), { noPlayable: true });
@@ -290,8 +271,6 @@
       country: entry.country,
       codecs: best.codecs,
       m3u8Url: base + best.uri,
-      hookM3u8Url: hook ? `${location.origin}/${base + best.uri}` : null,
-      hookFileUrl: hook ? `${location.origin}/${base + best.file_uri}` : null,
       label: variantLabel(best),
       badge: qualityBadge(best),
       title: entry.name,
@@ -1251,8 +1230,7 @@
       a.addEventListener('error', () => {
         // 尝试阶段的错误由 play() 统一处理（会自动换下一种播放方式）
         if (!this.attempting && this.current && this.current.mode !== 'mse' && this.audio.getAttribute('src')) {
-          const item = this.current;
-          this.showError(() => t('player.errorGeneric', { hint: fallbackHint(item) }));
+          this.showError(() => t('player.errorGeneric', { hint: fallbackHint() }));
         }
       });
 
@@ -1692,10 +1670,10 @@
     }
 
     /**
-     * item: { id, codecs, m3u8Url, hookM3u8Url, hookFileUrl, label, badge, title, artist, artists, album, href, albumHref, artwork }
+     * item: { id, codecs, m3u8Url, label, badge, title, artist, artists, album, href, albumHref, artwork }
      * artists: [{ name, href }]，各位艺人的名字与本站艺人页路径；href / albumHref 为本站歌曲页、专辑页路径；
      * badge 为音质标签（见 qualityBadge）；以上均可省略
-     * m3u8Url 为 CDN 原始地址（浏览器解密）；hook* 为服务端解密地址，仅 --hook 时存在。
+     * m3u8Url 为 CDN 原始地址（浏览器解密）
      */
     async play(item) {
       // 单独播放另一首歌时结束队列；同一首歌切换音质时保留
@@ -1761,7 +1739,7 @@
       resolveEntry(entry)
         .then((item) => {
           if (serial !== this.nextSerial) return null;
-          const mode = detectMode(item.codecs, this.audio, !!item.hookM3u8Url);
+          const mode = detectMode(item.codecs);
           return this.mse.setNext({ ...item, mode });
         })
         .then((chained) => { if (serial === this.nextSerial && !chained) giveUp(); })
@@ -1818,9 +1796,9 @@
 
     async start(item) {
       if (this.current && this.current.id === item.id) { this.toggle(); return; }
-      const modes = detectModes(item.codecs, this.audio, !!item.hookM3u8Url);
+      const modes = detectModes(item.codecs);
       if (!modes.length) {
-        this.showError(() => t('player.errorCodec', { codecs: item.codecs, hint: fallbackHint(item) }));
+        this.showError(() => t('player.errorCodec', { codecs: item.codecs, hint: fallbackHint() }));
         return;
       }
       const token = ++this.playToken;
@@ -1869,7 +1847,7 @@
       failedCodecs.add(item.codecs);
       this.unsupportedListeners.forEach((fn) => fn(item.codecs));
       const detail = lastError && lastError.message ? ` (${lastError.message})` : '';
-      this.showError(() => t('player.errorFailed', { label: item.label || item.codecs, codecs: item.codecs, hint: fallbackHint(item) }) + detail);
+      this.showError(() => t('player.errorFailed', { label: item.label || item.codecs, codecs: item.codecs, hint: fallbackHint() }) + detail);
       this.emit();
     }
 
@@ -1893,14 +1871,10 @@
         await this.pcm.play();
         return;
       }
-      if (mode === 'mse' || mode === 'flac') {
-        this.mse.onRecover = () => this.showError('');
-        await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)), mode === 'flac');
-        if (token !== this.playToken) return;
-        this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
-      } else {
-        this.audio.src = mode === 'hls' ? byterangeUrl(item.hookM3u8Url) : item.hookFileUrl;
-      }
+      this.mse.onRecover = () => this.showError('');
+      await this.mse.load(item.m3u8Url, item.codecs, (err) => this.showError(err.message || String(err)), mode === 'flac');
+      if (token !== this.playToken) return;
+      this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
       if (resumeAt > 0) this.audio.currentTime = resumeAt;
       await this.audio.play();
     }

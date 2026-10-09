@@ -2,9 +2,6 @@ pub mod amp;
 pub mod cli;
 pub mod log;
 pub mod m3u8;
-pub mod monitor;
-pub mod proxy;
-pub mod source;
 pub mod state;
 pub mod ui;
 pub mod updater;
@@ -17,7 +14,7 @@ use axum::Router;
 
 use crate::state::AppState;
 
-/// 首页与解析接口优先，歌曲 / MV / 专辑 / 歌单 / 艺人页、编辑页（room / multi-room / grouping / curator）、资料库页与 --hook 解密代理统一由 fallback 分流
+/// 首页与解析接口优先，歌曲 / MV / 专辑 / 歌单 / 艺人页、编辑页（room / multi-room / grouping / curator）、资料库页统一由 fallback 分流
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(ui::app_handler))
@@ -54,7 +51,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/assets/ec3-decode-worker.js", get(ui::ec3_worker_handler))
         .route("/assets/ec3-runtime.mjs", get(ui::ec3_runtime_handler))
         .route("/assets/ec3.wasm", get(ui::ec3_wasm_handler))
-        .fallback(proxy::handle_proxy)
+        .fallback(ui::fallback_handler)
         .layer(axum::middleware::from_fn(log::access_log))
         .with_state(state)
 }

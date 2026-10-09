@@ -34,9 +34,6 @@ am-hook --auto-update
 ```sh
 # 基本用法 / Basic usage
 am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
-
-# 启用服务端解密 / Enable server-side decryption
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340 --hook
 ```
 
 完整文档请查看 [README.md](../README.md) / [README.zh-CN.md](../README.zh-CN.md)

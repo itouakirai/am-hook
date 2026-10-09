@@ -1,6 +1,6 @@
-// Live source-repair regression. Start am-hook --hook with wrapper-lite, then:
+// Live source-repair regression. Start am-hook with wrapper-lite, then:
 // AM_HOOK_URL=http://127.0.0.1:8888 node tests/alac_source_recovery.cjs <playwright-path>
-// Compares server Range output, browser workers, and unmodified temari plaintext.
+// Compares browser workers with unmodified temari plaintext.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { chromium } = require(process.argv[2] || 'playwright');
@@ -67,7 +67,6 @@ const origin = process.env.AM_HOOK_URL || 'http://127.0.0.1:8888';
         return btoa(s);
       };
       const data = await (await fetch('/parse/song/1691044818')).json();
-      if (!data.hook) throw new Error('This test requires --hook');
       const url = new URL(data.variants.find(v => v.codecs === 'alac').uri, data.masterUrl).href;
       const track = await AmDecrypt.openTrack(url);
       await setTemplate(await track.template());
@@ -76,17 +75,13 @@ const origin = process.env.AM_HOOK_URL || 'http://127.0.0.1:8888';
         await Promise.all(track.segments.slice(start, start + 4).map(async segment => {
           const encrypted = await track.fetchPiece(segment);
           const clear = await track.decryptPiece(segment, encrypted.slice(0));
-          const response = await fetch('/' + track.url, { headers: { Range: `bytes=${segment.start}-${segment.end}` } });
-          if (response.status !== 206) throw new Error('Server Range request failed');
-          const server = new Uint8Array(await response.arrayBuffer()), web = new Uint8Array(clear);
-          if (server.length !== web.length || server.some((v, i) => v !== web[i])) throw new Error('Browser/server mismatch');
           await verifySource(base64(encrypted), base64(clear), segment.key === 'fixed');
         }));
       }
     });
     assert.equal(packets, 2108);
     assert.equal(repaired, 25);
-    console.log('PASS: 25 repaired packets, identical browser/server output, unchanged PCM and byte offsets');
+    console.log('PASS: 25 repaired packets, unchanged PCM and byte offsets');
   } finally {
     if (handle) w.hook_template_free(handle);
     await browser.close();

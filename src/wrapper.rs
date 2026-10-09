@@ -9,8 +9,6 @@ use reqwest::header::{HeaderValue, AUTHORIZATION};
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use temari::rounds::Template;
-use temari::template::template_from_json;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::Instant;
 
@@ -109,12 +107,6 @@ impl Wrapper {
         let status = response.status();
         let body = response.bytes().await?;
         Ok(Reply { status, body })
-    }
-
-    /// 从 `/key` 接口获取 `data` 并解析为解密模板
-    pub async fn fetch_key_template(&self, adam_id: &str, uri: &str) -> Result<Template, String> {
-        let data = self.fetch_key_json(adam_id, uri).await?;
-        template_from_json(&data).map_err(|e| format!("Temari failed to parse template: {e}"))
     }
 
     /// 从 `/key` 接口获取原始模板 JSON（响应中的 `data` 字段），供浏览器端解密使用
@@ -261,10 +253,6 @@ mod tests {
     fn config(url: String, rate: u32, concurrency: usize, auth: Option<&str>) -> Config {
         Config {
             wrapper_url: url,
-            hook: false,
-            cache_ttl: Duration::from_secs(60),
-            prefetch: 1,
-            template_timeout: Duration::from_secs(1),
             amp_keepalive: Duration::ZERO,
             amp_cache_mb: 0,
             wrapper_rate: rate,

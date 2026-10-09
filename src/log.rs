@@ -1,7 +1,7 @@
 //! 运行输出：日志初始化、启动摘要与请求日志。
 //!
 //! 每个请求在响应后输出一行：`状态码 方法 分类 要点 · 备注 · 耗时`。
-//! 高频且无信息量的请求（静态资源、页面轮询的 /status、输入联想、分片）降为 debug，
+//! 高频且无信息量的请求（静态资源、页面轮询的 /status、输入联想）降为 debug，
 //! 需要时用 `RUST_LOG=am_hook=debug` 查看。
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
@@ -17,7 +17,6 @@ use tracing::{debug, info, warn, Level};
 use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use crate::source::{self, SourceKind};
 use crate::state::{AppState, Config};
 
 pub fn init() {
@@ -189,16 +188,7 @@ fn describe(path: &str, query: &str) -> Entry {
     if let Some(rest) = path.strip_prefix("/amp/v1/editorial/") {
         return Entry::new("editorial", data_detail(rest, query));
     }
-    // 其余为 --hook 解密代理（URL 前缀式）
-    let file = source::filename(path);
-    match source::classify(file) {
-        SourceKind::MediaSegment => Entry::new("hook", format!("segment {file}")).quiet(),
-        SourceKind::MasterPlaylist => Entry::new("hook", format!("master {file}")),
-        SourceKind::MediaPlaylist => Entry::new("hook", format!("media m3u8 {file}")),
-        SourceKind::MediaFile => Entry::new("hook", format!("media file {file}")),
-        SourceKind::Other if path.contains(source::WHITELIST) => Entry::new("hook", format!("file {file}")),
-        SourceKind::Other => Entry::new("other", path).quiet(),
-    }
+    Entry::new("other", path).quiet()
 }
 
 /// 取查询参数并做百分号解码（`+` 视为空格）
@@ -241,8 +231,8 @@ fn format_elapsed(elapsed: Duration) -> String {
     }
 }
 
-/// 启动摘要：访问地址、wrapper-lite、解密模式与功能入口
-pub fn print_banner(listen: SocketAddr, config: &Config, lru_cache_mb: usize) {
+/// 启动摘要：访问地址、wrapper-lite 与功能入口
+pub fn print_banner(listen: SocketAddr, config: &Config) {
     let mut lines = vec![format!("am-hook v{}", env!("CARGO_PKG_VERSION"))];
     let urls = access_urls(listen);
     lines.push(format!("  Web UI        {}", urls[0]));
@@ -261,18 +251,6 @@ pub fn print_banner(listen: SocketAddr, config: &Config, lru_cache_mb: usize) {
         limit(config.wrapper_rate as usize, "req/s"),
         limit(config.wrapper_concurrency, "concurrent")
     ));
-    if config.hook {
-        lines.push("  Decryption    browser + server-side proxy (--hook)".into());
-        lines.push(format!(
-            "                track TTL {}, segment cache {lru_cache_mb} MB, prefetch {}, template timeout {}s",
-            format_ttl(config.cache_ttl),
-            config.prefetch,
-            config.template_timeout.as_secs()
-        ));
-        lines.push(format!("                usage: {}/<Apple CDN m3u8 URL>", urls[0]));
-    } else {
-        lines.push("  Decryption    browser only (start with --hook for VLC / IDM URLs)".into());
-    }
     let keepalive = match config.amp_keepalive.as_secs() {
         0 => "keep-alive off".to_owned(),
         secs => format!("keep-alive {secs}s"),
@@ -281,7 +259,7 @@ pub fn print_banner(listen: SocketAddr, config: &Config, lru_cache_mb: usize) {
     lines.push("  Pages         home & search · new · top charts · song · album · playlist · artist".into());
     lines.push("                music video · post · room · multi-room · grouping · curator".into());
     lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
-    lines.push("  Verbose log   RUST_LOG=am_hook=debug (assets, status, suggestions, segments)".into());
+    lines.push("  Verbose log   RUST_LOG=am_hook=debug (assets, status, suggestions)".into());
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let rule = "─".repeat(width + 2);
     println!("{rule}");
@@ -289,15 +267,6 @@ pub fn print_banner(listen: SocketAddr, config: &Config, lru_cache_mb: usize) {
         println!(" {line}");
     }
     println!("{rule}");
-}
-
-fn format_ttl(ttl: Duration) -> String {
-    let secs = ttl.as_secs();
-    if secs >= 60 && secs % 60 == 0 {
-        format!("{} min", secs / 60)
-    } else {
-        format!("{secs}s")
-    }
 }
 
 /// 监听 0.0.0.0 / :: 时列出本机与局域网地址，便于从其他设备访问

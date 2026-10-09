@@ -4,7 +4,7 @@
 
 An Apple Music decryption tool written in Rust, covering songs (FairPlay HLS) and music videos (PlayReady HLS).
 
-By default **decryption happens entirely in the browser**. The server only talks to wrapper-lite (master playlists, decryption templates, licenses). The browser fetches media straight from Apple's CDN and decrypts it with WebAssembly in Web Workers, so no media traffic goes through the server. When external tools such as VLC or IDM need decrypted song URLs, start the server with `--hook` to enable the server-side decrypting proxy.
+By default **decryption happens entirely in the browser**. The server only talks to wrapper-lite (master playlists, decryption templates, licenses). The browser fetches media straight from Apple's CDN and decrypts it with WebAssembly in Web Workers, so no media traffic goes through the server.
 
 ![am-hook home page](docs/home.png)
 
@@ -13,11 +13,8 @@ By default **decryption happens entirely in the browser**. The server only talks
 ```sh
 cargo build --release
 
-# Default: the browser decrypts; the server only serves playlists, templates and licenses
+# The browser decrypts; the server only serves playlists, templates and licenses
 am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
-
-# Also enable the server-side song decrypting proxy (for VLC / IDM; uses server bandwidth)
-am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340 --hook
 ```
 
 Then open `http://127.0.0.1:8888/` and paste a link. Pages can also be opened directly by putting an Apple Music link after the server address:
@@ -51,7 +48,7 @@ For example: `http://127.0.0.1:8888/https://music.apple.com/cn/music-video/super
 - Search: the home input takes either a link or keywords (the same amp-api requests as music.apple.com). Typing shows suggested terms and direct results; results are grouped into top results, artists, albums, songs, playlists and music videos, with "Load more". Search uses the primary storefront, which can also be changed from the button next to the results. `/` focuses the input; the term is kept in the address bar as `?q=`, so Back / Forward and sharing work. Search lives only on the home page; other pages have a Back button at the top instead, which returns to the previous page (or to the home page when the page was opened directly from a link).
 - Persistent player bar: like music.apple.com, the player bar stays at the bottom and playback continues while you move between pages.
   - A queue started on an album, playlist or artist page keeps playing in order after you leave the page, including previous / next from system media controls. Playing a different song on its song page ends the queue; switching quality of the same song keeps it.
-  - Like music.apple.com, the whole queue shares one MediaSource: the next song is fetched ahead and appended right after the current one, so the `<audio>` element never stops between songs. Playback continues gaplessly in the background (another app in front, including fullscreen apps) and the Android media notification stays. Songs played with EC-3 PCM or, in `--hook` mode, native HLS / a direct media file still switch when the previous one ends.
+  - Like music.apple.com, the whole queue shares one MediaSource: the next song is fetched ahead and appended right after the current one, so the `<audio>` element never stops between songs. Playback continues gaplessly in the background (another app in front, including fullscreen apps) and the Android media notification stays. Songs played with EC-3 PCM still switch when the previous one ends.
   - Transport controls match music.apple.com: shuffle, previous (restarts the song after 3 seconds), play / pause, next, and repeat (off → all → one). Shuffle and repeat are remembered; Shuffle on album, playlist and artist pages turns shuffle on and Play plays in order. Seek back / forward with ← / → or system media controls.
   - Playing Next: the list button on the right of the bar opens the upcoming songs. Click to select, double-click to play, drag a row to reorder; the − on the artwork (on hover) removes a song and Clear empties the rest of the queue. From the keyboard: ↑/↓ select, Enter plays, Delete removes, Alt+↑/↓ moves. On touch screens a tap plays, the handle on the right reorders, and shuffle / repeat sit next to the title.
   - The address bar, page title and browser Back / Forward follow the current page, so links can be shared and a reload stays on the same page.
@@ -95,11 +92,8 @@ File format (version 1):
 ### Songs
 
 - Every variant is parsed automatically (lossless ALAC, Dolby Atmos, AAC, HE-AAC, including binaural and downmix versions), with artwork and track info fetched from the Apple Music catalog API (amp-api) via the server's `/amp` proxy.
-- Each variant has a "more" menu:
-  - **Download decrypted file**: decrypted in the browser, with progress and a cancel button. Downloads keep running after you leave the song page and are saved when done; returning to the song page shows their progress again (closing or reloading the tab stops them).
-  - `--hook` only: download through the server; an **external players** grid (14 players including VLC, PotPlayer, mpv, IINA, Infuse, nPlayer and MX Player, using the same link schemes as OpenList) that plays any variant from the server-decrypted media m3u8, current-platform players first; and **Copy URL**, as M3U8 (for players) or media file (for download managers such as IDM). Players must be installed and register their link scheme; desktop VLC, for example, registers no `vlc://` handler by default.
-  - The "External player" button at the top opens the player grid for the highest quality.
-- Built-in player: MSE with browser-side decryption. ALAC plays losslessly via FLAC-in-MP4 when the browser lacks ALAC support. EC-3 falls back to multichannel PCM when MSE is unavailable, with a notice about the spatial-audio limitation. Downloads keep the original codec. In `--hook` mode, other codecs may use native HLS or a direct media file. Space, arrow keys and system media controls are supported.
+- Each variant's "more" menu has **Download decrypted file**: decrypted in the browser, with progress and a cancel button. Downloads keep running after you leave the song page and are saved when done; returning to the song page shows their progress again (closing or reloading the tab stops them).
+- Built-in player: MSE with browser-side decryption. ALAC plays losslessly via FLAC-in-MP4 when the browser lacks ALAC support. EC-3 falls back to multichannel PCM when MSE is unavailable, with a notice about the spatial-audio limitation. Downloads keep the original codec. Space, arrow keys and system media controls are supported.
 - Lyrics: when the playing song has lyrics, a Lyrics button appears on the player bar (available on every page; it switches to the new song's lyrics when the track changes). The view is rendered by [AMLL (Apple Music-like Lyrics)](https://github.com/amll-dev/applemusic-like-lyrics): word- and line-synced highlighting with spring scrolling, background vocals, duets, translation and pronunciation, interlude dots, and click-to-seek. Its flowing background is AMLL's mesh gradient generated from the artwork, or the classic background used before AMLL (rotating, twisted and blurred copies of the artwork, modeled on Apple Music Web; also the fallback without WebGL). Esc closes it. Clicking the artwork, title or empty space on the player bar opens the full-screen player (also for songs without lyrics, which show only the artwork and controls). As on music.apple.com, the title has Favorite (☆) and More buttons (add to library, add to playlist, go to album, copy links), and the Lyrics button in the bottom-right corner (below the controls on phones) shows or hides the lyrics; the buttons are laid out as on music.apple.com — Close at the top left, lyrics translation at the top right, and borderless playback buttons centered in one row, with title and artist on one line each, scrolling when too long; phones follow the site's mobile player: a pull-down handle at the top closes the view, the title row shrinks to a small artwork while lyrics are shown, and only Previous / Play / Next remain at the bottom, above the Lyrics and Playing Next toggles — the queue takes the place of the lyrics, with Shuffle / Repeat next to its title; with lyrics hidden the artwork and controls are centered, and the choice is saved in the browser. The lyrics options button (top right; it used to be only the translation menu) toggles translation and pronunciation, adjusts text size (70%–150%) and font weight (Light to Heavy), switches the lyrics source between Apple Music and the [AMLL TTML DB](https://amll.dev/reference/http-api/overview) (looked up by the Apple Music song ID straight from the browser; songs it doesn't have fall back to Apple Music, and nothing is sent to it unless chosen), switches the background between AMLL's and the classic one, and downloads the TTML being shown. Everything except translation and pronunciation is saved in the browser.
 
 ### Music Videos
@@ -114,51 +108,26 @@ File format (version 1):
 
 ## How It Works
 
-### Songs: browser-side decryption (default)
+### Songs: browser-side decryption
 
 In the browser (`src/ui/decrypt.js`):
 
 1. The media m3u8 is fetched directly from `aod.itunes.apple.com` (the CDN allows CORS and Range requests) and parsed into the init segment, fragment byte ranges and the key used by each fragment.
 2. The first fragment uses the fixed template embedded in the wasm (`skd://itunes.apple.com/P000000000/s1/e1`); the rest use the track template from `/key`.
-3. Fragments are fetched with Range requests and decrypted in place by a Worker pool (one `hook.wasm` instance per Worker). The decryption code is shared with the server (`crates/am-mp4`), so the output is byte-identical to `--hook` mode.
+3. Fragments are fetched with Range requests and decrypted in place by a Worker pool (one `hook.wasm` instance per Worker). The decryption code lives in `crates/am-mp4`.
 4. **Playback**: decrypted fragments feed MSE when the original codec is supported. If ALAC is unavailable but FLAC-in-MP4 is, the on-demand `flac.wasm` losslessly converts ALAC packets to FLAC frames and remuxes them into small fMP4 fragments. EC-3 uses MSE when supported, otherwise the on-demand `ec3.wasm` decoder plays 5.1/7.1 PCM through Web Audio (no Atmos object rendering). Seeking jumps to the matching source fragment.
 5. **Download**: 4 lanes fetch and decrypt concurrently and write each result at its original offset into an OPFS temporary file, which is then converted to a progressive MP4 like the reference downloader's `DefragmentMP4` (`M4A ` ftyp, `moov` before the media data) and handed to the browser to save. Without OPFS it falls back to in-memory Blobs.
 
-Both browser `hook.wasm` and server `--hook` repair identifiable ALAC end-tag damage after decryption (for example, song `1691044818`). The init segment's track and sample description identify complete uncompressed mono/stereo packets; a missing or damaged 3-bit `TYPE_END` is restored to `111`. PCM, sample lengths and Range offsets stay unchanged. Compressed packets, truncated PCM and packets without room for the tag are left untouched; FLAC transcoding keeps its fallback that can append a missing tag byte.
+`hook.wasm` repairs identifiable ALAC end-tag damage after decryption (for example, song `1691044818`). The init segment's track and sample description identify complete uncompressed mono/stereo packets; a missing or damaged 3-bit `TYPE_END` is restored to `111`. PCM, sample lengths and Range offsets stay unchanged. Compressed packets, truncated PCM and packets without room for the tag are left untouched; FLAC transcoding keeps its fallback that can append a missing tag byte.
 
-### Songs: server-side decrypting proxy (`--hook`)
-
-With `--hook`, the server also serves proxy URLs (they return 404 otherwise):
-
-```
-http://<host>:8888/https://aod.itunes.apple.com/itunes-assets/...
-```
-
-This is a **URL-prefix proxy** (like cors-anywhere): the client appends the CDN URL to am-hook's address, and am-hook fetches, decrypts and returns it. It is a plain HTTP URL, not a proxy that has to be configured in the OS or player, so it can be handed directly to VLC, IDM and similar tools.
-
-Only URLs containing `aod.itunes.apple.com/itunes-assets/` are handled, classified by filename:
-
-| Type | Filename pattern | Behavior |
-|---|---|---|
-| Master m3u8 | `P<digits>_<not-A-start>.m3u8` | Forwarded unchanged |
-| Media m3u8 | `P<digits>_A<digits>_...m3u8` | Metadata extracted, `#EXT-X-KEY` lines stripped. By default rewritten to a generic playlist (`EXT-X-VERSION:3`, no `EXT-X-MAP` / `EXT-X-BYTERANGE`, one URL per segment) for players with weak fMP4 byte-range support such as PotPlayer; append `?hook=byterange` to keep Apple's original layout |
-| Media file | Media m3u8 name with `.m3u8` replaced by `_m.mp4` | Fragment bytes fetched by range, samples decrypted in place, metadata boxes neutralized, streamed back |
-| Media segment | Media file name with `_m.mp4` replaced by `_m_seg<N>.mp4` | Init segment + fragment N, independently decodable (Range supported) |
-
-Flow:
-
-1. A media m3u8 request builds a track context with `adamId`, `skd://` URI, `fileuri`, the first fragment range, and all fragment byte ranges.
-2. A background monitor fetches the track decryption template from wrapper-lite as soon as the context is complete.
-3. Media file requests map HTTP ranges onto fragments and fetch only the needed bytes. Up to `--prefetch` fragments are downloaded concurrently and decrypted in parallel on temari's worker pool (off the async runtime), then streamed in order. Concurrent requests for the same fragment share one download/decrypt; results go into a byte-bounded LRU cache. Pending work is cancelled when the client disconnects.
-
-Box handling shared by both modes: FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, and `sgpd`/`sbgp` with grouping type `seig`/`seam`) are replaced with equal-length `free` boxes, so byte lengths and Range offsets stay exact. The `enca` box in the init segment is rewritten to the original codec (`ec-3`, `mp4a`, `alac`, etc.).
+Box handling: FairPlay metadata boxes (`sinf`, `senc`, `saiz`, `saio`, `pssh`, and `sgpd`/`sbgp` with grouping type `seig`/`seam`) are replaced with equal-length `free` boxes, so byte lengths and Range offsets stay exact. The `enca` box in the init segment is rewritten to the original codec (`ec-3`, `mp4a`, `alac`, etc.).
 
 ### Music videos
 
 - `/parse/mv/<adamId>` gets the master URL from wrapper-lite `/webplayback`, fetches it with `User-Agent: AM`, and returns the playlist text and final CDN URL.
 - `/mv/webplayback/<adamId>` and `/mv/license` relay to wrapper-lite `/webplayback` and `/license` (PlayReady only; license errors are shown without falling back to another DRM).
 - Track playlists and media segments are fetched by the browser directly from Apple.
-- Challenge building, license parsing, CENC/CBCS decryption, caption repair, fragmented MP4 muxing and conversion to a progressive MP4 run in a Worker with `media.wasm` (Rust, see [crates/am-media](crates/am-media/README.md)). `--hook` does not proxy MV resources.
+- Challenge building, license parsing, CENC/CBCS decryption, caption repair, fragmented MP4 muxing and conversion to a progressive MP4 run in a Worker with `media.wasm` (Rust, see [crates/am-media](crates/am-media/README.md)).
 - Live playlists, discontinuities and changing initialization segments are not supported.
 
 ## Server Endpoints
@@ -186,7 +155,6 @@ Box handling shared by both modes: FairPlay metadata boxes (`sinf`, `senc`, `sai
 | `GET /amp/v1/storefronts` | All storefronts from amp-api (query passed through to follow `next` paging); pages fetch it once and keep it in localStorage (refreshed in the background after 30 days); it supplies the storefront picker and the catalog language choices (each storefront's `supportedLanguageTags`) (an unsupported `l` silently falls back to the storefront default, e.g. `cn` only supports `zh-Hans-CN` / `en-GB`) |
 | `GET /mv/webplayback/<adamId>`, `POST /mv/license` | MV relays to wrapper-lite `/webplayback` and `/license` |
 | `/assets/...` | Client-side router, page views (`/assets/views/`), scripts, styles and on-demand WASM modules embedded in the binary (`no-cache` + ETag) |
-| `/https://aod.itunes.apple.com/itunes-assets/...` | `--hook` only: song decrypting proxy |
 
 ## Command-Line Options
 
@@ -198,11 +166,6 @@ Box handling shared by both modes: FairPlay metadata boxes (`sinf`, `senc`, `sai
 | `--wrapper-rate <N>` | `24` | Max requests per second to wrapper-lite (any 1-second window; extra requests wait in order). 0 = unlimited |
 | `--wrapper-concurrency <N>` | `24` | Max concurrent requests to wrapper-lite. 0 = unlimited. Lower it (e.g. `8`) if wrapper-lite runs in QEMU and requests time out under load |
 | `--wrapper-auth <VALUE>` | not sent | `Authorization` header for wrapper-lite requests. A bare token is sent as `Bearer <token>`; a value with a scheme (`Bearer …`, `Basic …`) is sent as is. Also read from `AM_HOOK_WRAPPER_AUTH` (keeps it out of the process list) |
-| `--hook` | off | Enable the server-side song decrypting proxy |
-| `--cache-ttl <SECONDS>` | `1800` | `--hook`: track context TTL before eviction |
-| `--lru-cache-mb <MB>` | `128` | `--hook`: decrypted-fragment LRU cache capacity in MB |
-| `--prefetch <N>` | `4` | `--hook`: fragments fetched and decrypted concurrently per request |
-| `--template-timeout <SECONDS>` | `20` | `--hook`: how long to wait for a track's decryption template |
 | `--amp-keepalive <SECONDS>` | `30` | Keeps the amp-api connection warm: after this long idle, sends a tiny request (0 disables). The token is fetched and the connection opened at startup either way |
 | `--amp-cache-mb <MB>` | `32` | amp-api response cache (catalog 5 min, storefronts 24 h; 0 disables). Identical concurrent requests always share one upstream request |
 
@@ -227,7 +190,7 @@ The binary is written to `target/release/am-hook` (`am-hook.exe` on Windows). Al
 cargo test --workspace
 ```
 
-Unit tests cover the browser media core (PlayReady license decryption, CENC/CBCS, caption repair, defragmentation), URL parsing, m3u8 rewriting, MP4 box patching (including that the in-place wasm path matches the parallel path), range parsing, cache deduplication and the MV endpoints. Offline integration tests also check the whitelist and that the proxy is refused without `--hook`.
+Unit tests cover the browser media core (PlayReady license decryption, CENC/CBCS, caption repair, defragmentation), URL parsing, m3u8 parsing, MP4 box patching (including that the in-place wasm path matches the parallel path), cache deduplication and the MV endpoints. Offline integration tests also check that Apple CDN URLs are not proxied.
 
 Tests that require the live Apple CDN or wrapper-lite are ignored by default and do not run in GitHub Actions. Run them locally with Apple CDN access and wrapper-lite available (default `http://127.0.0.1:12340`, override with `AM_HOOK_WRAPPER`):
 
@@ -235,7 +198,7 @@ Tests that require the live Apple CDN or wrapper-lite are ignored by default and
 cargo test --test e2e_test -- --ignored
 ```
 
-These tests verify playlists, decrypted fragments, cross-fragment ranges and lyrics.
+These tests verify lyrics.
 
 Browser-side tests are plain Node scripts:
 
@@ -243,7 +206,7 @@ Browser-side tests are plain Node scripts:
 |---|---|
 | Offline, Node only | `node --test tests/player_*.cjs`, `node tests/mv_hls.cjs`, `node tests/mv_captions.cjs` |
 | Offline, Playwright + Chrome with local fixtures | `node tests/ui_layout.cjs <playwright>`, `node tests/lyrics_ui.cjs <playwright>`, `node tests/mv_ui.cjs <playwright>`, `node tests/library_ui.cjs <playwright>` (library and playlists: add, playlists, reorder, persistence, export / import and file validation, favorites, folders and drag-and-drop, database upgrade) |
-| Live (running am-hook, wrapper-lite, Apple CDN access) | `node tests/mv_live.cjs <playwright> [base]`, `node tests/mv_captions_live.cjs <playwright> [base]`, `node tests/alac_recovery.cjs <playwright>`, `node tests/alac_source_recovery.cjs <playwright>` (needs `--hook`), `node tests/search_ui.cjs <playwright> [base]`, `node tests/album_ui.cjs <playwright> [base]`, `node tests/playlist_ui.cjs <playwright> [base]`, `node tests/artist_ui.cjs <playwright> [base]`, `node tests/browse_ui.cjs <playwright> [base]` (need access to music.apple.com), `node tests/app_ui.cjs <playwright> [base]` (single-page app: playback across navigation, queue, Back / Forward, lyrics) |
+| Live (running am-hook, wrapper-lite, Apple CDN access) | `node tests/mv_live.cjs <playwright> [base]`, `node tests/mv_captions_live.cjs <playwright> [base]`, `node tests/alac_recovery.cjs <playwright>`, `node tests/alac_source_recovery.cjs <playwright>`, `node tests/search_ui.cjs <playwright> [base]`, `node tests/album_ui.cjs <playwright> [base]`, `node tests/playlist_ui.cjs <playwright> [base]`, `node tests/artist_ui.cjs <playwright> [base]`, `node tests/browse_ui.cjs <playwright> [base]` (need access to music.apple.com), `node tests/app_ui.cjs <playwright> [base]` (single-page app: playback across navigation, queue, Back / Forward, lyrics) |
 
 `<playwright>` is the path to a Playwright package; when `[base]` is omitted, the MV live tests default to `http://127.0.0.1:18888` and the others to `AM_HOOK_URL` or `http://127.0.0.1:8888` (the ALAC tests only read `AM_HOOK_URL`).
 
@@ -254,15 +217,12 @@ src/
   cli.rs               CLI argument parsing
   main.rs              Server startup
   lib.rs               Router construction
-  source.rs            Source URL normalization and classification
   amp.rs               amp-api catalog proxy (fetches and refreshes the music.apple.com web developer token)
   log.rs               Request log
-  proxy.rs             Fallback: song / MV / album / playlist / artist pages (served the single-page app), --hook request dispatch, range streaming, fragment scheduling
   m3u8.rs              Apple Music link parsing, HLS playlist parsing and key stripping
-  state.rs             Track contexts (deduplicated init) and fragment cache
+  state.rs             Configuration and shared clients
   wrapper.rs           wrapper-lite client (master m3u8, decryption templates, lyrics)
-  monitor.rs           --hook: background template fetch and TTL cleanup
-  ui.rs                Web endpoints (status, parse, templates, lyrics, MV relays, static assets)
+  ui.rs                Web endpoints (status, parse, templates, lyrics, MV relays, static assets; fallback serves the single-page app for Apple Music page paths)
   ui/
     app.html / app.mjs Single-page app: persistent player bar and lyrics view; the client-side router takes over in-site links and swaps page views
     views/             Page views: <name>.html markup, <name>.mjs script (home / song / mv / album / playlist / artist / browse: New and editorial pages, styles in browse.css)
