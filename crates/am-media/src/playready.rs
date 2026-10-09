@@ -371,7 +371,7 @@ fn utf16le(data: &[u8]) -> Result<String> {
     if !data.len().is_multiple_of(2) {
         bail!("UTF-16LE data has odd length");
     }
-    let words: Vec<u16> = data.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect();
+    let words: Vec<u16> = data.as_chunks::<2>().0.iter().map(|w| u16::from_le_bytes(*w)).collect();
     Ok(String::from_utf16_lossy(&words))
 }
 

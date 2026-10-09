@@ -24,8 +24,7 @@ impl Aes {
 
     /// In-place CBC decryption of whole blocks, continuing the chain in `prev`.
     pub fn cbc_decrypt(&self, data: &mut [u8], prev: &mut [u8; 16]) {
-        for chunk in data.chunks_exact_mut(16) {
-            let block: &mut [u8; 16] = chunk.try_into().unwrap();
+        for block in data.as_chunks_mut::<16>().0 {
             let saved = *block;
             self.decrypt(block);
             block.iter_mut().zip(prev.iter()).for_each(|(x, p)| *x ^= p);
@@ -36,8 +35,7 @@ impl Aes {
     /// In-place CBC encryption of whole blocks.
     pub fn cbc_encrypt(&self, data: &mut [u8], iv: &[u8; 16]) {
         let mut prev = *iv;
-        for chunk in data.chunks_exact_mut(16) {
-            let block: &mut [u8; 16] = chunk.try_into().unwrap();
+        for block in data.as_chunks_mut::<16>().0 {
             block.iter_mut().zip(prev.iter()).for_each(|(x, p)| *x ^= p);
             self.encrypt(block);
             prev = *block;
@@ -46,8 +44,8 @@ impl Aes {
 
     /// In-place ECB encryption of whole blocks.
     pub fn ecb_encrypt(&self, data: &mut [u8]) {
-        for chunk in data.chunks_exact_mut(16) {
-            self.encrypt(chunk.try_into().unwrap());
+        for block in data.as_chunks_mut::<16>().0 {
+            self.encrypt(block);
         }
     }
 }

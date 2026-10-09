@@ -47,6 +47,8 @@ jobs:
         run: cargo check --verbose
 
       - name: Clippy
+        # 只在 Linux 跑一次：lint 结果与平台无关，stable 新增 lint 时也只需要看一处
+        if: runner.os == 'Linux'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build

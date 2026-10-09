@@ -255,11 +255,10 @@ mod tests {
         } else {
             // 1 encrypted block out of every 10, one CBC chain per subsample.
             let mut prev = CONSTANT_IV;
-            for block in s[2..].chunks_exact_mut(16).step_by(10) {
-                let b: &mut [u8; 16] = block.try_into().unwrap();
-                b.iter_mut().zip(prev).for_each(|(x, p)| *x ^= p);
-                aes.encrypt(b);
-                prev = *b;
+            for block in s[2..].as_chunks_mut::<16>().0.iter_mut().step_by(10) {
+                block.iter_mut().zip(prev).for_each(|(x, p)| *x ^= p);
+                aes.encrypt(block);
+                prev = *block;
             }
         }
         s
