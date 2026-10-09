@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v0.2.7 (2026-10-09)
+
+### Removed
+- 🗑️ The `--hook` server-side decrypting proxy; decryption now happens only in the browser
+  - The `--hook`, `--cache-ttl`, `--lru-cache-mb`, `--prefetch` and `--template-timeout` flags are gone; remove them from startup scripts
+  - The song page no longer offers external players, Copy URL or download via server; the built-in player no longer uses native HLS or a direct media file
+
 ## v0.2.6 (2026-10-07)
 
 ### Bug Fixes
