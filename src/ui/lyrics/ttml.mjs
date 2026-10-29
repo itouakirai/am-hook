@@ -66,6 +66,13 @@ export function parseTTML(xml, Parser = globalThis.DOMParser) {
   if (!body) throw new Error('TTML 缺少 body');
   const head = child(child(root, 'head'), 'metadata');
   const metadata = child(head, 'iTunesMetadata');
+  const agents = Object.fromEntries(children(head, 'agent').filter(node => node.namespaceURI === META).flatMap(node => {
+    const id = attribute(node, XML, 'id');
+    if (!id) return [];
+    const type = attribute(node, META, 'type') || node.getAttribute('type');
+    const name = children(node, 'name').find(name => name.namespaceURI === META)?.textContent.trim();
+    return [[id, { id, ...(type ? { type } : {}), ...(name ? { name } : {}) }]];
+  }));
   const amllMeta = key => children(head, 'meta').filter(meta => meta.getAttribute('key') === key).map(meta => meta.getAttribute('value'));
   const translation = localization(metadata, 'translations', 'translation');
   const pronunciation = localization(metadata, 'transliterations', 'transliteration');
@@ -99,6 +106,7 @@ export function parseTTML(xml, Parser = globalThis.DOMParser) {
     timing: attribute(root, APPLE, 'timing', 'None'),
     language: attribute(root, XML, 'lang', 'en'),
     duration: parseTime(body.getAttribute('dur') || '0'),
+    agents,
     sections, lines: sections.flatMap(section => section.lines),
     credits: children(child(metadata, 'songwriters'), 'songwriter').map(cleanText),
     authors: amllMeta('ttmlAuthorGithubLogin'),

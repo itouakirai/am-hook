@@ -71,3 +71,8 @@ jobs:
         # src/ui/joc.wasm 与 crates/joc-core 的参考摘要逐位一致、20 组 HRTF 都能加载，离线
         if: runner.os == 'Linux'
         run: node --test tests/joc_wasm.mjs
+
+      - name: Run lyric duet tests
+        # 歌词的对唱侧（src/ui/lyrics/panel.mjs 的 toAmllLines 照 AMLL 逐行决定 isDuet），离线
+        if: runner.os == 'Linux'
+        run: node --test tests/agent_duet.mjs

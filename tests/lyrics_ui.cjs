@@ -33,6 +33,16 @@ const amllTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
     key === 'L2' ? '<span ttm:role="x-bg" begin="00:07.000" end="00:08.000"><span begin="00:07.000" end="00:08.000">(echo)</span><span ttm:role="x-translation" xml:lang="zh-CN">回声</span></span>' : ''
   }</p>`).join('')
 }</div></body></tt>`;
+// 对唱：head 里 ttm:agent 声明歌手（v1 带 ttm:name），每行一位歌手；v3 的 type 为 other，v1000 为合唱（group），L3 带和声（x-bg）
+const duetLines = [['L1', 1, 3, 'v3', 'Duet one'], ['L2', 3, 5, 'v2', 'Duet two'], ['L3', 5, 7, 'v1', 'Duet three'], ['L4', 7, 9, 'v1000', 'Duet four'],
+  ['L5', 9, 11, 'v2', 'Duet five'], ['L6', 11, 13, 'v2', 'Duet six'], ['L7', 13, 15, 'v1', 'Duet seven']];
+const duetTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:amll="http://www.example.com/ns/amll" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xml:lang="en"><head><metadata><ttm:agent type="person" xml:id="v1"><ttm:name type="full">Singer A</ttm:name></ttm:agent><ttm:agent type="person" xml:id="v2"/><ttm:agent type="other" xml:id="v3"/><ttm:agent type="group" xml:id="v1000"/></metadata></head><body dur="00:16.000"><div xmlns="" begin="00:01.000" end="00:15.000">${
+  duetLines.map(([key, begin, end, agent, text]) => `<p begin="00:${pad(begin)}.000" end="00:${pad(end)}.000" ttm:agent="${agent}" itunes:key="${key}">${
+    text.split(' ').map((w, i) => `<span begin="00:${pad(begin + i)}.000" end="00:${pad(begin + i + 1)}.000">${w}</span>`).join(' ')
+  }${
+    key === 'L3' ? '<span ttm:role="x-bg" begin="00:06.000" end="00:07.000"><span begin="00:06.000" end="00:07.000">(ooh)</span></span>' : ''
+  }</p>`).join('')
+}</div></body></tt>`;
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -121,6 +131,20 @@ const amllTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
           await context.close();
           scenarios++;
           continue;
+        }
+        // 对唱：页面加载的 parseTTML（浏览器的 DOMParser）与 toAmllLines 处理 duetTtml，检查歌手声明与每行的显示侧；只在第一个场景（宽 390）检查
+        if (width === 390) {
+          const { agents, sides } = await page.evaluate(async xml => {
+            const { parseTTML } = await import('/assets/lyrics/ttml.mjs');
+            const { toAmllLines } = await import('/assets/lyrics/panel.mjs');
+            const song = parseTTML(xml);
+            // 每行的 isDuet（选项同歌词界面的默认值），和声行记为 'bg:<isDuet>'
+            return { agents: song.agents, sides: toAmllLines(song, { translation: false, pronunciation: false }).map(l => l.isBG ? `bg:${l.isDuet}` : l.isDuet) };
+          }, duetTtml);
+          assert.deepEqual(agents, { v1: { id: 'v1', type: 'person', name: 'Singer A' }, v2: { id: 'v2', type: 'person' }, v3: { id: 'v3', type: 'other' }, v1000: { id: 'v1000', type: 'group' } });
+          // 照 AMLL 逐行手推：L1 的 v3 是第一位主唱、type 为 other，在对唱侧；L2 v2、L3 v1 换人就换侧，L3 的和声跟随 L3；
+          // L4 合唱不在对唱侧，也不打断交替（L5 的 v2 接着 L3 的 v1 换侧）；L6 同一位主唱不换侧；L7 v1 换侧
+          assert.deepEqual(sides, [true, false, true, 'bg:true', false, false, false, true]);
         }
         // Narrow layout opens from the player bar, wide layout from the button; both fetch once
         await page.locator(width === 390 ? '.player-track' : '.player-lyrics').click();

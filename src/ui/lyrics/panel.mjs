@@ -149,7 +149,7 @@ function spring(stiffness, damping) {
 const SPRINGS = { cover: [200, 30], bounce: [200, 12], edge: [300, 12], thumb: [300, 26] };
 
 /** 一个声部（主唱或和声）转成一行 AMLL 歌词；和声去掉 Apple 写在词里的括号 */
-function amllLine(voice, line, { isBG, translation, pronunciation }) {
+function amllLine(voice, line, { isBG, isDuet, translation, pronunciation }) {
   const tokens = validTokens(voice);
   const clean = (text) => (isBG ? text.replace(/[()]/g, '') : text);
   const text = plainText(voice);
@@ -168,7 +168,7 @@ function amllLine(voice, line, { isBG, translation, pronunciation }) {
   const begin = Math.min(...words.map((w) => w.startTime));
   const end = Math.max(...words.map((w) => w.endTime));
   return {
-    words, startTime: begin, endTime: end, isBG, isDuet: line.agent !== 'v1',
+    words, startTime: begin, endTime: end, isBG, isDuet,
     translatedLyric: translation && voice.translation && !same(voice.translation, text) ? voice.translation : '',
     romanLyric: pronunciation && voice.pronunciation && !same(voice.pronunciation, text) ? voice.pronunciation : '',
   };
@@ -176,10 +176,22 @@ function amllLine(voice, line, { isBG, translation, pronunciation }) {
 
 /** parseTTML 的结果转成 AMLL LyricLine[]，和声紧跟在所属主歌词行后面 */
 export function toAmllLines(song, options) {
+  let lastPersonAgentId = null;
+  let lastPersonIsDuet = false;
   return song.lines.flatMap((line) => {
-    const main = amllLine(line, line, { ...options, isBG: false });
+    const agentId = line.agent || 'v1';
+    const agent = song.agents?.[agentId];
+    let isDuet = false;
+    // 合唱不改变上一位主唱及其显示侧
+    if (agent?.type !== 'group') {
+      if (lastPersonAgentId === null) isDuet = agent?.type === 'other';
+      else isDuet = lastPersonAgentId === agentId ? lastPersonIsDuet : !lastPersonIsDuet;
+      lastPersonAgentId = agentId;
+      lastPersonIsDuet = isDuet;
+    }
+    const main = amllLine(line, line, { ...options, isBG: false, isDuet });
     if (!line.background.tokens.length && !line.background.text) return [main];
-    return [main, amllLine(line.background, line, { ...options, isBG: true })];
+    return [main, amllLine(line.background, line, { ...options, isBG: true, isDuet })];
   });
 }
 
