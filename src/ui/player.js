@@ -26,6 +26,36 @@
   /** 分段加载失败后自动重试的次数（间隔 3、6、12、24、48 秒），之后等用户点「立即重试」 */
   const MAX_RETRIES = 5;
 
+  /**
+   * 失败后的自动重试（MseEngine 与 PcmEngine 共用），状态记在引擎上：failures、retryAt、gaveUp、retryTimer。
+   * 间隔从 3 秒起按连续失败次数翻倍，加 ±20% 抖动，避免故障期间所有客户端同步打过去；
+   * 重试 MAX_RETRIES 次仍失败后停止（gaveUp），等用户点「立即重试」。等待期间引擎不应自行加载（retryAt / gaveUp）
+   */
+  function scheduleRetry(engine, run) {
+    clearTimeout(engine.retryTimer);
+    if (engine.failures >= MAX_RETRIES) {
+      engine.gaveUp = true;
+      return;
+    }
+    const delay = 3000 * 2 ** engine.failures * (0.8 + Math.random() * 0.4);
+    engine.failures++;
+    engine.retryAt = Date.now() + delay;
+    engine.retryTimer = setTimeout(() => {
+      engine.retryAt = null;
+      if (engine.onRetry) engine.onRetry();
+      run();
+    }, delay);
+  }
+
+  /** 成功、手动重试或换曲：清空重试状态 */
+  function resetRetry(engine) {
+    clearTimeout(engine.retryTimer);
+    engine.retryTimer = null;
+    engine.failures = 0;
+    engine.retryAt = null;
+    engine.gaveUp = false;
+  }
+
   /** time 所在 segment 下标 */
   function segmentAt(segments, time) {
     let lo = 0;
@@ -599,10 +629,22 @@
       this.anchorContextTime = this.context.currentTime + 0.03;
       this.loadedUntil = 0;
       this.generation = 0;
+      /** 加载出错后等待恢复（与 MseEngine 相同，见 fail / recovered）；retryMode 为恢复方式：'pump' 接着加载，'seek' 从当前位置重新开始 */
+      this.failed = false;
+      this.failures = 0;
+      this.retryAt = null;
+      this.gaveUp = false;
+      /** 出错后缓冲播完而暂停：恢复后自动继续播放 */
+      this.stalled = false;
       this.timer = setInterval(() => {
         if (!this.paused && this.duration && this.currentTime >= this.duration) {
           this.pause();
           if (this.onEnded) this.onEnded();
+        }
+        // 出错后已排好的缓冲照常播放，播完才停下等待重试，免得时钟跑到音频前面
+        if (!this.paused && this.failed && !this.seeking && this.currentTime >= this.loadedUntil - 0.05) {
+          this.pause();
+          this.stalled = true;
         }
         if (!this.paused) this.pump();
         this.onUpdate();
@@ -633,16 +675,19 @@
     }
 
     async pump(first = false) {
-      if (this.busy || this.failed || !this.playlist || !this.decoder) return;
+      if (this.busy || this.waitingRetry || !this.playlist || !this.decoder) return;
       this.busy = true;
       const gen = this.generation;
       const required = first;
+      let decoding = false;
       try {
         const { segments } = this.playlist;
         while (this.nextIndex < segments.length && (first || segments[this.nextIndex].time < this.currentTime + 12)) {
           const seg = segments[this.nextIndex];
+          decoding = false;
           const encrypted = await this.playlist.load(seg, this.controller.signal);
           if (gen !== this.generation) return;
+          decoding = true;
           const decoded = await this.decoder.decode(encrypted);
           if (gen !== this.generation) return;
           const { channels, rate, samples, chunks } = decoded;
@@ -681,24 +726,88 @@
           this.loadedUntil = Math.max(this.loadedUntil, seg.time + samples / rate);
           this.nextIndex++;
           first = false;
+          this.recovered();
           this.onUpdate();
           if (required) break;
         }
       } catch (error) {
         if (required && gen === this.generation) throw error;
-        if (error.name !== 'AbortError' && gen === this.generation) {
-          this.failed = true;
-          this.pause();
-          this.onError(error);
-        }
+        if (error.name !== 'AbortError' && gen === this.generation) this.failLoading(error, decoding);
       } finally {
         this.busy = false;
       }
     }
 
+    /** 等待自动重试或已停止重试：不自行加载 */
+    get waitingRetry() { return Boolean(this.retryAt || this.gaveUp); }
+
+    /**
+     * 后台加载出错：取分段（含 key）出错时接着加载，已排好的缓冲继续播放；
+     * 解码出错时解码器状态不可靠，停下后从当前位置重新开始
+     */
+    failLoading(error, decoding) {
+      if (!decoding) { this.fail(error, 'pump'); return; }
+      const resume = !this.paused || this.stalled;
+      this.pause();
+      this.fail(error, 'seek', resume);
+    }
+
+    /**
+     * 加载出错：提示后按 MseEngine 的节奏自动重试（scheduleRetry）。mode 为恢复方式：
+     * 'pump'（后台加载分段出错）接着加载，已排好的缓冲继续播放；'seek'（Seek 或解码出错）从 anchorTime 重新开始，
+     * resume 为之后是否继续播放
+     */
+    fail(error, mode, resume = false) {
+      // 已在等待重新开始（如 Worker 报错的同时进行中的加载也失败）：不重复计数
+      if (this.waitingRetry && (this.retryMode === 'seek' || mode === 'pump')) return;
+      if (!this.failed && this.onError) this.onError(error);
+      this.failed = true;
+      this.retryMode = mode;
+      this.retryResume = resume;
+      scheduleRetry(this, () => this.retry());
+      if (this.onRetry) this.onRetry();
+    }
+
+    retry() {
+      if (this.retryMode !== 'seek') { this.pump(); return; }
+      const task = this.seek(this.anchorTime, this.retryResume);
+      if (task) task.catch(() => {});
+    }
+
+    /** 失败后立即重试，并重新计算自动重试次数 */
+    retryNow() {
+      if (!this.failed) return;
+      resetRetry(this);
+      if (this.onRetry) this.onRetry();
+      this.retry();
+    }
+
+    /** 出错后又加载成功：清除错误；因缓冲播完而暂停的继续播放 */
+    recovered() {
+      if (!this.failed) return;
+      this.failed = false;
+      resetRetry(this);
+      if (this.onRecover) this.onRecover();
+      if (this.stalled) this.play().catch(() => {});
+    }
+
     async play() {
       if (this.seeking) { this.resumeAfterSeek = true; return this.seekTask; }
-      this.failed = false;
+      // 出错后用户点播放：立即重试
+      if (this.failed) {
+        if (this.retryMode === 'seek') {
+          this.retryResume = true;
+          this.retryNow();
+          // 结果由 fail / recovered 处理
+          if (this.seekTask) await this.seekTask.catch(() => {});
+          return;
+        }
+        if (this.waitingRetry) {
+          resetRetry(this);
+          if (this.onRetry) this.onRetry();
+        }
+      }
+      this.stalled = false;
       await this.context.resume();
       this.paused = false;
       this.onUpdate();
@@ -706,6 +815,7 @@
     }
 
     pause() {
+      this.stalled = false;
       if (this.seeking) { this.resumeAfterSeek = false; return; }
       if (this.paused) return;
       this.anchorTime = this.currentTime;
@@ -715,12 +825,18 @@
       this.onUpdate();
     }
 
-    seek(time) {
+    /** resume：重试时（retry）指定之后是否继续播放；用户 Seek 时不传，同时作为立即重试 */
+    seek(time, resume) {
       if (!this.playlist) return;
       this.generation++;
       const gen = this.generation;
-      this.failed = false;
-      this.resumeAfterSeek = !this.paused || (this.seeking && this.resumeAfterSeek);
+      if (resume === undefined && this.waitingRetry) {
+        resetRetry(this);
+        if (this.onRetry) this.onRetry();
+      }
+      this.resumeAfterSeek = resume !== undefined ? resume
+        : !this.paused || this.stalled || (this.seeking && this.resumeAfterSeek);
+      this.stalled = false;
       this.seeking = true;
       this.paused = true;
       this.stopNodes();
@@ -744,10 +860,7 @@
           this.pump();
         }
       })().catch((error) => {
-        if (gen === this.generation && error.name !== 'AbortError') {
-          this.failed = true;
-          this.onError(error);
-        }
+        if (gen === this.generation && error.name !== 'AbortError') this.fail(error, 'seek', this.resumeAfterSeek);
         throw error;
       })
         .finally(() => { if (gen === this.generation) { this.seeking = false; this.seekTask = null; } });
@@ -770,6 +883,7 @@
     destroy() {
       this.generation++;
       clearInterval(this.timer);
+      resetRetry(this);
       if (this.controller) this.controller.abort();
       if (this.decoder) this.decoder.destroy();
       for (const node of this.nodes) { try { node.stop(); } catch {} node.disconnect(); }
@@ -939,18 +1053,21 @@
      * 预滚可能整段落在目标之前（没有输出），这时接着解下一段，排上音频才算完成，否则恢复播放后时钟会跑在音频前面
      */
     pump(first = false) {
-      if (this.busy || this.failed || !this.playlist || !this.decoder) return Promise.resolve();
+      if (this.busy || this.waitingRetry || !this.playlist || !this.decoder) return Promise.resolve();
       this.busy = true;
       const gen = this.generation;
       let ready = null;
+      let decoding = false;
       const started = first ? new Promise((resolve, reject) => { ready = { resolve, reject }; }) : null;
       const settle = () => { if (ready) { ready.resolve(); ready = null; } };
       const run = (async () => {
         const { segments } = this.playlist;
         while (this.nextIndex < segments.length && (first || segments[this.nextIndex].time < this.currentTime + 20)) {
           const seg = segments[this.nextIndex];
+          decoding = false;
           const encrypted = await this.playlist.load(seg, this.controller.signal);
           if (gen !== this.generation) return;
+          decoding = true;
           const decoded = await this.decoder.decode(encrypted, (part) => {
             if (gen !== this.generation || !part.samples) return;
             // Seek 后第一批从目标开始（之前的预滚已在 Worker 里丢掉），之后首尾相接
@@ -963,6 +1080,7 @@
           if (gen !== this.generation || decoded.aborted) return;
           this.nextIndex++;
           if (this.cursor !== null) first = false;
+          this.recovered();
           this.onUpdate();
         }
         if (this.nextIndex >= segments.length && !this.finished) {
@@ -980,11 +1098,7 @@
       })().catch((error) => {
         // 第一批之前出错交给调用方（换下一种播放方式或报错），之后的错误在这里报告
         if (ready && gen === this.generation) { ready.reject(error); ready = null; return; }
-        if (error.name !== 'AbortError' && gen === this.generation) {
-          this.failed = true;
-          this.pause();
-          this.onError(error);
-        }
+        if (error.name !== 'AbortError' && gen === this.generation) this.failLoading(error, decoding);
       }).finally(() => {
         this.busy = false;
         settle();
@@ -1078,10 +1192,8 @@
         if (this.scenes.length > 256) this.scenes.splice(0, this.scenes.length - 256);
       } else if (data.event === 'peak') {
         this.checkClip(data.peak);
-      } else if (data.event === 'error' && !this.failed) {
-        this.failed = true;
-        this.pause();
-        this.onError(new Error(data.error));
+      } else if (data.event === 'error' && !this.waitingRetry) {
+        this.failLoading(new Error(data.error), true);
       }
     }
 
@@ -1140,10 +1252,11 @@
      */
     pump(first = false) {
       if (!this.node) return super.pump(first);
-      if (this.busy || this.failed || !this.playlist || !this.decoder) return Promise.resolve();
+      if (this.busy || this.waitingRetry || !this.playlist || !this.decoder) return Promise.resolve();
       this.busy = true;
       const gen = this.generation;
       let ready = null;
+      let decoding = false;
       const started = first ? new Promise((resolve, reject) => { ready = { resolve, reject }; }) : null;
       if (first) {
         // 上一轮还没等到就又 Seek 了：让它结束（它的 Seek 已过时）
@@ -1160,13 +1273,16 @@
         const { segments } = this.playlist;
         while (this.nextIndex < segments.length && segments[this.nextIndex].time < this.currentTime + 20) {
           const seg = segments[this.nextIndex];
+          decoding = false;
           const encrypted = await this.playlist.load(seg, this.controller.signal);
           if (gen !== this.generation) return;
+          decoding = true;
           await this.decoder.decode(encrypted);
           if (gen !== this.generation) return;
           this.nextIndex++;
           const next = segments[this.nextIndex];
           this.loadedUntil = Math.max(this.loadedUntil, next ? next.time : this.duration || 0);
+          this.recovered();
           this.onUpdate();
         }
         if (this.nextIndex >= segments.length && !this.finished) {
@@ -1176,11 +1292,7 @@
       })().catch((error) => {
         // 第一批之前出错交给调用方（换下一种播放方式或报错），之后的错误在这里报告
         if (ready && gen === this.generation) { ready.reject(error); ready = null; return; }
-        if (error.name !== 'AbortError' && gen === this.generation) {
-          this.failed = true;
-          this.pause();
-          this.onError(error);
-        }
+        if (error.name !== 'AbortError' && gen === this.generation) this.failLoading(error, decoding);
       }).finally(() => {
         this.busy = false;
         // 换了一轮（Seek）：旧的等待不会再有 primed
@@ -1645,7 +1757,7 @@
           if (stale()) throw new DOMException('stale seek', 'AbortError');
           track.appendedSegments.add(target);
         }
-        this.failures = 0;
+        resetRetry(this);
         if (this.failed) {
           this.failed = false;
           if (this.onRecover) this.onRecover();
@@ -1653,24 +1765,10 @@
       } catch (err) {
         if (pumpSerial === this.pumpSerial && (!err || err.name !== 'AbortError')) {
           this.busy = false;
-          // 网络中断、wrapper-lite 暂不可用等错误：提示后自动重试，不让缓冲耗尽后一直卡住。
-          // 间隔从 3 秒起按连续失败次数翻倍，加 ±20% 抖动，避免故障期间所有客户端同步打过去；
-          // 重试 MAX_RETRIES 次仍失败后停止，等用户点「立即重试」（retryNow）
+          // 网络中断、wrapper-lite 暂不可用等错误：提示后自动重试（scheduleRetry），不让缓冲耗尽后一直卡住
           if (!this.failed && this.onError) this.onError(err);
           this.failed = true;
-          clearTimeout(this.retryTimer);
-          if (this.failures >= MAX_RETRIES) {
-            this.gaveUp = true;
-          } else {
-            const delay = 3000 * 2 ** this.failures * (0.8 + Math.random() * 0.4);
-            this.failures++;
-            this.retryAt = Date.now() + delay;
-            this.retryTimer = setTimeout(() => {
-              this.retryAt = null;
-              if (this.onRetry) this.onRetry();
-              this.pump(gen);
-            }, delay);
-          }
+          scheduleRetry(this, () => this.pump(gen));
           if (this.onRetry) this.onRetry();
           return;
         }
@@ -1684,10 +1782,7 @@
     /** 失败后立即重试，并重新计算自动重试次数 */
     retryNow() {
       if (!this.failed) return;
-      clearTimeout(this.retryTimer);
-      this.failures = 0;
-      this.retryAt = null;
-      this.gaveUp = false;
+      resetRetry(this);
       if (this.onRetry) this.onRetry();
       this.pump(this.generation);
     }
@@ -1716,9 +1811,7 @@
       this.stallLastTime = null;
       this.busy = false;
       this.failed = false;
-      this.failures = 0;
-      this.retryAt = null;
-      this.gaveUp = false;
+      resetRetry(this);
     }
   }
 
@@ -2928,6 +3021,8 @@
           });
         }
         this.pcm.gain.gain.value = this.volume;
+        this.pcm.onRecover = () => this.showError('');
+        this.pcm.onRetry = () => this.renderError();
         await this.pcm.load(item.m3u8Url);
         if (token !== this.playToken) return;
         this.current.duration = this.pcm.duration;
@@ -3080,27 +3175,28 @@
       const el = this.$('.player-msg');
       const msg = this.errorMsg;
       el.textContent = typeof msg === 'function' ? msg() : (msg || '');
-      // 分段加载失败（MseEngine 自动重试中或已停止）：错误后面显示重试状态与「立即重试」
-      const retrying = !!msg && !this.pcm && this.mse.failed;
+      // 分段加载失败（MseEngine / PcmEngine 自动重试中或已停止）：错误后面显示重试状态与「立即重试」
+      const engine = this.pcm || this.mse;
+      const retrying = !!msg && engine.failed;
       clearInterval(this.retryTick);
       if (retrying) {
         const status = document.createElement('span');
         status.className = 'player-retry-status';
         el.append(' ', status);
         const update = () => {
-          const { retryAt, gaveUp } = this.mse;
+          const { retryAt, gaveUp } = engine;
           status.textContent = gaveUp ? t('player.retryStopped')
             : retryAt ? t('player.retryIn', { s: Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)) })
             : t('player.retrying');
         };
         update();
-        if (this.mse.retryAt) this.retryTick = setInterval(update, 1000);
-        if (this.mse.retryAt || this.mse.gaveUp) {
+        if (engine.retryAt) this.retryTick = setInterval(update, 1000);
+        if (engine.retryAt || engine.gaveUp) {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'player-retry';
           button.textContent = t('player.retryNow');
-          button.addEventListener('click', () => this.mse.retryNow());
+          button.addEventListener('click', () => engine.retryNow());
           el.append(' ', button);
         }
       }
@@ -3110,6 +3206,6 @@
   }
 
   const api = { AmPlayer, Marquee, artistNodes, qualityBadge, qualityIcon, segmentAt, formatTime, detectMode, detectModes, mimeFor, useJocSettings, usePlaybackSettings };
-  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, JocEngine, JocLiveEngine, sortVariants, pickPlayable };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, PcmEngine, JocEngine, JocLiveEngine, sortVariants, pickPlayable };
   else global.AmHook = api;
 })(typeof window !== 'undefined' ? window : globalThis);
