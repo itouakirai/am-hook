@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v0.6.6 (2026-11-04)
+
+### New
+- ✨ The settings center is split into General / Playback / Downloads tabs (the URL hash remembers the tab, and a hash pointing at a section opens its tab)
+- ✨ Separate playback quality for Wi-Fi and cellular: High Efficiency (HE-AAC), High Quality (AAC 256), Lossless (ALAC up to 24/48 kHz) and Hi-Res Lossless (ALAC up to 24/192 kHz), falling back a tier when a song lacks it; a separate Dolby Atmos option (auto / always / off) decides whether Atmos comes first, with auto keeping the old behaviour (preferred while JOC object rendering is on). Changes apply from the next song, and an already prepared gapless next track is re-prepared
+- ✨ "ALAC / AAC volume" (settings → JOC object rendering, -20–0 dB, default 0): Atmos mixes are usually quieter than stereo masters, so moving from an Atmos song to ALAC / AAC no longer jumps in loudness. It attenuates only the `<audio>` element for non-EC-3 tracks, so it never clips, and the volume slider keeps its value
+
+### Fixes
+- 🐛 Dolby Atmos played through EC-3 or JOC object rendering now retries automatically after a segment or key load error (it used to stop until you pressed play), at the same pace as the other playback modes: 3 s doubling, stopping after 5 tries with "Retry now". On a segment or key error the buffered audio keeps playing and playback only waits once it runs out, resuming on recovery; decoder errors and failed seeks restart from the current position
+
+### Changed
+- ⚡ The song master m3u8, MV master and MV `/webplayback` and `/license` requests time out after 15 s instead of 30 s, matching the key and lyrics requests, so errors show sooner
+
 ## v0.6.5 (2026-10-30)
 
 ### New
