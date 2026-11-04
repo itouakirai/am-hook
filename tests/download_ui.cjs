@@ -104,7 +104,19 @@ async function pickTracks(page, indexes) {
       const { page, errors } = await newPage(browser);
       await openPage(page, `${base}/settings`);
       assert.equal(await page.locator('.nav-link[data-nav="settings"]').getAttribute('aria-current'), 'page');
-      for (const id of ['general', 'quality', 'mv', 'save', 'naming', 'tags', 'cover', 'lyrics']) assert.ok(await page.locator(`#${id}`).count(), id);
+      for (const id of ['general', 'playback', 'download', 'play-quality', 'spatial', 'quality', 'mv', 'save', 'naming', 'tags', 'cover', 'lyrics']) assert.ok(await page.locator(`#${id}`).count(), id);
+      // 三个标签页：默认通用；播放页的音质挡位按 Wi-Fi / 移动数据分别保存
+      assert.equal(await page.locator('#general').isVisible(), true);
+      assert.equal(await page.locator('#download').isHidden(), true);
+      await page.click('[data-tab="playback"]');
+      assert.match(page.url(), /#playback$/);
+      await page.click('#play-quality .set-tiers >> nth=1 >> .set-tier.is-efficient');
+      await page.click('#spatial [role="radio"] >> nth=1');
+      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('am-hook:settings')).playback), { wifi: 'hires', cellular: 'efficient', spatial: 'always' });
+      assert.equal(await page.locator('#play-quality .set-tiers >> nth=1 >> [aria-checked="true"]').textContent().then((s) => /HE-AAC/.test(s)), true);
+      // 分组的 hash 打开其所在的标签页
+      await openPage(page, `${base}/settings#naming`);
+      assert.equal(await page.locator('#download').isVisible(), true);
       await page.selectOption('#quality select >> nth=0', 'aac');
       assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('am-hook:settings')).download.codec), 'aac');
       await page.fill('.set-template >> nth=1', '{tracknum:02d}. {title}');

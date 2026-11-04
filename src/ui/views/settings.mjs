@@ -1,7 +1,8 @@
-// 设置中心（/settings），由 app.mjs 挂载。通用设置（主地区、曲库语言、界面语言、wrapper-lite）沿用导航底部的选择面板；
-// JOC 对象渲染（Dolby Atmos 的播放方式）与下载设置（音质、MV、保存方式、文件名、标签、封面、歌词）保存在 prefs.mjs，
-// 修改立即生效（正在播放的曲目随之切换，见 player.js 的 jocChanged；进行中的下载沿用开始时的设置）。
-import { prefs, OPTIONS, CODEC_GROUPS, TAG_FIELDS, TAG_NAME, DEFAULTS, DEFAULT_FALLBACK } from '../prefs.mjs';
+// 设置中心（/settings），由 app.mjs 挂载，分通用、播放、下载三个标签页（地址的 hash 记住当前页，也可直接指向某个分组）。
+// 通用（主地区、曲库语言、界面语言、wrapper-lite、media-user-token）沿用导航底部的选择面板；
+// 播放（按 Wi-Fi / 移动数据分别选的音质、全景声优先、JOC 对象渲染、音量）与下载（音质、MV、保存方式、文件名、标签、封面、歌词）
+// 保存在 prefs.mjs，修改立即生效（播放音质从下一首起，JOC 的方式正在播放的曲目随之切换，见 player.js；进行中的下载沿用开始时的设置）。
+import { prefs, OPTIONS, CODEC_GROUPS, TAG_FIELDS, TAG_NAME, DEFAULTS, DEFAULT_FALLBACK, playbackFor, onNetworkChange } from '../prefs.mjs';
 import { formatPath, fitFolder, fitFile, templateIssues, TEMPLATE_VAR_GROUPS, TEMPLATE_SCOPES } from '../naming.mjs';
 import { downloads } from '../downloads.mjs';
 import { userToken, askToken, onTokenChange } from '../station.mjs';
@@ -18,6 +19,11 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
+const ICON_WIFI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.8 16a4.8 4.8 0 0 1 6.4 0"/><circle cx="12" cy="19.3" r="1" fill="currentColor"/></svg>';
+const ICON_CELLULAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 20v-3M9.3 20v-6M14.6 20v-9.5M20 20V4"/></svg>';
+/** 三个标签页，及各页的分组 id（地址的 hash 指向分组时打开其所在的页） */
+const TABS = ['general', 'playback', 'download'];
+
 /** 文件名模板的预览：一首虚构的歌 */
 const SAMPLE = {
   title: 'Blank Space', artist: 'Taylor Swift', album: "1989 (Taylor's Version)", album_artist: 'Taylor Swift',
@@ -30,7 +36,7 @@ const SAMPLE = {
 
 export function mount({ root, signal, onLangChange, toast }) {
   document.title = `${t('set.title')} · am-hook`;
-  const host = root.querySelector('#download');
+  const host = root.querySelector('#download-body');
   /** 控件：每项设置变化后刷新显示（正在输入的文本框除外） */
   const controls = [];
   let openVars = null;
@@ -234,23 +240,90 @@ export function mount({ root, signal, onLangChange, toast }) {
     return el('section', { className: 'set-group', id }, el('h2', { className: 'set-group-title', textContent: t(titleKey) }), el('div', { className: 'set-card' }, ...rows));
   }
 
-  /* ---------- JOC 对象渲染：prefs 的 joc 分组，正在播放的 E-AC-3 曲目随之切换（app.mjs） ---------- */
+  /* ---------- 播放：prefs 的 playback（音质、全景声优先）与 joc（对象渲染、音量）分组，修改立即生效（app.mjs） ---------- */
   const playback = root.querySelector('#playback');
-  const jocControls = [];
+  const playControls = [];
+  const setPlay = (patch) => prefs.set('playback', patch);
   const setJoc = (patch) => prefs.set('joc', patch);
+  let playResetArmed = false;
 
-  function renderJoc() {
-    jocControls.length = 0;
-    const mode = el('div', { className: 'set-segmented', role: 'radiogroup' });
-    mode.setAttribute('aria-label', t('set.jocMode'));
-    const modes = OPTIONS.joc.mode.map((value) => {
-      const b = el('button', { type: 'button', className: 'set-segment', textContent: t(`set.joc.${value}`) });
+  /** 单选按钮组（分段样式）：options 为 [value, label]，onPick(value)；返回 [节点, 同步函数] */
+  function radios(label, options, onPick) {
+    const group = el('div', { className: 'set-segmented', role: 'radiogroup' });
+    group.setAttribute('aria-label', label);
+    const buttons = options.map(([value, text]) => {
+      const b = el('button', { type: 'button', className: 'set-segment', textContent: text });
       b.setAttribute('role', 'radio');
-      b.addEventListener('click', () => setJoc({ mode: value }));
-      mode.append(b);
+      b.addEventListener('click', () => onPick(value));
+      group.append(b);
       return [value, b];
     });
-    jocControls.push((v) => { for (const [value, b] of modes) b.setAttribute('aria-checked', String(v.mode === value)); });
+    return [group, (current) => { for (const [value, b] of buttons) b.setAttribute('aria-checked', String(current === value)); }];
+  }
+
+  /** 音质卡片：四个挡位，每个写明格式与每分钟大约的流量 */
+  function qualityPicker(key, label) {
+    const group = el('div', { className: 'set-tiers', role: 'radiogroup' });
+    group.setAttribute('aria-label', label);
+    const cards = OPTIONS.playback.quality.map((tier) => {
+      const b = el('button', { type: 'button', className: `set-tier is-${tier}` },
+        el('span', { className: 'set-tier-name', textContent: t(`set.tier.${tier}`) }),
+        el('span', { className: 'set-tier-spec', textContent: t(`set.tier.${tier}Spec`) }),
+        el('span', { className: 'set-tier-data', textContent: t(`set.tier.${tier}Data`) }));
+      b.setAttribute('role', 'radio');
+      b.addEventListener('click', () => setPlay({ [key]: tier }));
+      group.append(b);
+      return [tier, b];
+    });
+    playControls.push(({ play }) => { for (const [tier, b] of cards) b.setAttribute('aria-checked', String(play[key] === tier)); });
+    return group;
+  }
+
+  function dbInput(label, min, field) {
+    const input = el('input', { type: 'number', className: 'set-input set-number', min, max: 0, step: 1 });
+    input.setAttribute('aria-label', label);
+    input.addEventListener('change', () => {
+      const n = Math.round(Number(input.value));
+      if (Number.isFinite(n)) setJoc({ [field]: Math.min(0, Math.max(min, n)) });
+      input.value = String(prefs.get('joc')[field]);
+    });
+    playControls.push(({ joc }) => { if (document.activeElement !== input) input.value = String(joc[field]); });
+    return el('div', { className: 'set-unit-box' }, input, el('span', { className: 'set-unit', textContent: 'dB' }));
+  }
+
+  function renderPlayback() {
+    playControls.length = 0;
+
+    // 音质：Wi-Fi 与移动数据分别设置，标出当前网络用的是哪一个
+    const networkNote = el('div', { className: 'set-network' });
+    const networkRow = (kind, icon) => {
+      const badge = el('span', { className: 'set-badge', textContent: t('set.networkNow') });
+      const node = row(t(`set.net.${kind}`), t(`set.net.${kind}Desc`), qualityPicker(kind, t(`set.net.${kind}`)), { wide: true });
+      node.querySelector('.set-label > span').prepend(el('span', { className: 'set-net-icon', innerHTML: icon, ariaHidden: 'true' }));
+      node.querySelector('.set-label > span').append(badge);
+      playControls.push(({ live }) => { badge.hidden = (live.network === 'cellular' ? 'cellular' : 'wifi') !== kind; });
+      return node;
+    };
+    playControls.push(({ live }) => {
+      networkNote.textContent = t(live.network ? 'set.networkDetected' : 'set.networkUnknown', { name: t(`set.net.${live.network || 'wifi'}`) });
+    });
+    const quality = section('play-quality', 'set.playQuality',
+      networkRow('wifi', ICON_WIFI),
+      networkRow('cellular', ICON_CELLULAR),
+      el('div', { className: 'set-row set-row-note' }, networkNote, el('span', { className: 'set-desc', textContent: t('set.playQualityNote') })));
+
+    // 空间音频：全景声是否优先，以及 E-AC-3 的渲染方式（JOC）
+    const [spatial, syncSpatial] = radios(t('set.spatial'), OPTIONS.playback.spatial.map((v) => [v, t(`set.spatial.${v}`)]), (v) => setPlay({ spatial: v }));
+    const spatialRow = row(t('set.spatial'), '', spatial);
+    const spatialDesc = spatialRow.querySelector('.set-label').appendChild(el('span', { className: 'set-desc' }));
+    playControls.push(({ play, live, joc }) => {
+      syncSpatial(play.spatial);
+      const key = play.spatial === 'auto' ? (joc.mode !== 'off' ? 'autoOn' : 'autoOff') : play.spatial;
+      spatialDesc.textContent = t(`set.spatialDesc.${key}`) + (live.quality === 'efficient' && play.spatial !== 'off' ? ` ${t('set.spatialEfficient')}` : '');
+    });
+
+    const [mode, syncMode] = radios(t('set.jocMode'), OPTIONS.joc.mode.map((v) => [v, t(`set.joc.${v}`)]), (v) => setJoc({ mode: v }));
+    playControls.push(({ joc }) => syncMode(joc.mode));
 
     // HRTF：SADIE II 数据库的 20 位受试者，网站上有每位的头型与耳型照片
     const dataset = el('select', { className: 'set-select' }, ...OPTIONS.joc.dataset.map((name) => el('option', { value: name, textContent: name })));
@@ -260,41 +333,43 @@ export function mount({ root, signal, onLangChange, toast }) {
     datasetRow.querySelector('.set-desc').append(' ', el('a', {
       href: 'https://www.york.ac.uk/sadie-project/database.html', target: '_blank', rel: 'noopener noreferrer', textContent: t('set.jocDatasetLink'),
     }));
-    jocControls.push((v) => { dataset.value = v.dataset; datasetRow.hidden = v.mode !== 'binaural'; });
-
-    const gain = el('input', { type: 'number', className: 'set-input set-number', min: -60, max: 0, step: 1 });
-    gain.setAttribute('aria-label', t('set.jocGain'));
-    gain.addEventListener('change', () => {
-      const n = Math.round(Number(gain.value));
-      if (Number.isFinite(n)) setJoc({ gain: Math.min(0, Math.max(-60, n)) });
-      gain.value = String(prefs.get('joc').gain);
+    const gainRow = row(t('set.jocGain'), t('set.jocGainDesc'), dbInput(t('set.jocGain'), -60, 'gain'));
+    playControls.push(({ joc }) => {
+      dataset.value = joc.dataset;
+      datasetRow.hidden = joc.mode !== 'binaural';
+      gainRow.hidden = joc.mode === 'off';
     });
-    const gainRow = row(t('set.jocGain'), t('set.jocGainDesc'), el('div', { className: 'set-unit-box' }, gain, el('span', { className: 'set-unit', textContent: 'dB' })));
-    jocControls.push((v) => {
-      if (document.activeElement !== gain) gain.value = String(v.gain);
-      gainRow.hidden = v.mode === 'off';
-    });
+    const spatialSection = section('spatial', 'set.spatialSection',
+      spatialRow, row(t('set.joc'), t('set.jocModeDesc'), mode, { wide: true }), datasetRow, gainRow);
 
     // ALAC / AAC 的音量补偿：与 JOC 开关无关（浏览器自己解码的全景声同样比立体声母带小声）
-    const stereoGain = el('input', { type: 'number', className: 'set-input set-number', min: -20, max: 0, step: 1 });
-    stereoGain.setAttribute('aria-label', t('set.stereoGain'));
-    stereoGain.addEventListener('change', () => {
-      const n = Math.round(Number(stereoGain.value));
-      if (Number.isFinite(n)) setJoc({ stereoGain: Math.min(0, Math.max(-20, n)) });
-      stereoGain.value = String(prefs.get('joc').stereoGain);
+    const volume = section('volume', 'set.volume',
+      row(t('set.stereoGain'), t('set.stereoGainDesc'), dbInput(t('set.stereoGain'), -20, 'stereoGain')));
+
+    const reset = el('button', { type: 'button', className: 'set-btn set-btn-danger', textContent: t('set.playReset') });
+    reset.addEventListener('click', () => {
+      if (!playResetArmed) {
+        playResetArmed = true;
+        reset.textContent = t('set.resetConfirm');
+        setTimeout(() => { playResetArmed = false; if (reset.isConnected) reset.textContent = t('set.playReset'); }, 4000);
+        return;
+      }
+      playResetArmed = false;
+      prefs.reset('playback');
+      prefs.reset('joc');
+      toast(t('set.resetDone'));
     });
-    const stereoGainRow = row(t('set.stereoGain'), t('set.stereoGainDesc'), el('div', { className: 'set-unit-box' }, stereoGain, el('span', { className: 'set-unit', textContent: 'dB' })));
-    jocControls.push((v) => { if (document.activeElement !== stereoGain) stereoGain.value = String(v.stereoGain); });
 
-    playback.replaceChildren(section('joc', 'set.joc',
-      row(t('set.jocMode'), t('set.jocModeDesc'), mode, { wide: true }), datasetRow, gainRow, stereoGainRow));
-    syncJoc();
+    playback.replaceChildren(quality, spatialSection, volume, el('div', { className: 'set-footer' }, reset));
+    syncPlayback();
   }
 
-  function syncJoc() {
-    const v = prefs.get('joc');
-    for (const fn of jocControls) fn(v);
+  function syncPlayback() {
+    const play = prefs.get('playback');
+    const state = { play, joc: prefs.get('joc'), live: playbackFor(play) };
+    for (const fn of playControls) fn(state);
   }
+  signal.addEventListener('abort', onNetworkChange(syncPlayback), { once: true });
 
   /* ---------- 各分组 ---------- */
   function render() {
@@ -426,16 +501,13 @@ export function mount({ root, signal, onLangChange, toast }) {
     center.hidden = !downloads.jobs.length;
     const footer = el('div', { className: 'set-footer' }, center, reset);
 
-    host.replaceChildren(
-      el('h2', { className: 'set-part-title', textContent: t('set.download') }),
-      el('p', { className: 'set-part-desc', textContent: t('set.downloadDesc') }),
-      quality, mv, performance, save, naming, tags, cover, lyrics, footer);
+    host.replaceChildren(quality, mv, performance, save, naming, tags, cover, lyrics, footer);
 
-    // 目录
-    const groups = [['general', 'set.general'], ['joc', 'set.joc'], ['quality', 'set.quality'], ['mv', 'set.mvSection'], ['save', 'set.save'], ['naming', 'set.naming'], ['tags', 'set.tags'], ['cover', 'set.cover'], ['lyrics', 'set.lyrics']];
+    // 下载页的分组目录
+    const groups = [['quality', 'set.quality'], ['mv', 'set.mvSection'], ['performance', 'set.performance'], ['save', 'set.save'], ['naming', 'set.naming'], ['tags', 'set.tags'], ['cover', 'set.cover'], ['lyrics', 'set.lyrics']];
     root.querySelector('#toc').replaceChildren(...groups.map(([id, key]) => {
       const a = el('a', { href: `#${id}`, className: 'set-toc-link', textContent: t(key) });
-      a.addEventListener('click', (e) => { e.preventDefault(); root.querySelector(`#${id}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+      a.addEventListener('click', (e) => { e.preventDefault(); showTab('download', id); });
       return a;
     }));
     sync();
@@ -446,9 +518,48 @@ export function mount({ root, signal, onLangChange, toast }) {
     for (const fn of controls) fn(v);
   }
 
+  /* ---------- 标签页：hash 为标签页或分组的 id；切换时只改 hash（replaceState，不进历史记录） ---------- */
+  const tabs = [...root.querySelectorAll('[data-tab]')];
+  function showTab(name, focusId = null, { scroll = true } = {}) {
+    for (const tab of tabs) {
+      const on = tab.dataset.tab === name;
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      root.querySelector(`#${tab.dataset.tab}`).hidden = !on;
+    }
+    const hash = `#${focusId || name}`;
+    if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
+    if (!scroll) return;
+    const target = focusId && root.querySelector(`#${CSS.escape(focusId)}`);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else window.scrollTo({ top: 0 });
+  }
+  /** hash 对应的 [标签页, 分组 id]；不认识的 hash 打开通用页 */
+  function fromHash() {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (TABS.includes(id)) return [id, null];
+    const target = id && /^[\w-]+$/.test(id) && root.querySelector(`#${id}`);
+    const panel = target && target.closest('.set-panel');
+    return panel ? [panel.id, id] : ['general', null];
+  }
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    // 方向键在标签之间移动（WAI-ARIA 标签页的键盘操作）
+    tab.addEventListener('keydown', (e) => {
+      const i = tabs.indexOf(tab);
+      const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (next === undefined) return;
+      e.preventDefault();
+      const target = tabs[(next + tabs.length) % tabs.length];
+      target.focus();
+      showTab(target.dataset.tab);
+    });
+  }
+  addEventListener('hashchange', () => { const [tab, id] = fromHash(); showTab(tab, id); }, { signal });
+
   const off = prefs.onChange((section) => {
     if (section === 'download') sync();
-    if (section === 'joc') syncJoc();
+    if (section === 'joc' || section === 'playback') syncPlayback();
   });
   signal.addEventListener('abort', off, { once: true });
   const offDl = downloads.onChange(() => {
@@ -456,7 +567,11 @@ export function mount({ root, signal, onLangChange, toast }) {
     if (center) center.hidden = !downloads.jobs.length;
   });
   signal.addEventListener('abort', offDl, { once: true });
-  onLangChange(() => { document.title = `${t('set.title')} · am-hook`; renderJoc(); render(); });
-  renderJoc();
+  onLangChange(() => { document.title = `${t('set.title')} · am-hook`; renderPlayback(); render(); });
+  renderPlayback();
   render();
+  {
+    const [tab, id] = fromHash();
+    showTab(tab, id, { scroll: !!id });
+  }
 }

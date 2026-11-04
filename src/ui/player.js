@@ -113,14 +113,64 @@
     return node;
   }
 
-  /* ---------- 播放队列的曲目：逐首解析 master，选浏览器能播放的最高音质 ---------- */
+  /**
+   * 播放音质的设置（设置中心「播放」，prefs.mjs 的 playbackFor）：{ quality: efficient / high / lossless / hires, spatial: auto / always / off }，
+   * quality 已按当前网络（Wi-Fi / 移动数据）取好。app.mjs 用 usePlaybackSettings 接上；没有接上时（如 Node 测试）为最高音质、自动
+   */
+  const PLAYBACK_DEFAULT = { quality: 'hires', spatial: 'auto' };
+  let playbackStore = null;
+  function usePlaybackSettings(store) { playbackStore = store; }
+  function playbackSettings() { return playbackStore ? playbackStore.get() : PLAYBACK_DEFAULT; }
+
+  /** 队列是否优先选杜比全景声：始终，或自动（开启 JOC 对象渲染时）；「高效」音质下不选（码率是 HE-AAC 的十倍以上） */
+  function preferAtmos(settings = playbackSettings()) {
+    if (settings.quality === 'efficient' || settings.spatial === 'off') return false;
+    return settings.spatial === 'always' || jocSettings().mode !== 'off';
+  }
+
+  /* ---------- 播放队列的曲目：逐首解析 master，按播放音质设置选浏览器能播放的变体 ---------- */
   function rankVariant(v) {
     const g = v.group_id.toLowerCase();
-    // 开启 JOC 对象渲染时全景声排在 ALAC 前面：队列播放选它，否则只有手动换音质时才用得上
-    const atmosFirst = jocSettings().mode !== 'off';
+    // 优先全景声时排在 ALAC 前面（音质详情的列表顺序与队列的最后退路）
+    const atmosFirst = preferAtmos();
     if (g.includes('alac')) return atmosFirst ? 1 : 0;
     if (g.includes('atmos')) return atmosFirst ? 0 : 1;
     return g.includes('he-') ? 3 : 2;
+  }
+
+  /** 变体的种类：alac / atmos / aac（AAC-LC 立体声）/ he（HE-AAC 立体声）/ other（双耳、缩混等） */
+  function variantKind(v) {
+    const g = v.group_id.toLowerCase();
+    if (g.includes('alac')) return 'alac';
+    if (g.includes('atmos') && !g.includes('downmix')) return 'atmos';
+    if (g.includes('binaural') || g.includes('downmix')) return 'other';
+    return g.includes('he-') ? 'he' : 'aac';
+  }
+
+  function sampleRate(v) {
+    return v.sample_rate || Number((v.group_id.match(/alac-stereo-(\d+)/i) || [])[1]) || 0;
+  }
+
+  /** 各播放音质依次尝试的种类（alac 带采样率上限）；都没有时退到 sortVariants 的顺序 */
+  const QUALITY_STEPS = {
+    hires: [['alac', 192000], ['aac'], ['he']],
+    lossless: [['alac', 48000], ['aac'], ['he']],
+    high: [['aac'], ['he'], ['alac', 48000]],
+    efficient: [['he'], ['aac'], ['alac', 48000]],
+  };
+
+  /** 按播放音质设置从 master 的变体中选浏览器能播放的一个；没有可播放的返回 undefined */
+  function pickPlayable(variants, settings = playbackSettings()) {
+    const playable = variants.filter((v) => detectMode(v.codecs));
+    const steps = [...(preferAtmos(settings) ? [['atmos']] : []), ...(QUALITY_STEPS[settings.quality] || QUALITY_STEPS.hires)];
+    for (const [kind, maxRate] of steps) {
+      const list = playable.filter((v) => variantKind(v) === kind && (!maxRate || sampleRate(v) <= maxRate));
+      if (!list.length) continue;
+      // 同类取最高：ALAC 按采样率与位深，其余按码率
+      const rank = (v) => (kind === 'alac' ? sampleRate(v) * 100 + (v.bit_depth || 0) : v.bandwidth || 0);
+      return list.reduce((best, v) => (rank(v) > rank(best) ? v : best));
+    }
+    return sortVariants(playable)[0];
   }
 
   function variantLabel(v) {
@@ -331,7 +381,7 @@
 
   async function resolveEntry(entry) {
     const { variants } = await global.AmWrapper.songMaster(entry.track);
-    const best = sortVariants(variants).find((v) => detectMode(v.codecs));
+    const best = pickPlayable(variants);
     if (!best) throw Object.assign(new Error(t('album.noPlayable', { name: entry.name })), { noPlayable: true });
     return {
       ...variantItem(entry.track, best),
@@ -2001,6 +2051,16 @@
       this.renderMode();
     }
 
+    /**
+     * 播放音质的设置或网络（Wi-Fi / 移动数据）变了（app.mjs）：当前曲目照常播完，从下一首起按新设置选音质；
+     * 已经为接续准备好的下一首按新设置重新准备
+     */
+    playbackChanged() {
+      if (!this.nextEntry) return;
+      this.nextEntry = null;
+      this.prepareNext();
+    }
+
     /** 按当前设置重新选择播放方式，从当前位置继续播放当前曲目 */
     replay() {
       this.jocStale = false;
@@ -3049,7 +3109,7 @@
     }
   }
 
-  const api = { AmPlayer, Marquee, artistNodes, qualityBadge, qualityIcon, segmentAt, formatTime, detectMode, detectModes, mimeFor, useJocSettings };
-  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, JocEngine, JocLiveEngine, sortVariants };
+  const api = { AmPlayer, Marquee, artistNodes, qualityBadge, qualityIcon, segmentAt, formatTime, detectMode, detectModes, mimeFor, useJocSettings, usePlaybackSettings };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, JocEngine, JocLiveEngine, sortVariants, pickPlayable };
   else global.AmHook = api;
 })(typeof window !== 'undefined' ? window : globalThis);

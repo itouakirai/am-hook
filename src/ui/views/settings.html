@@ -1,42 +1,68 @@
 <div class="page set-page">
   <main>
-    <!-- 设置中心（侧边栏「排行榜」下方的「设置」）：通用设置沿用导航底部的选择面板；JOC 对象渲染与下载设置由 settings.mjs 按 prefs.mjs 渲染 -->
+    <!-- 设置中心（侧边栏「排行榜」下方的「设置」）：通用 / 播放 / 下载三个标签页（地址的 #general、#playback、#download，
+         或其中某个分组的 id，如 #naming）。通用设置沿用导航底部的选择面板；播放与下载由 settings.mjs 按 prefs.mjs 渲染 -->
     <header class="set-head">
       <h1 class="set-title" data-i18n="set.title"></h1>
       <p class="set-intro" data-i18n="set.intro"></p>
     </header>
-    <nav class="set-toc" id="toc" data-i18n-attr="aria-label=set.toc"></nav>
+    <div class="set-tabs" role="tablist" data-i18n-attr="aria-label=set.toc">
+      <button class="set-tab" type="button" role="tab" id="tab-general" data-tab="general" aria-controls="general">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        <span data-i18n="set.general"></span>
+      </button>
+      <button class="set-tab" type="button" role="tab" id="tab-playback" data-tab="playback" aria-controls="playback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="5" height="7" rx="2"/><rect x="16" y="14" width="5" height="7" rx="2"/></svg>
+        <span data-i18n="set.playback"></span>
+      </button>
+      <button class="set-tab" type="button" role="tab" id="tab-download" data-tab="download" aria-controls="download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        <span data-i18n="set.download"></span>
+      </button>
+    </div>
 
-    <section class="set-group" id="general">
-      <h2 class="set-group-title" data-i18n="set.general"></h2>
-      <div class="set-card">
-        <!-- 与导航底部相同的按钮：点击打开同一个选择面板（settings.mjs 按 data-picker 委托处理） -->
-        <button class="set-row set-link" type="button" data-picker="storefront" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
-          <span class="set-label"><span data-i18n="settings.storefront"></span><span class="set-desc" data-i18n="set.storefrontDesc"></span></span>
-          <span class="set-value" data-setting-value="storefront"></span>
-        </button>
-        <button class="set-row set-link" type="button" data-picker="ampLang" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
-          <span class="set-label"><span data-i18n="settings.ampLang"></span><span class="set-desc" data-i18n="set.ampLangDesc"></span></span>
-          <span class="set-value" data-setting-value="ampLang"></span>
-        </button>
-        <button class="set-row set-link" type="button" data-lang-toggle>
-          <span class="set-label"><span data-i18n="lang.caption"></span></span>
-          <span class="set-value lang-label"></span>
-        </button>
-        <button class="set-row set-link" type="button" data-picker="wrapper" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
-          <span class="set-label"><span data-i18n="settings.wrapper"></span><span class="set-desc" data-i18n="set.wrapperDesc"></span></span>
-          <span class="set-value" data-setting-value="wrapper"></span>
-        </button>
-        <!-- 电台用的 media-user-token（station.mjs，只保存在本浏览器） -->
-        <button class="set-row set-link" type="button" id="user-token">
-          <span class="set-label"><span>media-user-token</span><span class="set-desc" data-i18n="set.tokenDesc"></span></span>
-          <span class="set-value" id="user-token-value"></span>
-        </button>
-      </div>
-    </section>
+    <div class="set-panel" id="general" role="tabpanel" aria-labelledby="tab-general">
+      <section class="set-group" id="region">
+        <h2 class="set-group-title" data-i18n="set.region"></h2>
+        <div class="set-card">
+          <!-- 与导航底部相同的按钮：点击打开同一个选择面板（settings.mjs 按 data-picker 委托处理） -->
+          <button class="set-row set-link" type="button" data-picker="storefront" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+            <span class="set-label"><span data-i18n="settings.storefront"></span><span class="set-desc" data-i18n="set.storefrontDesc"></span></span>
+            <span class="set-value" data-setting-value="storefront"></span>
+          </button>
+          <button class="set-row set-link" type="button" data-picker="ampLang" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+            <span class="set-label"><span data-i18n="settings.ampLang"></span><span class="set-desc" data-i18n="set.ampLangDesc"></span></span>
+            <span class="set-value" data-setting-value="ampLang"></span>
+          </button>
+          <button class="set-row set-link" type="button" data-lang-toggle>
+            <span class="set-label"><span data-i18n="lang.caption"></span><span class="set-desc" data-i18n="set.uiLangDesc"></span></span>
+            <span class="set-value lang-label"></span>
+          </button>
+        </div>
+      </section>
+      <section class="set-group" id="connection">
+        <h2 class="set-group-title" data-i18n="set.connection"></h2>
+        <div class="set-card">
+          <button class="set-row set-link" type="button" data-picker="wrapper" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+            <span class="set-label"><span data-i18n="settings.wrapper"></span><span class="set-desc" data-i18n="set.wrapperDesc"></span></span>
+            <span class="set-value" data-setting-value="wrapper"></span>
+          </button>
+          <!-- 电台用的 media-user-token（station.mjs，只保存在本浏览器） -->
+          <button class="set-row set-link" type="button" id="user-token">
+            <span class="set-label"><span>media-user-token</span><span class="set-desc" data-i18n="set.tokenDesc"></span></span>
+            <span class="set-value" id="user-token-value"></span>
+          </button>
+        </div>
+      </section>
+    </div>
 
-    <!-- JOC 对象渲染（E-AC-3 Dolby Atmos 的播放方式），settings.mjs 按 prefs.mjs 的 joc 分组渲染 -->
-    <div id="playback"></div>
-    <div id="download"></div>
+    <!-- 播放：音质（Wi-Fi / 移动数据）、空间音频（全景声优先与 JOC 对象渲染）、音量 -->
+    <div class="set-panel" id="playback" role="tabpanel" aria-labelledby="tab-playback" hidden></div>
+    <!-- 下载：分组目录 + 各分组 -->
+    <div class="set-panel" id="download" role="tabpanel" aria-labelledby="tab-download" hidden>
+      <p class="set-part-desc" data-i18n="set.downloadDesc"></p>
+      <nav class="set-toc" id="toc" data-i18n-attr="aria-label=set.toc"></nav>
+      <div id="download-body"></div>
+    </div>
   </main>
 </div>

@@ -1,4 +1,5 @@
-// 设置中心（/settings，views/settings.mjs）的存储：下载设置（download）与 JOC 对象渲染（joc）等。
+// 设置中心（/settings，views/settings.mjs）的存储：播放（playback：按网络选择的播放音质、杜比全景声优先）、
+// JOC 对象渲染（joc）与下载设置（download）。
 // 保存在 localStorage（不会过期），同一浏览器的其他标签页修改后自动同步。
 //
 //   prefs.get(section)          该分组的当前设置（已合并默认值、校验过的副本）
@@ -86,7 +87,39 @@ export function pickVariant(variants, options) {
   return null;
 }
 
+/* ---------- 播放音质（player.js 的 pickPlayable 按此选队列中每首歌的音质） ---------- */
+/**
+ * 当前网络：'cellular'（移动数据，或浏览器开启了省流量 Save-Data）/ 'wifi'（Wi-Fi、有线等）/ null（浏览器不提供，
+ * 如桌面版 Chrome 与 Safari，按 Wi-Fi 处理）。来自 Network Information API 的 navigator.connection
+ */
+export function networkKind() {
+  const c = globalThis.navigator && navigator.connection;
+  if (!c) return null;
+  if (c.type === 'cellular' || c.saveData) return 'cellular';
+  return c.type && c.type !== 'unknown' ? 'wifi' : null;
+}
+
+/** 网络变化后回调 fn（只在支持 navigator.connection 的浏览器上触发），返回取消订阅的函数 */
+export function onNetworkChange(fn) {
+  const c = globalThis.navigator && navigator.connection;
+  if (!c || !c.addEventListener) return () => {};
+  c.addEventListener('change', fn);
+  return () => c.removeEventListener('change', fn);
+}
+
+/** 按当前网络生效的播放设置：{ quality, spatial, network } */
+export function playbackFor(value = state.playback) {
+  const network = networkKind();
+  return { quality: network === 'cellular' ? value.cellular : value.wifi, spatial: value.spatial, network };
+}
+
 export const OPTIONS = {
+  // 播放音质：efficient = HE-AAC，high = AAC 256 kbps，lossless = ALAC 最高 24-bit / 48 kHz，hires = ALAC 最高 24-bit / 192 kHz
+  // spatial：杜比全景声是否优先于上面的音质（auto：开启 JOC 对象渲染时优先；always；off：只在手动换音质时使用）
+  playback: {
+    quality: ['efficient', 'high', 'lossless', 'hires'],
+    spatial: ['auto', 'always', 'off'],
+  },
   download: {
     // 首选音质；没有时按 fallback 降级
     codec: CODEC_GROUPS.flatMap(([, list]) => list),
@@ -108,6 +141,11 @@ export const OPTIONS = {
 };
 
 export const DEFAULTS = {
+  playback: {
+    wifi: 'hires',
+    cellular: 'high',
+    spatial: 'auto',
+  },
   download: {
     codec: 'alac',
     alacMax: 192000,
@@ -199,6 +237,14 @@ function cleanOrder(raw) {
 function clean(section, raw) {
   const d = DEFAULTS[section];
   const r = raw && typeof raw === 'object' ? raw : {};
+  if (section === 'playback') {
+    const o = OPTIONS.playback;
+    return {
+      wifi: oneOf(r.wifi, o.quality, d.wifi),
+      cellular: oneOf(r.cellular, o.quality, d.cellular),
+      spatial: oneOf(r.spatial, o.spatial, d.spatial),
+    };
+  }
   if (section === 'joc') {
     return {
       mode: oneOf(r.mode, OPTIONS.joc.mode, d.mode),

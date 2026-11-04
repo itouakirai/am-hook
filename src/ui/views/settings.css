@@ -4,7 +4,24 @@
 .set-title { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
 .set-intro { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
-.set-toc { position: sticky; top: 0; z-index: 2; display: flex; gap: 6px; margin: 0 -4px 10px; padding: 10px 4px; overflow-x: auto; scrollbar-width: none; background: var(--bg); }
+/* 三个标签页：通用 / 播放 / 下载，吸顶 */
+.set-tabs {
+  position: sticky; top: 0; z-index: 3; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
+  margin: 0 0 6px; padding: 3px; border-radius: 12px; background: var(--surface-3);
+  box-shadow: 0 0 0 8px var(--bg);
+}
+.set-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px;
+  border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.set-tab svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.set-tab:hover { color: var(--text); }
+.set-tab[aria-selected="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
+.set-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.set-panel[hidden] { display: none; }
+.set-panel > .set-part-desc { margin-top: 18px; }
+
+.set-toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .set-toc-link {
   flex: 0 0 auto; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px;
   color: var(--text); font-size: 13px; text-decoration: none; white-space: nowrap;
@@ -86,6 +103,32 @@
 .set-chain-empty { padding: 4px 2px; color: var(--muted); font-size: 12px; }
 .set-chain-add { min-width: 0; height: 28px; }
 
+/* 播放音质：四个挡位的卡片 */
+.set-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.set-tier {
+  position: relative; display: grid; align-content: start; gap: 3px; min-height: 74px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.set-tier:hover { border-color: var(--line-strong); }
+.set-tier:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-tier[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 0 0 0 1px var(--accent); }
+.set-tier[aria-checked="true"]::after {
+  content: ""; position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+}
+.set-tier-name { padding-right: 14px; font-size: 14px; font-weight: 600; }
+.set-tier-spec { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.set-tier-data { margin-top: 2px; color: var(--faint); font-size: 11.5px; }
+.set-net-icon { display: inline-flex; width: 16px; height: 16px; margin-right: 7px; vertical-align: -2px; color: var(--muted); }
+.set-net-icon svg { width: 100%; height: 100%; }
+.set-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
+  background: var(--accent); color: #fff; font-size: 11px; font-weight: 600;
+}
+.set-badge[hidden] { display: none; }
+.set-row-note { flex-direction: column; align-items: stretch; gap: 4px; background: var(--surface-2); }
+.set-network { font-size: 13px; font-weight: 500; }
+
 .set-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 /* 带单位的数字（JOC 的输出衰减 dB） */
 .set-unit-box { display: inline-flex; align-items: center; gap: 6px; }
@@ -123,8 +166,12 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
 
 @media (max-width: 483px) {
   /* 手机上导航是固定在顶部的 52px 顶栏 */
-  .set-toc { top: 52px; }
+  .set-tabs { top: 52px; }
   .set-group { scroll-margin-top: 112px; }
+  .set-tab { flex-direction: column; gap: 2px; min-height: 46px; font-size: 12px; }
+}
+@media (max-width: 720px) {
+  .set-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .set-row:not(.set-link):not(:has(.set-switch)):not(:has(.set-number)) { flex-direction: column; align-items: stretch; }

@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { AmPlayer, detectModes, useJocSettings, sortVariants } = require('../src/ui/player.js');
+const { AmPlayer, detectModes, useJocSettings, sortVariants, pickPlayable } = require('../src/ui/player.js');
 
 test('EC-3 chooses MSE before PCM regardless of browser', () => {
   global.Worker = function Worker() {};
@@ -60,6 +60,46 @@ test('the queue prefers Dolby Atmos over ALAC only while JOC rendering is on', (
   } finally {
     useJocSettings(null);
   }
+});
+
+test('the playback quality setting picks the tier, falls back down, and gates Dolby Atmos', () => {
+  global.Worker = function Worker() {};
+  global.AudioContext = function AudioContext() {};
+  global.AmDecrypt = { supported: () => true };
+  global.MediaSource = { isTypeSupported: () => true };
+  const variants = [
+    { group_id: 'audio-HE-stereo-64', codecs: 'mp4a.40.5', bandwidth: 64000 },
+    { group_id: 'audio-stereo-128', codecs: 'mp4a.40.2', bandwidth: 128000 },
+    { group_id: 'audio-stereo-256', codecs: 'mp4a.40.2', bandwidth: 256000 },
+    { group_id: 'audio-stereo-256-binaural', codecs: 'mp4a.40.2', bandwidth: 260000 },
+    { group_id: 'audio-atmos-2768', codecs: 'ec-3', bandwidth: 768000 },
+    { group_id: 'audio-alac-stereo-44100-16', codecs: 'alac', sample_rate: 44100, bit_depth: 16, bandwidth: 900000 },
+    { group_id: 'audio-alac-stereo-48000-24', codecs: 'alac', sample_rate: 48000, bit_depth: 24, bandwidth: 1500000 },
+    { group_id: 'audio-alac-stereo-192000-24', codecs: 'alac', sample_rate: 192000, bit_depth: 24, bandwidth: 5000000 },
+  ];
+  const pick = (quality, spatial = 'off', list = variants) => pickPlayable(list, { quality, spatial }).group_id;
+  assert.equal(pick('hires'), 'audio-alac-stereo-192000-24');
+  assert.equal(pick('lossless'), 'audio-alac-stereo-48000-24');
+  assert.equal(pick('high'), 'audio-stereo-256');
+  assert.equal(pick('efficient'), 'audio-HE-stereo-64');
+  // a song without ALAC (or only the /webplayback AAC 256) falls back to AAC
+  const aacOnly = variants.filter((v) => /^audio-stereo-256$/.test(v.group_id));
+  assert.equal(pick('hires', 'off', aacOnly), 'audio-stereo-256');
+  assert.equal(pick('efficient', 'off', aacOnly), 'audio-stereo-256');
+  // Dolby Atmos: always → first unless High Efficiency; auto follows JOC rendering
+  assert.equal(pick('high', 'always'), 'audio-atmos-2768');
+  assert.equal(pick('efficient', 'always'), 'audio-HE-stereo-64');
+  assert.equal(pick('hires', 'auto'), 'audio-alac-stereo-192000-24');
+  useJocSettings({ get: () => ({ mode: 'binaural', gain: 0, dataset: 'D2' }), set: () => {} });
+  try {
+    assert.equal(pick('hires', 'auto'), 'audio-atmos-2768');
+    assert.equal(pick('hires', 'off'), 'audio-alac-stereo-192000-24');
+  } finally {
+    useJocSettings(null);
+  }
+  // unplayable variants are skipped
+  global.MediaSource = { isTypeSupported: (mime) => !/alac|flac/.test(mime) };
+  assert.equal(pick('hires'), 'audio-stereo-256');
 });
 
 test('the ALAC / AAC volume trim attenuates only the audio element and never EC-3 or the slider value', () => {
