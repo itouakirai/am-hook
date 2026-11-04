@@ -275,8 +275,19 @@ export function mount({ root, signal, onLangChange, toast }) {
       gainRow.hidden = v.mode === 'off';
     });
 
+    // ALAC / AAC 的音量补偿：与 JOC 开关无关（浏览器自己解码的全景声同样比立体声母带小声）
+    const stereoGain = el('input', { type: 'number', className: 'set-input set-number', min: -20, max: 0, step: 1 });
+    stereoGain.setAttribute('aria-label', t('set.stereoGain'));
+    stereoGain.addEventListener('change', () => {
+      const n = Math.round(Number(stereoGain.value));
+      if (Number.isFinite(n)) setJoc({ stereoGain: Math.min(0, Math.max(-20, n)) });
+      stereoGain.value = String(prefs.get('joc').stereoGain);
+    });
+    const stereoGainRow = row(t('set.stereoGain'), t('set.stereoGainDesc'), el('div', { className: 'set-unit-box' }, stereoGain, el('span', { className: 'set-unit', textContent: 'dB' })));
+    jocControls.push((v) => { if (document.activeElement !== stereoGain) stereoGain.value = String(v.stereoGain); });
+
     playback.replaceChildren(section('joc', 'set.joc',
-      row(t('set.jocMode'), t('set.jocModeDesc'), mode, { wide: true }), datasetRow, gainRow));
+      row(t('set.jocMode'), t('set.jocModeDesc'), mode, { wide: true }), datasetRow, gainRow, stereoGainRow));
     syncJoc();
   }
 

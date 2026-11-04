@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { detectModes, useJocSettings, sortVariants } = require('../src/ui/player.js');
+const { AmPlayer, detectModes, useJocSettings, sortVariants } = require('../src/ui/player.js');
 
 test('EC-3 chooses MSE before PCM regardless of browser', () => {
   global.Worker = function Worker() {};
@@ -60,4 +60,28 @@ test('the queue prefers Dolby Atmos over ALAC only while JOC rendering is on', (
   } finally {
     useJocSettings(null);
   }
+});
+
+test('the ALAC / AAC volume trim attenuates only the audio element and never EC-3 or the slider value', () => {
+  const player = { volume: 0.8, audio: { volume: 1 }, pcm: null, current: { codecs: 'alac' } };
+  const apply = () => AmPlayer.prototype.applyVolume.call(player);
+  useJocSettings({ get: () => ({ mode: 'binaural', gain: 0, dataset: 'D2', stereoGain: -6 }), set: () => {} });
+  try {
+    apply();
+    assert.ok(Math.abs(player.audio.volume - 0.8 * 10 ** (-6 / 20)) < 1e-9);
+    assert.equal(player.volume, 0.8);
+    player.current = { codecs: 'ec-3' };
+    player.pcm = { gain: { gain: { value: 0 } } };
+    apply();
+    assert.equal(player.audio.volume, 0.8);
+    assert.equal(player.pcm.gain.gain.value, 0.8);
+    player.current = null;
+    apply();
+    assert.equal(player.audio.volume, 0.8);
+  } finally {
+    useJocSettings(null);
+  }
+  player.current = { codecs: 'mp4a.40.2' };
+  apply();
+  assert.equal(player.audio.volume, 0.8);
 });

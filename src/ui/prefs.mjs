@@ -171,6 +171,8 @@ export const DEFAULTS = {
     // 输出衰减（dB，-60–0）：15 个对象叠加可能超过满刻度，削波时播放器会提示
     gain: 0,
     dataset: 'D2',
+    // ALAC / AAC 的音量补偿（dB，-20–0）：全景声混音通常比立体声母带小声，调低立体声让切歌时音量接近
+    stereoGain: 0,
   },
 };
 
@@ -202,6 +204,7 @@ function clean(section, raw) {
       mode: oneOf(r.mode, OPTIONS.joc.mode, d.mode),
       gain: int(r.gain, -60, 0, d.gain),
       dataset: oneOf(r.dataset, OPTIONS.joc.dataset, d.dataset),
+      stereoGain: int(r.stereoGain, -20, 0, d.stereoGain),
     };
   }
   if (section !== 'download') return { ...d, ...r };

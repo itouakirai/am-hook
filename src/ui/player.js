@@ -1761,10 +1761,13 @@
       this.bindUi();
       this.bindQueueUi();
       this.bindKeys(root.ownerDocument);
+      /** 音量滑块的值（0–1）；audio 元素上的实际音量还要乘 ALAC / AAC 的补偿，见 applyVolume */
+      this.volume = 1;
       try {
         const v = parseFloat(localStorage.getItem('am-hook:volume'));
-        if (v >= 0 && v <= 1) this.audio.volume = v;
+        if (v >= 0 && v <= 1) this.volume = v;
       } catch {}
+      this.applyVolume();
       this.renderVolume();
       if (global.AmI18n) global.AmI18n.onChange(() => this.renderLang());
     }
@@ -1974,6 +1977,7 @@
       const joc = jocSettings();
       const previous = this.jocMode;
       this.jocMode = joc.mode;
+      this.applyVolume();
       if (!c) return;
       if (isEc3(c.codecs)) {
         const pcm = this.pcm instanceof JocEngine ? this.pcm : null;
@@ -2047,14 +2051,25 @@
 
     /** 音量 0–1，记在本地；喇叭图标的声波按音量显示 0–3 条 */
     setVolume(volume) {
-      this.audio.volume = volume;
-      if (this.pcm) this.pcm.gain.gain.value = volume;
+      this.volume = volume;
+      this.applyVolume();
       try { localStorage.setItem('am-hook:volume', String(volume)); } catch {}
       this.renderVolume();
     }
 
+    /**
+     * 把音量交给输出：PCM（EC-3 / JOC）用滑块的值；audio 元素播放 ALAC / AAC 时再乘设置中心的补偿（只衰减，不会削波），
+     * 让它与通常更小声的全景声接近。经 MSE 播放的 E-AC-3 不补偿。换曲目（含无缝接续）与设置变化时调用
+     */
+    applyVolume() {
+      const c = this.current;
+      const db = c && !isEc3(c.codecs) ? Number(jocSettings().stereoGain) || 0 : 0;
+      this.audio.volume = Math.min(1, Math.max(0, this.volume * 10 ** (Math.min(0, db) / 20)));
+      if (this.pcm) this.pcm.gain.gain.value = this.volume;
+    }
+
     renderVolume() {
-      const volume = this.audio.volume;
+      const volume = this.volume;
       const input = this.$('.volume');
       input.value = volume;
       input.style.setProperty('--volume', `${volume * 100}%`);
@@ -2112,8 +2127,8 @@
       volumeButton.addEventListener('pointerdown', (e) => { tapExpands = e.pointerType !== 'mouse' && !volume.classList.contains('expanded'); });
       volumeButton.addEventListener('click', () => {
         if (tapExpands) { tapExpands = false; expand(true); return; }
-        if (a.volume > 0) {
-          this.unmuteVolume = a.volume;
+        if (this.volume > 0) {
+          this.unmuteVolume = this.volume;
           this.setVolume(0);
         } else {
           this.setVolume(this.unmuteVolume || 0.5);
@@ -2728,6 +2743,7 @@
       this.queueSerial++;
       this.pendingTrack = null;
       this.current = { ...item, duration: this.mse.playlist.duration };
+      this.applyVolume();
       this.showError('');
       this.renderTrackText();
       this.renderArtwork(item);
@@ -2775,6 +2791,7 @@
       // 同一首歌切换音质时从当前位置继续；专辑页换曲（track 不同）从头播放
       const resumeAt = this.current && this.current.track === item.track ? this.transport().currentTime : 0;
       this.current = { ...item, mode: modes[0], duration: 0 };
+      this.applyVolume();
       this.show();
       this.showError('');
       this.renderTrackText();
@@ -2850,7 +2867,7 @@
             onClip: () => this.showError(() => t('player.jocClip')),
           });
         }
-        this.pcm.gain.gain.value = this.audio.volume;
+        this.pcm.gain.gain.value = this.volume;
         await this.pcm.load(item.m3u8Url);
         if (token !== this.playToken) return;
         this.current.duration = this.pcm.duration;
