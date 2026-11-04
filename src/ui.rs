@@ -152,7 +152,7 @@ pub async fn mv_master_url_handler(
 async fn fetch_mv_master(client: &reqwest::Client, master_url: &str) -> Response<Body> {
     let response = client.get(master_url)
         .header(axum::http::header::USER_AGENT, "AM")
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(15))
         .send().await.and_then(reqwest::Response::error_for_status);
     let response = match response {
         // 重定向策略遇到非 apple.com 目标会停下并原样返回 3xx，按失败处理
@@ -211,7 +211,7 @@ pub async fn mv_license_handler(
 }
 
 async fn mv_forward(state: &AppState, request: reqwest::RequestBuilder) -> Response<Body> {
-    match state.wrapper.send(request.timeout(std::time::Duration::from_secs(30))).await {
+    match state.wrapper.send(request.timeout(std::time::Duration::from_secs(15))).await {
         Ok(reply) => Response::builder()
             .status(reply.status)
             .header(CONTENT_TYPE, "application/json")
@@ -345,7 +345,8 @@ pub async fn master_handler(
         return bad_request("Invalid song URL or adamId");
     }
 
-    let reply = state.wrapper.send(state.wrapper.get("/m3u8").query(&[("adamId", adam_id.as_str())])).await;
+    let request = state.wrapper.get("/m3u8").query(&[("adamId", adam_id.as_str())]).timeout(std::time::Duration::from_secs(15));
+    let reply = state.wrapper.send(request).await;
     let reply = match reply {
         Ok(reply) => reply,
         Err(error) => return upstream_error("failed to fetch master m3u8 from wrapper-lite", error),
