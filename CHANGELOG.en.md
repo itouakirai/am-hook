@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v0.6.7 (2026-11-05)
+
+### New
+- ✨ AutoMix song transitions (settings → Playback → "Song transitions": Off / AutoMix (default) / Crossfade 1–12 s, plus an AutoMix switch next to the Playing Next title): each transition is planned from Apple Music's audio analysis (loudness curve, beats and bars, BPM, vocals), trimming leading / trailing silence, bringing the next song in during the outro and never overlapping vocals; with close tempos it lines up bars, and `<audio>` playback is time-stretched during the overlap (pitch preserved) before easing back. Albums played in order and songs without an analysis stay gapless; works with MSE, FLAC, EC-3 and JOC, and is unavailable where the audio volume is read-only (iOS Safari)
+
+### Fixes
+- 🐛 Lyrics no longer run ahead of spatial audio (Dolby Atmos and its AAC binaural / stereo downmix versions): they are delayed by the `<audio lyricOffset role="spatial"/>` in Apple's TTML (0.93 s for Message In A Bottle (Taylor's Version)), and clicking a line seeks to the matching position; LRC embedded or saved with these downloads is delayed too, while saved TTML is kept as is
+
 ## v0.6.6 (2026-11-04)
 
 ### New
