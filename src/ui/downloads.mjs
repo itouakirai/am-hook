@@ -594,7 +594,7 @@ async function downloadSong(job, task, info, signal) {
   const coverPromise = coverFor(job, info, signal, embed.has('cover'));
   // 另存的封面也与音频同时获取，打包时直接用缓存
   if (o.saveCover && job.kind !== 'playlist') fetchCover(job.covers, coverUrl(info.artwork, o.saveCoverFormat, o.saveCoverSize), signal).catch(() => {});
-  const lyricsPromise = wantLyrics ? fetchLyrics(job, task, signal) : Promise.resolve(null);
+  const lyricsPromise = wantLyrics ? fetchLyrics(job, task, signal, /atmos|binaural|downmix/i.test(v.group_id)) : Promise.resolve(null);
   const finishCheck = o.alacCheckTag && classify(v).kind === 'alac' ? checkWhileDownloading(task, track, v, o) : null;
   // tags() 在全部分段下载完之后才调用，检测所需的数据这时已经齐了
   const tags = async () => {
@@ -698,8 +698,11 @@ function wait(ms, signal) {
   });
 }
 
-/** 歌词：wrapper-lite 返回逐字 TTML，按设置转为 LRC（嵌入的也是 LRC）；获取失败时间隔 1 秒、2 秒重试 */
-async function fetchLyrics(job, task, signal) {
+/**
+ * 歌词：wrapper-lite 返回逐字 TTML，按设置转为 LRC（嵌入的也是 LRC）；获取失败时间隔 1 秒、2 秒重试。
+ * spatial：下载的是空间音频版本（全景声、双耳、缩混），LRC 按 TTML 的 lyricOffset 推迟；另存的 TTML 原样保留（自带这个偏移）
+ */
+async function fetchLyrics(job, task, signal, spatial) {
   const o = job.options;
   try {
     const lang = o.lyricsLang || job.lang || undefined;
@@ -717,7 +720,7 @@ async function fetchLyrics(job, task, signal) {
     if (!ttml) return null;
     let lrc = '';
     try {
-      lrc = ttmlToLrc(ttml, { syllable: o.syllable, translation: o.lyricsTranslation, pronunciation: o.lyricsPronunciation });
+      lrc = ttmlToLrc(ttml, { syllable: o.syllable, translation: o.lyricsTranslation, pronunciation: o.lyricsPronunciation, spatial });
     } catch (err) {
       console.warn('[am-hook] 歌词转换失败', err);
     }

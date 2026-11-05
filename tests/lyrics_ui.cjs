@@ -18,7 +18,7 @@ const lines = [
 ];
 const ttml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word" xml:lang="en"><head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><translations><translation type="subtitle" xml:lang="es">${
   lines.map(l => `<text for="${l.key}">${l.translation}</text>`).join('')
-}</translation></translations><songwriters><songwriter>Writer A</songwriter><songwriter>Writer B</songwriter></songwriters></iTunesMetadata></metadata></head><body dur="00:14.000"><div begin="00:01.000" end="00:12.000">${
+}</translation></translations><songwriters><songwriter>Writer A</songwriter><songwriter>Writer B</songwriter></songwriters><audio lyricOffset="4.000" role="spatial"/></iTunesMetadata></metadata></head><body dur="00:14.000"><div begin="00:01.000" end="00:12.000">${
   lines.map(l => `<p begin="00:0${l.begin}.000" end="00:${String(l.end).padStart(2, '0')}.000" itunes:key="${l.key}" ttm:agent="v1">${
     l.words.map((w, i) => `<span begin="00:${String(l.begin + i).padStart(2, '0')}.000" end="00:${String(l.begin + i + 1).padStart(2, '0')}.000">${w.trim()}</span>${w.endsWith(' ') ? ' ' : ''}`).join('')
   }</p>`).join('')
@@ -207,6 +207,15 @@ const duetTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
         assert.equal(await page.evaluate(() => fakeTransport.currentTime), 9, 'clicking a line seeks the player');
         await page.waitForTimeout(300);
         assert.deepEqual(await activeLines(), ['Third line']);
+        // 空间音频比歌词晚 lyricOffset（这里 4 秒）：歌词跟着推迟，点击歌词行跳到推迟后的位置；立体声不受影响
+        await page.evaluate(() => { AmApp.player.current.variant = { group_id: 'audio-atmos-2768' }; fakeTransport.currentTime = 9.5; });
+        await page.waitForTimeout(300);
+        assert.deepEqual(await activeLines(), ['Second line'], 'spatial audio delays the lyrics by lyricOffset');
+        await page.locator(lineSel).filter({ hasText: 'Third line' }).click();
+        assert.equal(await page.evaluate(() => fakeTransport.currentTime), 13, 'clicking a line seeks past the spatial offset');
+        await page.evaluate(() => { delete AmApp.player.current.variant; fakeTransport.currentTime = 9.5; });
+        await page.waitForTimeout(300);
+        assert.deepEqual(await activeLines(), ['Third line'], 'stereo ignores the spatial offset');
 
         await openMenu();
         await page.locator('[data-option="translation"]').click();

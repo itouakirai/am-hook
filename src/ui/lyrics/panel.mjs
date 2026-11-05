@@ -440,19 +440,27 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
   let leaveTimer = 0;
   let onLeft = null;
 
+  // 空间音频（杜比全景声及其双耳渲染、立体声缩混）比歌词的时间轴晚：TTML 里 <audio lyricOffset role="spatial"/> 给出晚多少，
+  // 播放这些版本时歌词跟着推迟
+  const lyricOffset = () => {
+    const group = player.current?.variant?.group_id || '';
+    return /atmos|binaural|downmix/i.test(group) ? song?.audioOffsets?.spatial || 0 : 0;
+  };
   // 没有时间轴的歌词（timing None）每行都是 0：AMLL 把不早于最后一行结束的时间当作歌曲结束、滚到最后，
-  // 这里一直给它第一行之前的时间，停在开头
-  const viewTime = (ms) => (song?.timing === 'None' ? -1 : ms);
+  // 这里一直给它第一行之前的时间，停在开头。ms 为播放位置，返回歌词时间轴上的时间
+  const viewTime = (ms) => (song?.timing === 'None' ? -1 : ms - lyricOffset());
 
   function currentTime() {
     return viewTime(player.current ? player.transport().currentTime * 1000 : 0);
   }
 
+  /** 跳到歌词时间轴上的 ms（点击歌词行） */
   function seek(ms) {
     if (!player.current) return;
     const transport = player.transport();
-    transport.currentTime = ms / 1000;
-    view.setCurrentTime(viewTime(ms), true);
+    const position = Math.max(0, ms + lyricOffset());
+    transport.currentTime = position / 1000;
+    view.setCurrentTime(viewTime(position), true);
     view.resetScroll();
     if (transport.paused) player.toggle();
   }
