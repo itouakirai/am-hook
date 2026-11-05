@@ -97,8 +97,9 @@ function toast(message) {
 
 // JOC 对象渲染的设置（设置中心与音质详情共用 prefs.mjs 的 'joc' 分组）：先接上再创建播放器，改动（含其他标签页）立即生效
 useJocSettings({ get: () => prefs.get('joc'), set: (patch) => prefs.set('joc', patch) });
-// 播放音质（设置中心「播放」）：按当前网络取 Wi-Fi 或移动数据的音质；实际生效的值变了才让播放器重新准备下一首
-usePlaybackSettings({ get: () => playbackFor(prefs.get('playback')) });
+// 播放音质与歌曲之间的过渡（设置中心「播放」）：按当前网络取 Wi-Fi 或移动数据的音质；实际生效的值变了才让播放器重新准备下一首。
+// set 供待播清单里的 AutoMix 开关使用
+usePlaybackSettings({ get: () => playbackFor(prefs.get('playback')), set: (patch) => prefs.set('playback', patch) });
 const player = new AmPlayer($('player'));
 // 「自动」时全景声是否优先取决于 JOC 渲染是否开启，所以也算上 JOC 的方式
 const playbackState = () => JSON.stringify([playbackFor(prefs.get('playback')), prefs.get('joc').mode !== 'off']);

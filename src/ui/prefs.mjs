@@ -1,4 +1,4 @@
-// 设置中心（/settings，views/settings.mjs）的存储：播放（playback：按网络选择的播放音质、杜比全景声优先）、
+// 设置中心（/settings，views/settings.mjs）的存储：播放（playback：按网络选择的播放音质、杜比全景声优先、歌曲之间的过渡）、
 // JOC 对象渲染（joc）与下载设置（download）。
 // 保存在 localStorage（不会过期），同一浏览器的其他标签页修改后自动同步。
 //
@@ -107,10 +107,16 @@ export function onNetworkChange(fn) {
   return () => c.removeEventListener('change', fn);
 }
 
-/** 按当前网络生效的播放设置：{ quality, spatial, network } */
+/** 按当前网络生效的播放设置：{ quality, spatial, network, transition, crossfade } */
 export function playbackFor(value = state.playback) {
   const network = networkKind();
-  return { quality: network === 'cellular' ? value.cellular : value.wifi, spatial: value.spatial, network };
+  return {
+    quality: network === 'cellular' ? value.cellular : value.wifi,
+    spatial: value.spatial,
+    network,
+    transition: value.transition,
+    crossfade: value.crossfade,
+  };
 }
 
 export const OPTIONS = {
@@ -119,6 +125,8 @@ export const OPTIONS = {
   playback: {
     quality: ['efficient', 'high', 'lossless', 'hires'],
     spatial: ['auto', 'always', 'off'],
+    // 歌曲之间的过渡（player.js 的 Mixer，规划见 automix.js）：off 无缝衔接；automix 按 Apple Music 的音频分析规划；crossfade 固定时长
+    transition: ['off', 'automix', 'crossfade'],
   },
   download: {
     // 首选音质；没有时按 fallback 降级
@@ -145,6 +153,9 @@ export const DEFAULTS = {
     wifi: 'hires',
     cellular: 'high',
     spatial: 'auto',
+    transition: 'automix',
+    // 交叉淡化的时长（秒，1–12）
+    crossfade: 6,
   },
   download: {
     codec: 'alac',
@@ -243,6 +254,8 @@ function clean(section, raw) {
       wifi: oneOf(r.wifi, o.quality, d.wifi),
       cellular: oneOf(r.cellular, o.quality, d.cellular),
       spatial: oneOf(r.spatial, o.spatial, d.spatial),
+      transition: oneOf(r.transition, o.transition, d.transition),
+      crossfade: int(r.crossfade, 1, 12, d.crossfade),
     };
   }
   if (section === 'joc') {

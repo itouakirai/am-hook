@@ -21,6 +21,17 @@ function el(tag, props = {}, ...children) {
 
 const ICON_WIFI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.8 16a4.8 4.8 0 0 1 6.4 0"/><circle cx="12" cy="19.3" r="1" fill="currentColor"/></svg>';
 const ICON_CELLULAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 20v-3M9.3 20v-6M14.6 20v-9.5M20 20V4"/></svg>';
+/** 能否单独调节 <audio> 的音量（iOS Safari 不能，歌曲之间的过渡因此不可用，见 player.js 的 canControlVolume） */
+function volumeControllable() {
+  try {
+    const probe = new Audio();
+    probe.volume = 0.5;
+    return Math.abs(probe.volume - 0.5) < 0.01;
+  } catch {
+    return false;
+  }
+}
+
 /** 三个标签页，及各页的分组 id（地址的 hash 指向分组时打开其所在的页） */
 const TABS = ['general', 'playback', 'download'];
 
@@ -312,6 +323,30 @@ export function mount({ root, signal, onLangChange, toast }) {
       networkRow('cellular', ICON_CELLULAR),
       el('div', { className: 'set-row set-row-note' }, networkNote, el('span', { className: 'set-desc', textContent: t('set.playQualityNote') })));
 
+    // 歌曲之间的过渡（player.js 的 Mixer）：关闭 / AutoMix / 交叉淡化，交叉淡化可选时长；浏览器不能调节 <audio> 音量时不可用
+    const [transition, syncTransition] = radios(t('set.transitionMode'),
+      OPTIONS.playback.transition.map((v) => [v, t(`set.transition.${v}`)]), (v) => setPlay({ transition: v }));
+    const transitionRow = row(t('set.transitionMode'), '', transition, { wide: true });
+    const transitionDesc = transitionRow.querySelector('.set-label').appendChild(el('span', { className: 'set-desc' }));
+    const seconds = el('input', { type: 'number', className: 'set-input set-number', min: 1, max: 12, step: 1 });
+    seconds.setAttribute('aria-label', t('set.crossfade'));
+    seconds.addEventListener('change', () => {
+      const n = Math.round(Number(seconds.value));
+      if (Number.isFinite(n)) setPlay({ crossfade: Math.min(12, Math.max(1, n)) });
+      seconds.value = String(prefs.get('playback').crossfade);
+    });
+    const secondsRow = row(t('set.crossfade'), t('set.crossfadeDesc'),
+      el('div', { className: 'set-unit-box' }, seconds, el('span', { className: 'set-unit', textContent: 's' })));
+    const transitionNote = el('div', { className: 'set-row set-row-note' },
+      el('span', { className: 'set-desc', textContent: volumeControllable() ? t('set.transitionAlbum') : t('set.transitionUnsupported') }));
+    playControls.push(({ play }) => {
+      syncTransition(play.transition);
+      transitionDesc.textContent = t(`set.transitionDesc.${play.transition}`);
+      secondsRow.hidden = play.transition !== 'crossfade';
+      if (document.activeElement !== seconds) seconds.value = String(play.crossfade);
+    });
+    const transitions = section('transition', 'set.transition', transitionRow, secondsRow, transitionNote);
+
     // 空间音频：全景声是否优先，以及 E-AC-3 的渲染方式（JOC）
     const [spatial, syncSpatial] = radios(t('set.spatial'), OPTIONS.playback.spatial.map((v) => [v, t(`set.spatial.${v}`)]), (v) => setPlay({ spatial: v }));
     const spatialRow = row(t('set.spatial'), '', spatial);
@@ -360,7 +395,7 @@ export function mount({ root, signal, onLangChange, toast }) {
       toast(t('set.resetDone'));
     });
 
-    playback.replaceChildren(quality, spatialSection, volume, el('div', { className: 'set-footer' }, reset));
+    playback.replaceChildren(quality, transitions, spatialSection, volume, el('div', { className: 'set-footer' }, reset));
     syncPlayback();
   }
 

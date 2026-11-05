@@ -45,6 +45,8 @@ pub static ASSETS: &[Asset] = &[
     asset!("/assets/settings.mjs", JS, "settings.mjs"),
     asset!("/assets/library.mjs", JS, "library.mjs"),
     asset!("/assets/player.js", JS, "player.js"),
+    // 歌曲之间的过渡（AutoMix / 交叉淡化）的规划，按 amp-api 的音频分析
+    asset!("/assets/automix.js", JS, "automix.js"),
     asset!("/assets/i18n.js", JS, "i18n.js"),
     // 专辑动态封面播放（editorialVideo 的 HLS，MSE 播放）
     asset!("/assets/motion-art.mjs", JS, "motion-art.mjs"),

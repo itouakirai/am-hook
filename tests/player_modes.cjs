@@ -103,8 +103,10 @@ test('the playback quality setting picks the tier, falls back down, and gates Do
 });
 
 test('the ALAC / AAC volume trim attenuates only the audio element and never EC-3 or the slider value', () => {
-  const player = { volume: 0.8, audio: { volume: 1 }, pcm: null, current: { codecs: 'alac' } };
-  const apply = () => AmPlayer.prototype.applyVolume.call(player);
+  const player = Object.assign(Object.create(AmPlayer.prototype), {
+    volume: 0.8, audio: { volume: 1 }, pcm: null, current: { codecs: 'alac' }, mixGain: 1, mixer: { volumeChanged() {} },
+  });
+  const apply = () => player.applyVolume();
   useJocSettings({ get: () => ({ mode: 'binaural', gain: 0, dataset: 'D2', stereoGain: -6 }), set: () => {} });
   try {
     apply();

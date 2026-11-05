@@ -72,6 +72,11 @@ jobs:
         if: runner.os == 'Linux'
         run: node --test tests/joc_wasm.mjs
 
+      - name: Run AutoMix planner tests
+        # 歌曲之间过渡的规划（src/ui/automix.js：响度曲线、拍点与人声 → 重叠区间、增益与变速），离线
+        if: runner.os == 'Linux'
+        run: node --test tests/automix.cjs
+
       - name: Run lyric duet tests
         # 歌词的对唱侧（src/ui/lyrics/ttml.mjs 的 duetSides 照 AMLL 逐行决定 isDuet），离线
         if: runner.os == 'Linux'

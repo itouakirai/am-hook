@@ -144,10 +144,12 @@
   }
 
   /**
-   * 播放音质的设置（设置中心「播放」，prefs.mjs 的 playbackFor）：{ quality: efficient / high / lossless / hires, spatial: auto / always / off }，
-   * quality 已按当前网络（Wi-Fi / 移动数据）取好。app.mjs 用 usePlaybackSettings 接上；没有接上时（如 Node 测试）为最高音质、自动
+   * 播放音质的设置（设置中心「播放」，prefs.mjs 的 playbackFor）：{ quality: efficient / high / lossless / hires, spatial: auto / always / off,
+   * transition: off / automix / crossfade（歌曲之间的过渡，见 Mixer）, crossfade（交叉淡化的秒数）}，quality 已按当前网络（Wi-Fi / 移动数据）取好。
+   * app.mjs 用 usePlaybackSettings 接上（{ get, set }，set 供待播清单里的 AutoMix 开关修改 transition）；
+   * 没有接上时（如 Node 测试）为最高音质、自动、不做过渡
    */
-  const PLAYBACK_DEFAULT = { quality: 'hires', spatial: 'auto' };
+  const PLAYBACK_DEFAULT = { quality: 'hires', spatial: 'auto', transition: 'off', crossfade: 6 };
   let playbackStore = null;
   function usePlaybackSettings(store) { playbackStore = store; }
   function playbackSettings() { return playbackStore ? playbackStore.get() : PLAYBACK_DEFAULT; }
@@ -1833,6 +1835,405 @@
     pause() { this.audio.pause(); }
   }
 
+  /* ---------- 歌曲之间的过渡（AutoMix / 交叉淡化）：两首歌同时播放一段，按 automix.js 的规划调节各自的音量 ---------- */
+
+  /** <audio> 播放的方式（MSE、ALAC → FLAC）；其余是 PCM 引擎（EC-3、JOC） */
+  function isElementMode(mode) { return mode === 'mse' || mode === 'flac'; }
+
+  /** 提前多久（秒，上一首的时间）开始准备下一首：打开 m3u8、取 key 与开头的分段，停在开始播放的位置 */
+  const PREROLL_LEAD = 25;
+  /** 等下一首准备好最多多久 */
+  const PREROLL_TIMEOUT = 20000;
+  /** 混音期间更新音量的间隔（毫秒）；离开始还远时同样用它检查，开销只是几次比较 */
+  const MIX_TICK = 40;
+  /** 手动下一首（下一首已准备好）时的快速交叉淡化（秒） */
+  const SKIP_FADE = 1.2;
+  /** 变速对齐后回到原速用的时间（毫秒） */
+  const RATE_GLIDE = 4000;
+
+  let volumeControllable = null;
+  /** 能否单独调节 <audio> 的音量：iOS Safari 的 volume 只读（始终为 1），这时不做过渡，按无缝衔接播放 */
+  function canControlVolume() {
+    if (volumeControllable === null) {
+      try {
+        const probe = new global.Audio();
+        probe.volume = 0.5;
+        volumeControllable = Math.abs(probe.volume - 0.5) < 0.01;
+      } catch {
+        volumeControllable = false;
+      }
+    }
+    return volumeControllable;
+  }
+
+  /**
+   * 一首在播放（或已准备好）的曲目，与播放方式无关：<audio> 方式为 deck（{ audio, mse, clock }），PCM 方式为 engine。
+   * 音量为播放器的基础音量（滑块与 ALAC / AAC 补偿，见 AmPlayer.baseGain）乘过渡的增益
+   */
+  class Voice {
+    constructor(player, item, mode, { deck = null, engine = null }) {
+      this.player = player;
+      this.item = item;
+      this.mode = mode;
+      this.deck = deck;
+      this.engine = engine;
+      this.gain = 1;
+      if (deck) deck.voice = this;
+    }
+
+    get time() { return this.deck ? Math.max(0, this.deck.audio.currentTime - this.deck.mse.base) : this.engine.currentTime; }
+    get paused() { return this.deck ? this.deck.audio.paused : this.engine.paused; }
+    get ended() { return this.deck ? this.deck.audio.ended : this.engine.duration > 0 && this.engine.currentTime >= this.engine.duration; }
+    get duration() { return this.deck ? (this.deck.mse.playlist ? this.deck.mse.playlist.duration : 0) : this.engine.duration || 0; }
+    get rate() { return this.deck ? this.deck.audio.playbackRate : 1; }
+
+    /** 能开始播放：<audio> 缓冲到了开始位置之后，PCM 已解码好开头（preroll 完成即是） */
+    get ready() { return this.deck ? this.deck.audio.readyState >= 3 && !this.deck.audio.seeking : true; }
+
+    /** 过渡的增益 0–1 */
+    setGain(gain) {
+      this.gain = gain;
+      const value = this.player.baseGain(this.item, this.mode) * gain;
+      if (this.deck) this.deck.audio.volume = Math.min(1, Math.max(0, value));
+      else {
+        const param = this.engine.gain.gain;
+        param.cancelScheduledValues(this.engine.context.currentTime);
+        param.setTargetAtTime(value, this.engine.context.currentTime, 0.012);
+      }
+    }
+
+    /** 播放速度（只有 <audio> 能变速并保持音高） */
+    setRate(rate) {
+      if (!this.deck) return;
+      const audio = this.deck.audio;
+      if ('preservesPitch' in audio) audio.preservesPitch = true;
+      if (Math.abs(audio.playbackRate - rate) > 1e-4) audio.playbackRate = rate;
+    }
+
+    play() { return this.deck ? this.deck.audio.play() : this.engine.play(); }
+
+    /** 停止并释放：<audio> 的 deck 交还播放器复用，PCM 引擎销毁 */
+    release() {
+      if (this.released) return;
+      this.released = true;
+      if (this.deck) this.player.releaseDeck(this.deck);
+      else this.engine.destroy();
+    }
+  }
+
+  /**
+   * 执行 AutoMix / 交叉淡化（规划见 automix.js）。状态：
+   *   entry    交给它处理的下一首（队列条目）；规划结果为不过渡时退回 MseEngine 的无缝衔接（AmPlayer.chainNext），entry 保留
+   *   pending  已规划的过渡：{ entry, item, modes, mode, plan, inputs, voice, state }，state 为
+   *            planned（等到开始前 PREROLL_LEAD 秒）→ loading（准备下一首）→ ready（停在开始位置）→ started
+   *   tail     正在淡出的上一首：{ voice, incoming, plan, start（开始时上一首的时间）}；下一首在开始的同时成为当前曲目
+   *   glide    变速对齐后慢慢回到原速：{ voice, from, at }
+   * 开始时上一首从播放器上摘下（AmPlayer.detachVoice），下一首接上（adoptVoice）；用户暂停、拖动进度、换歌时上一首立即退出。
+   */
+  class Mixer {
+    constructor(player) {
+      this.player = player;
+      this.entry = null;
+      this.serial = 0;
+      this.pending = null;
+      this.tail = null;
+      this.glide = null;
+      this.timer = null;
+      /** 最近一次过渡的规划（调试用，见 window.AmApp.player.mixer.last） */
+      this.last = null;
+      /** 调用 play() 到真正出声的延迟（秒），按播放方式分开，每次过渡实测后修正（见 updateTail）；watch 提前这么多开始 */
+      this.latency = { element: 0.05, pcm: 0.05 };
+    }
+
+    /** 是否由它处理 entry（设置开启、浏览器支持，且不是同一张专辑按顺序的下一首） */
+    wants(entry) {
+      return !!entry && playbackSettings().transition !== 'off' && canControlVolume()
+        && !!global.AmAutomix && !this.player.continuous(entry);
+    }
+
+    /** 混音中（上一首还在淡出） */
+    get mixing() { return !!this.tail; }
+
+    prepare(entry) {
+      this.cancel();
+      const player = this.player;
+      // 当前曲目还在加载（时长未知）：加载完成后 start() 会再调用 prepareNext
+      if (player.attempting || !(player.duration() > 0)) return;
+      const serial = ++this.serial;
+      this.entry = entry;
+      const out = player.current;
+      const settings = playbackSettings();
+      const { fetchAnalysis } = global.AmAutomix;
+      Promise.all([
+        resolveEntry(entry),
+        fetchAnalysis(out.track, out.country || 'us'),
+        fetchAnalysis(entry.track, entry.country || 'us'),
+      ])
+        .then(([item, a, b]) => {
+          if (serial !== this.serial) return;
+          const modes = detectModes(item.codecs);
+          if (!modes.length) { this.fallback(entry); return; }
+          const inputs = {
+            a, b,
+            options: {
+              mode: settings.transition,
+              seconds: settings.crossfade,
+              outDuration: player.duration(),
+              inDuration: (entry.duration || 0) / 1000 || (b && b.length) || 0,
+            },
+          };
+          const plan = this.replan(inputs, modes[0]);
+          if (plan.kind === 'gapless') {
+            console.info('[am-hook] AutoMix: 不过渡', plan.reason, entry.name);
+            this.fallback(entry);
+            return;
+          }
+          this.pending = { serial, entry, item, modes, mode: modes[0], plan, inputs, voice: null, state: 'planned' };
+          this.run();
+        })
+        .catch((err) => {
+          if (serial !== this.serial) return;
+          // 网络错误稍后重试；其他错误（如不可播放）放弃过渡
+          if (!(err instanceof TypeError)) { this.fallback(entry); return; }
+          this.retryTimer = setTimeout(() => {
+            if (serial !== this.serial) return;
+            this.entry = null;
+            player.prepareNext();
+          }, 3000);
+        });
+    }
+
+    replan(inputs, mode) {
+      return global.AmAutomix.plan(inputs.a, inputs.b, { ...inputs.options, stretch: isElementMode(mode) });
+    }
+
+    /** 不过渡：交回 MseEngine 的无缝衔接（entry 保留，队列不变时不再规划） */
+    fallback(entry) {
+      this.pending = null;
+      this.player.chainNext(entry);
+    }
+
+    /** 放弃还没开始的过渡（已开始的淡出照常完成） */
+    cancel() {
+      this.serial++;
+      this.entry = null;
+      clearTimeout(this.retryTimer);
+      clearTimeout(this.beginTimer);
+      const pending = this.pending;
+      this.pending = null;
+      if (pending && pending.voice) pending.voice.release();
+    }
+
+    /** 换歌、重新开始播放：一切过渡立即结束 */
+    reset() {
+      this.cancel();
+      this.stopTail();
+      if (this.glide) { this.glide.voice.setRate(1); this.glide = null; }
+      this.stop();
+    }
+
+    run() {
+      if (!this.timer) this.timer = setInterval(() => this.tick(), MIX_TICK);
+    }
+
+    stop() {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    tick() {
+      const pending = this.pending;
+      if (pending && pending.state !== 'started') this.watch(pending);
+      if (this.tail) this.updateTail();
+      if (this.glide) this.updateGlide();
+      if (!this.pending && !this.tail && !this.glide) this.stop();
+    }
+
+    /** 过渡开始前：到时间准备下一首，准备好后在 x0 开始 */
+    watch(pending) {
+      const transport = this.player.transport();
+      const now = transport.currentTime;
+      const { plan } = pending;
+      if (pending.state === 'planned' && now >= plan.x0 - PREROLL_LEAD) this.preroll(pending);
+      if (pending.state !== 'ready' || transport.paused) return;
+      // 拖到了过渡之后：已经来不及按规划混音，快速淡过去
+      if (now > plan.x0 + 0.5) { this.begin(pending, this.quickPlan(pending, SKIP_FADE)); return; }
+      const wait = plan.x0 - now - this.latency[pending.voice && pending.voice.deck ? 'element' : 'pcm'];
+      if (wait <= 0.005) { this.begin(pending, plan); return; }
+      // 最后一段用 setTimeout 精确到毫秒（MIX_TICK 的粒度对拍子来说太粗）
+      if (wait < (MIX_TICK * 2) / 1000 && !this.beginTimer) {
+        this.beginTimer = setTimeout(() => {
+          this.beginTimer = null;
+          if (this.pending === pending && !this.player.transport().paused) this.begin(pending, plan);
+        }, wait * 1000);
+      }
+    }
+
+    /** 从现在起 seconds 秒的等功率交叉淡化（不超过上一首剩下的时长）；seconds 为 0 时直接切过去 */
+    quickPlan(pending, seconds) {
+      const now = this.player.transport().currentTime;
+      const left = Math.max(0, this.player.duration() - now);
+      const d = Math.min(seconds, left);
+      return { ...pending.plan, kind: 'skip', x0: now, x1: now + d, rate: 1, beat: null, out: { from: 0, to: d }, in: { from: 0, to: Math.min(d, 0.4) } };
+    }
+
+    async preroll(pending) {
+      pending.state = 'loading';
+      const player = this.player;
+      const at = pending.plan.entry;
+      for (const mode of pending.modes) {
+        let voice = null;
+        try {
+          voice = await player.prerollVoice(pending.item, mode, at);
+          if (this.pending !== pending) { voice.release(); return; }
+          pending.voice = voice;
+          const deadline = Date.now() + PREROLL_TIMEOUT;
+          while (!voice.ready) {
+            if (Date.now() > deadline) throw new Error('preroll timeout');
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            if (this.pending !== pending) return; // cancel 已释放
+          }
+          // 实际用的播放方式与规划时不同（如 MSE 不支持而用 FLAC）：能否变速也可能不同，重新规划
+          if (mode !== pending.mode) {
+            pending.mode = mode;
+            const plan = this.replan(pending.inputs, mode);
+            if (plan.kind !== 'gapless') pending.plan = plan;
+          }
+          pending.state = 'ready';
+          return;
+        } catch (err) {
+          if (this.pending !== pending) return;
+          pending.voice = null;
+          if (voice) voice.release();
+          console.warn(`[am-hook] AutoMix: 下一首用 ${mode} 准备失败`, err);
+        }
+      }
+      // 都准备不了：不过渡，播完后照常切歌（next(true)）
+      if (this.pending === pending) this.pending = null;
+    }
+
+    /** 开始过渡：下一首开始播放并成为当前曲目，上一首按规划淡出 */
+    async begin(pending, plan) {
+      if (pending.state !== 'ready') return;
+      pending.state = 'started';
+      clearTimeout(this.beginTimer);
+      this.beginTimer = null;
+      const player = this.player;
+      const voice = pending.voice;
+      const d = plan.x1 - plan.x0;
+      voice.setGain(d > 0 ? global.AmAutomix.fadeInGain(plan.in, 0) : 1);
+      voice.setRate(plan.rate);
+      const actual = player.transport().currentTime;
+      try {
+        await voice.play();
+      } catch (err) {
+        console.warn('[am-hook] AutoMix: 下一首无法开始播放', err);
+        if (this.pending === pending) this.pending = null;
+        voice.release();
+        return;
+      }
+      if (this.pending !== pending) { voice.release(); return; }
+      this.pending = null;
+      const outgoing = player.detachVoice();
+      // 按规划开始的（不是拖动或手动下一首）：时间轴以规划的 x0 为准，开始的误差由相位锁修正
+      const start = plan.kind !== 'skip' && Math.abs(actual - plan.x0) < 0.3 ? plan.x0 : actual;
+      this.last = { ...plan, start, actual, from: player.current && player.current.title, to: pending.item.title };
+      console.info('[am-hook] AutoMix', this.last);
+      // 上一首已经播完或这是一次直接切换：不需要淡出
+      if (outgoing && (d <= 0 || outgoing.ended)) outgoing.release();
+      else if (outgoing) {
+        this.stopTail();
+        this.tail = { voice: outgoing, incoming: voice, plan, start };
+      }
+      player.mixGain = d > 0 ? voice.gain : 1;
+      player.adoptVoice(pending.entry, pending.item, pending.mode, voice);
+      if (!this.tail && plan.rate !== 1) this.glide = { voice, from: plan.rate, at: performance.now() };
+      this.run();
+      if (this.tail) this.updateTail();
+    }
+
+    /** 混音中：按上一首的时间算两边的增益；重叠期间下一首按规划的速度播放，并把相位锁在上一首的拍子上 */
+    updateTail() {
+      const tail = this.tail;
+      const player = this.player;
+      const { voice: out, incoming, plan, start } = tail;
+      const d = plan.x1 - plan.x0;
+      const tau = out.time - start;
+      const expected = plan.entry + tau * plan.rate;
+      // 下一首已不是当前曲目、被暂停或被拖动了进度，或上一首播完：上一首退出
+      if (!player.isCurrentVoice(incoming) || incoming.paused || out.paused || out.ended || tau >= d
+        || Math.abs(incoming.time - expected) > 1.5) {
+        this.stopTail();
+        return;
+      }
+      const { fadeOutGain, fadeInGain } = global.AmAutomix;
+      out.setGain(fadeOutGain(plan.out, tau));
+      player.setMixGain(fadeInGain(plan.in, tau));
+      // 下一首真正出声比 play() 返回晚（<audio> 约 0.1–0.2 秒）：开始 0.8 秒后两边的时钟都稳定了，量出滞后，下次提前这么多开始
+      if (!tail.measured && tau > 0.8 && plan.kind !== 'skip') {
+        tail.measured = true;
+        const lag = tau - (incoming.time - plan.entry) / plan.rate;
+        const kind = incoming.deck ? 'element' : 'pcm';
+        if (Math.abs(lag) < 0.5) this.latency[kind] = Math.min(0.4, Math.max(0, this.latency[kind] + lag * 0.7));
+        if (this.last) this.last.lag = lag;
+      }
+      // 相位锁（对齐了拍子的过渡）：误差（下一首超前为正，秒）在约 0.5 秒内消掉，速度最多偏离规划的 3%（保持音高，听不出来）；
+      // 每 0.25 秒才改一次 playbackRate（每次修改浏览器都要重新调整变速算法）
+      const now = performance.now();
+      if (plan.beat && incoming.deck && tau > 0.5 && !(now - (tail.rateAt || 0) < 250)) {
+        tail.rateAt = now;
+        const error = incoming.time - expected;
+        incoming.setRate(plan.rate * (1 - Math.max(-0.03, Math.min(0.03, error * 2))));
+      }
+    }
+
+    stopTail() {
+      const tail = this.tail;
+      if (!tail) return;
+      this.tail = null;
+      // 先静音再停止：被打断时上一首还有声音，直接停会有爆音
+      tail.voice.setGain(0);
+      setTimeout(() => tail.voice.release(), 60);
+      const player = this.player;
+      player.renderAutomix();
+      if (player.isCurrentVoice(tail.incoming)) {
+        player.setMixGain(1);
+        if (tail.incoming.rate !== 1) this.glide = { voice: tail.incoming, from: tail.incoming.rate, at: performance.now() };
+      }
+    }
+
+    /** 变速对齐之后：用 RATE_GLIDE 慢慢回到原速 */
+    updateGlide() {
+      const glide = this.glide;
+      const { voice, from, at } = glide;
+      if (!this.player.isCurrentVoice(voice)) { this.glide = null; return; }
+      const now = performance.now();
+      if (now - (glide.rateAt || 0) < 200) return;
+      glide.rateAt = now;
+      const x = Math.min(1, (now - at) / RATE_GLIDE);
+      const eased = x * x * (3 - 2 * x);
+      voice.setRate(from + (1 - from) * eased);
+      if (x >= 1) { voice.setRate(1); this.glide = null; }
+    }
+
+    /**
+     * 手动下一首（或上一首播完，auto）：下一首已准备好时快速交叉淡化过去（播完时直接切换），不重新加载。
+     * 返回是否已处理
+     */
+    skip(auto = false) {
+      const pending = this.pending;
+      if (!pending || pending.state !== 'ready' || pending.entry !== this.player.upcomingEntry()) return false;
+      const paused = this.player.transport().paused;
+      this.begin(pending, this.quickPlan(pending, auto || paused ? 0 : SKIP_FADE));
+      return true;
+    }
+
+    /** 音量滑块变了：淡出中的上一首跟着变 */
+    volumeChanged() {
+      if (this.tail) this.tail.voice.setGain(this.tail.voice.gain);
+    }
+  }
+
   const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>';
   const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
   const ICON_LOADING = '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>';
@@ -1843,6 +2244,8 @@
   const ICON_SHUFFLE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h3c2.2 0 3.4 1 4.5 2.8l3 4.4C14.6 16 15.8 17 18 17h2.5"/><path d="M3 17h3c1.6 0 2.7-.6 3.6-1.6M14.4 8.6C15.3 7.6 16.4 7 18 7h2.5"/><path d="m18 4 3 3-3 3M18 14l3 3-3 3"/></svg>';
   const ICON_REPEAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="m17 3 3 3-3 3"/><path d="M20 12v2.5a3.5 3.5 0 0 1-3.5 3.5H4"/><path d="m7 21-3-3 3-3"/></svg>';
   const ICON_REPEAT_ONE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="m17 3 3 3-3 3"/><path d="M20 12v2.5a3.5 3.5 0 0 1-3.5 3.5H4"/><path d="m7 21-3-3 3-3"/><path d="M11 10.5 12.5 9.5v5" stroke-width="1.8"/></svg>';
+  /** AutoMix（∞）：路径带 pathLength，混音中沿着 8 字流动（见 app.css 的 .queue-automix.mixing） */
+  const ICON_AUTOMIX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="100" d="M12 12c-1.9-2.6-3.8-3.9-5.6-3.9a3.9 3.9 0 0 0 0 7.8c1.8 0 3.7-1.3 5.6-3.9Zm0 0c1.9 2.6 3.8 3.9 5.6 3.9a3.9 3.9 0 0 0 0-7.8c-1.8 0-3.7 1.3-5.6 3.9Z"/></svg>';
 
   /**
    * 页面底部播放条。
@@ -1853,11 +2256,15 @@
     /** 播放条上的歌名、艺人、专辑链接由前端路由（app.mjs）接管，文档不刷新，播放不中断 */
     constructor(root) {
       this.root = root;
-      this.audio = new Audio();
-      this.audio.preload = 'auto';
-      this.mse = new MseEngine(this.audio);
-      this.mse.onTrackChange = (item) => this.advance(item);
-      this.clock = new AudioClock(this.audio, () => (this.current && (this.current.mode === 'mse' || this.current.mode === 'flac') ? this.mse.base : 0));
+      /**
+       * <audio> 方式的播放器（deck：{ audio, mse, clock }）。平时只用一个；过渡（Mixer）时下一首在另一个 deck 上准备、开始，
+       * 之后它成为当前的 deck（useDeck），this.audio / this.mse / this.clock 总是指向当前的那个，媒体事件只处理当前 deck 的
+       */
+      this.decks = [];
+      this.useDeck(this.makeDeck());
+      /** 过渡中当前曲目的增益（0–1，淡入），平时为 1；见 applyVolume */
+      this.mixGain = 1;
+      this.mixer = new Mixer(this);
       /** 已交给 MseEngine 接续播放的下一首在队列中的条目（见 prepareNext） */
       this.nextEntry = null;
       this.nextSerial = 0;
@@ -2149,8 +2556,11 @@
      * 已经为接续准备好的下一首按新设置重新准备
      */
     playbackChanged() {
-      if (!this.nextEntry) return;
+      this.renderModes();
+      if (!this.nextEntry && !this.mixer.entry) return;
       this.nextEntry = null;
+      // 过渡的方式或时长也可能变了：重新规划（已经开始的淡出照常完成）
+      this.mixer.cancel();
       this.prepareNext();
     }
 
@@ -2216,9 +2626,33 @@
      */
     applyVolume() {
       const c = this.current;
-      const db = c && !isEc3(c.codecs) ? Number(jocSettings().stereoGain) || 0 : 0;
-      this.audio.volume = Math.min(1, Math.max(0, this.volume * 10 ** (Math.min(0, db) / 20)));
-      if (this.pcm) this.pcm.gain.gain.value = this.volume;
+      this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * this.mixGain));
+      if (this.pcm) {
+        const param = this.pcm.gain.gain;
+        if (param.cancelScheduledValues && this.pcm.context) param.cancelScheduledValues(this.pcm.context.currentTime);
+        param.value = this.volume * this.mixGain;
+      }
+      this.mixer.volumeChanged();
+    }
+
+    /** 某首歌的基础音量（不含过渡的增益）：PCM 为滑块的值，<audio> 播放 ALAC / AAC 时再乘补偿 */
+    baseGain(item, mode) {
+      if (isPcmMode(mode)) return this.volume;
+      const db = item && !isEc3(item.codecs) ? Number(jocSettings().stereoGain) || 0 : 0;
+      return this.volume * 10 ** (Math.min(0, db) / 20);
+    }
+
+    /** 过渡中当前曲目的增益（Mixer 每次更新调用）；PCM 用平滑过渡，免得逐级跳变 */
+    setMixGain(gain) {
+      this.mixGain = gain;
+      const c = this.current;
+      if (c && isPcmMode(c.mode) && this.pcm) {
+        const param = this.pcm.gain.gain;
+        param.cancelScheduledValues(this.pcm.context.currentTime);
+        param.setTargetAtTime(this.volume * gain, this.pcm.context.currentTime, 0.012);
+      } else {
+        this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * gain));
+      }
     }
 
     renderVolume() {
@@ -2258,8 +2692,61 @@
       this.renderQueue();
     }
 
+    /** 新建一个 <audio> 的 deck（见构造函数）；媒体事件只在它是当前 deck 时处理 */
+    makeDeck() {
+      const audio = new Audio();
+      audio.preload = 'auto';
+      const mse = new MseEngine(audio);
+      /** voice：占用它的、不是当前曲目的 Voice（准备中的下一首、淡出中的上一首），空闲时为 null */
+      const deck = { audio, mse, clock: null, voice: null };
+      mse.onTrackChange = (item) => { if (this.mse === mse) this.advance(item); };
+      deck.clock = new AudioClock(audio, () => (this.current && isElementMode(this.current.mode) ? mse.base : 0));
+      const on = (ev, fn) => audio.addEventListener(ev, () => { if (this.audio === audio) fn(); });
+      ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((ev) => on(ev, () => this.renderProgress()));
+      ['play', 'pause', 'playing', 'waiting', 'ended'].forEach((ev) => on(ev, () => { this.renderToggle(); this.emit(); }));
+      on('ended', () => this.ended());
+      on('error', () => {
+        // 尝试阶段的错误由 play() 统一处理（会自动换下一种播放方式）
+        if (!this.attempting && this.current && this.current.mode !== 'mse' && audio.getAttribute('src')) {
+          this.showError(() => t('player.errorGeneric', { hint: fallbackHint() }));
+        }
+      });
+      this.decks.push(deck);
+      return deck;
+    }
+
+    useDeck(deck) {
+      deck.voice = null;
+      this.deck = deck;
+      this.audio = deck.audio;
+      this.mse = deck.mse;
+      this.clock = deck.clock;
+    }
+
+    /** 空闲的 deck（不是当前的、也没有被准备中或淡出中的曲目占用）；没有就新建 */
+    idleDeck() {
+      return this.decks.find((d) => d !== this.deck && !d.voice) || this.makeDeck();
+    }
+
+    /** 过渡时下一首用的 deck：先占上，Voice 创建后改为它 */
+    claimDeck() {
+      const deck = this.idleDeck();
+      deck.voice = 'claimed';
+      return deck;
+    }
+
+    /** deck 不再使用：停止并清空，留着下次过渡再用 */
+    releaseDeck(deck) {
+      deck.voice = null;
+      if (deck === this.deck) return;
+      deck.mse.destroy();
+      deck.audio.pause();
+      deck.audio.removeAttribute('src');
+      deck.audio.load();
+      deck.audio.playbackRate = 1;
+    }
+
     bindUi() {
-      const a = this.audio;
       this.$('.player-toggle').addEventListener('click', () => this.toggle());
       this.$('.skip-prev').addEventListener('click', () => this.previous());
       this.$('.skip-next').addEventListener('click', () => this.next());
@@ -2316,16 +2803,6 @@
       seek.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowLeft') { this.seekBy(-5); e.preventDefault(); }
         if (e.key === 'ArrowRight') { this.seekBy(5); e.preventDefault(); }
-      });
-
-      ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((ev) => a.addEventListener(ev, () => this.renderProgress()));
-      ['play', 'pause', 'playing', 'waiting', 'ended'].forEach((ev) => a.addEventListener(ev, () => { this.renderToggle(); this.emit(); }));
-      a.addEventListener('ended', () => this.ended());
-      a.addEventListener('error', () => {
-        // 尝试阶段的错误由 play() 统一处理（会自动换下一种播放方式）
-        if (!this.attempting && this.current && this.current.mode !== 'mse' && this.audio.getAttribute('src')) {
-          this.showError(() => t('player.errorGeneric', { hint: fallbackHint() }));
-        }
       });
 
       if ('mediaSession' in navigator) {
@@ -2386,6 +2863,7 @@
       panel.id = 'queue-panel';
       panel.hidden = true;
       panel.innerHTML = '<header class="queue-head"><h2 class="queue-title"></h2>'
+        + `<button class="queue-automix" type="button" aria-pressed="false">${ICON_AUTOMIX}<span class="queue-automix-label"></span></button>`
         + `<div class="queue-switches"><button class="player-switch player-shuffle" type="button" aria-pressed="false">${ICON_SHUFFLE}</button>`
         + '<button class="player-switch player-repeat" type="button" aria-pressed="false"></button></div>'
         + '<button class="queue-clear" type="button"></button></header>'
@@ -2400,6 +2878,7 @@
       button.addEventListener('click', () => (panel.hidden ? this.openQueue() : this.closeQueue()));
       panel.querySelector('.player-shuffle').addEventListener('click', () => this.setShuffle(!this.shuffle));
       panel.querySelector('.player-repeat').addEventListener('click', () => this.cycleRepeat());
+      panel.querySelector('.queue-automix').addEventListener('click', () => this.toggleAutomix());
       panel.querySelector('.queue-clear').addEventListener('click', () => {
         if (this.queue) {
           this.queue.entries.splice(this.queue.pos + 1);
@@ -2695,6 +3174,32 @@
       const next = this.$('.skip-next');
       if (prev) prev.disabled = !this.current;
       if (next) next.disabled = !this.hasNext();
+      this.renderAutomix();
+    }
+
+    /**
+     * 待播清单标题旁的 AutoMix 开关：开启时（AutoMix 或交叉淡化）反色，名称随方式变化；混音进行中时图标流动。
+     * 浏览器不能调节 <audio> 音量时（iOS Safari）不显示
+     */
+    renderAutomix() {
+      const button = this.queuePanel && this.queuePanel.querySelector('.queue-automix');
+      if (!button) return;
+      const mode = playbackSettings().transition || 'off';
+      const supported = !!playbackStore && canControlVolume();
+      button.hidden = !supported;
+      const label = t(mode === 'crossfade' ? 'player.crossfade' : 'player.automix');
+      button.querySelector('.queue-automix-label').textContent = label;
+      button.setAttribute('aria-pressed', String(mode !== 'off'));
+      button.title = t(mode === 'off' ? 'player.automixOff' : 'player.automixOn', { name: label });
+      button.classList.toggle('mixing', this.mixer.mixing);
+    }
+
+    /** 开关过渡：开启时为 AutoMix（交叉淡化在设置中心选），从下一首起生效 */
+    toggleAutomix() {
+      if (!playbackStore || !playbackStore.set) return;
+      const mode = playbackSettings().transition || 'off';
+      playbackStore.set({ transition: mode === 'off' ? 'automix' : 'off' });
+      this.renderAutomix();
     }
 
     hasNext() {
@@ -2709,6 +3214,8 @@
       if (auto && this.repeat === 'one') { this.restart(); return; }
       // 下一首已接在当前曲目之后时直接跳到接缝处，不重新加载（后台从通知栏切歌也不中断）
       if (this.nextEntry && this.nextEntry === this.upcomingEntry() && this.mse.skipToNext()) return;
+      // 过渡已经准备好下一首：手动下一首快速淡过去，播完时直接接上
+      if (this.mixer.skip(auto)) return;
       if (q && q.entries[q.pos + 1]) { this.playAt(q.pos + 1); return; }
       if (this.repeat !== 'all') return;
       if (q && q.entries.length > 1) this.playAt(0); else this.restart();
@@ -2848,13 +3355,38 @@
     }
 
     /**
-     * 与 music.apple.com 相同，提前解析下一首并交给 MseEngine，在当前曲目之后无缝接上。
-     * 队列、随机、重复变化后重新调用；下一首不变时不重复请求。只有 MSE / FLAC 方式能接续，
-     * 其他情况仍由 ended 事件按原方式切歌。
+     * 准备当前曲目之后的过渡。队列、随机、重复变化后重新调用；下一首不变时不重复请求。
+     * 设置中开启了 AutoMix / 交叉淡化时交给 Mixer（规划为不过渡时它再交回 chainNext），否则无缝接续（chainNext）
      */
     prepareNext() {
-      const entry = this.current && (this.current.mode === 'mse' || this.current.mode === 'flac') && this.mse.sb
-        ? this.upcomingEntry() : null;
+      const entry = this.current ? this.upcomingEntry() : null;
+      if (this.mixer.wants(entry)) {
+        if (this.mixer.entry === entry) return;
+        this.chainNext(null);
+        this.mixer.prepare(entry);
+        return;
+      }
+      this.mixer.cancel();
+      this.chainNext(entry);
+    }
+
+    /**
+     * 同一张专辑按顺序播放的下一首：专辑里的衔接是编排好的（连在一起的曲目、现场专辑、古典的乐章），不做过渡。
+     * 随机播放、歌单与电台里恰好相邻的同专辑曲目照常过渡
+     */
+    continuous(entry) {
+      const q = this.queue;
+      if (!q || this.shuffle || !entry || q.entries[q.pos + 1] !== entry) return false;
+      const album = global.AmAutomix ? global.AmAutomix.albumOf(q.entries[q.pos]) : '';
+      return !!album && album === global.AmAutomix.albumOf(entry);
+    }
+
+    /**
+     * 与 music.apple.com 相同，提前解析下一首并交给 MseEngine，在当前曲目之后无缝接上（entry 为 null 时放弃接续）。
+     * 只有 MSE / FLAC 方式能接续，其他情况仍由 ended 事件按原方式切歌。
+     */
+    chainNext(upcoming) {
+      const entry = this.current && isElementMode(this.current.mode) && this.mse.sb ? upcoming : null;
       if (entry && entry === this.nextEntry) return;
       const serial = ++this.nextSerial;
       clearTimeout(this.nextRetry);
@@ -2882,7 +3414,8 @@
           this.nextRetry = setTimeout(() => {
             if (serial !== this.nextSerial) return;
             this.nextEntry = null;
-            this.prepareNext();
+            // Mixer 交回来的（规划为不过渡）：直接重试接续，prepareNext 会因 Mixer 已有这首而跳过
+            if (this.mixer.entry === entry) this.chainNext(entry); else this.prepareNext();
           }, 3000);
         });
     }
@@ -2994,35 +3527,58 @@
     }
 
     teardown() {
+      // 过渡中的另一首（淡出中的上一首、准备中的下一首）一起停掉
+      this.mixer.reset();
+      this.mixGain = 1;
       this.mse.destroy();
       if (this.pcm) { this.pcm.destroy(); this.pcm = null; }
       this.audio.pause();
       this.audio.removeAttribute('src');
       this.audio.load();
+      this.audio.playbackRate = 1;
+    }
+
+    /**
+     * 新建 PCM 引擎（EC-3 / JOC），回调只在它是当前引擎时生效（过渡中另一首的引擎不影响播放条）。
+     * JOC 的交互控制：同一首歌沿用当前的，换歌时增益、独奏与静音重新开始（成为当前曲目时才交给声场界面，见 adoptVoice）
+     */
+    createPcm(mode, item) {
+      let engine = null;
+      const current = (fn) => (...args) => { if (this.pcm === engine) return fn(...args); };
+      const onUpdate = current(() => this.updatePcm());
+      const onError = current((err) => this.showError(err.message || String(err)));
+      const onEnded = current(() => this.ended());
+      if (mode === 'ec3') engine = new PcmEngine(onUpdate, onError, onEnded);
+      else {
+        const joc = jocSettings();
+        const controls = this.spatial.track === item.track ? this.spatial
+          : { ...this.spatial, track: item.track, gains: new Array(16).fill(1), solo: [], mute: [] };
+        engine = new JocLiveEngine(onUpdate, onError, onEnded, {
+          mode: mode === 'jocbin' ? 'binaural' : 'speaker',
+          gainDb: joc.gain,
+          dataset: joc.dataset,
+          controls,
+          onClip: current(() => this.showError(() => t('player.jocClip'))),
+        });
+      }
+      engine.onRecover = current(() => this.showError(''));
+      engine.onRetry = current(() => this.renderError());
+      return engine;
+    }
+
+    /** JOC 引擎成为当前引擎：声场界面改用这首歌的交互控制 */
+    useSpatialOf(engine) {
+      if (!(engine instanceof JocEngine) || engine.controls === this.spatial) return;
+      this.spatial = engine.controls;
+      this.emitSpatial();
     }
 
     async tryMode(mode, item, resumeAt, token) {
       this.teardown();
       if (isPcmMode(mode)) {
-        const onError = (err) => this.showError(err.message || String(err));
-        if (mode === 'ec3') this.pcm = new PcmEngine(() => this.updatePcm(), onError, () => this.ended());
-        else {
-          const joc = jocSettings();
-          if (this.spatial.track !== item.track) {
-            this.spatial = { ...this.spatial, track: item.track, gains: new Array(16).fill(1), solo: [], mute: [] };
-            this.emitSpatial();
-          }
-          this.pcm = new JocLiveEngine(() => this.updatePcm(), onError, () => this.ended(), {
-            mode: mode === 'jocbin' ? 'binaural' : 'speaker',
-            gainDb: joc.gain,
-            dataset: joc.dataset,
-            controls: this.spatial,
-            onClip: () => this.showError(() => t('player.jocClip')),
-          });
-        }
+        this.pcm = this.createPcm(mode, item);
+        this.useSpatialOf(this.pcm);
         this.pcm.gain.gain.value = this.volume;
-        this.pcm.onRecover = () => this.showError('');
-        this.pcm.onRetry = () => this.renderError();
         await this.pcm.load(item.m3u8Url);
         if (token !== this.playToken) return;
         this.current.duration = this.pcm.duration;
@@ -3037,6 +3593,97 @@
       this.current.duration = this.mse.playlist ? this.mse.playlist.duration : 0;
       if (resumeAt > 0) this.audio.currentTime = resumeAt;
       await this.audio.play();
+    }
+
+    /* ---------- 过渡（Mixer）：准备下一首、摘下上一首、接上下一首 ---------- */
+
+    /**
+     * 在当前曲目之外准备 item（mode 方式），停在 at 秒处、音量为 0；返回 Voice。
+     * <audio> 方式用空闲的 deck（claimDeck），PCM 方式新建引擎。失败时释放并抛出
+     */
+    async prerollVoice(item, mode, at) {
+      if (isPcmMode(mode)) {
+        const engine = this.createPcm(mode, item);
+        engine.gain.gain.value = 0;
+        try {
+          await engine.load(item.m3u8Url);
+          if (at > 0) await engine.seek(at, false);
+        } catch (err) {
+          engine.destroy();
+          throw err;
+        }
+        return new Voice(this, item, mode, { engine });
+      }
+      const deck = this.claimDeck();
+      const { audio, mse } = deck;
+      audio.volume = 0;
+      audio.playbackRate = 1;
+      const current = (fn) => (...args) => { if (this.mse === mse) fn(...args); };
+      mse.onRecover = current(() => this.showError(''));
+      mse.onRetry = current(() => this.renderError());
+      try {
+        await mse.load(item.m3u8Url, item.codecs, current((err) => this.showError(err.message || String(err))), mode === 'flac');
+        if (!mse.playlist) throw new DOMException('stale', 'AbortError');
+        if (at > 0) audio.currentTime = at;
+      } catch (err) {
+        this.releaseDeck(deck);
+        throw err;
+      }
+      return new Voice(this, item, mode, { deck });
+    }
+
+    /** 当前曲目从播放条上摘下，交给 Mixer 淡出：之后它的事件与回调不再影响播放条。没有在播放的曲目时为 null */
+    detachVoice() {
+      const c = this.current;
+      if (!c) return null;
+      if (isPcmMode(c.mode)) {
+        const engine = this.pcm;
+        if (!engine) return null;
+        this.pcm = null;
+        return new Voice(this, c, c.mode, { engine });
+      }
+      if (!this.mse.playlist) return null;
+      this.mse.setNext(null);
+      return new Voice(this, c, c.mode, { deck: this.deck });
+    }
+
+    /** 过渡开始：准备好的下一首（voice）成为当前曲目，与 advance 一样更新队列位置与曲目信息 */
+    adoptVoice(entry, item, mode, voice) {
+      this.playToken++;
+      if (voice.deck) this.useDeck(voice.deck);
+      else {
+        // 上一首的 <audio> 正在淡出：当前 deck 换成空闲的，那边的事件（如 ended）不再影响播放条
+        if (this.deck.voice) this.useDeck(this.idleDeck());
+        this.pcm = voice.engine;
+        this.useSpatialOf(voice.engine);
+      }
+      const q = this.queue;
+      const pos = q ? q.entries.indexOf(entry) : -1;
+      if (pos >= 0) q.pos = pos;
+      this.nextEntry = null;
+      this.queueSerial++;
+      this.pendingTrack = null;
+      this.jocMode = jocSettings().mode;
+      this.jocStale = false;
+      this.jocFallback = isEc3(item.codecs) && jocSettings().mode === 'binaural' && mode !== 'jocbin';
+      this.current = { ...item, mode, duration: voice.duration };
+      this.applyVolume();
+      this.showError('');
+      this.renderTrackText();
+      this.renderArtwork(item);
+      this.renderMode();
+      this.updateMediaSession();
+      this.renderToggle();
+      this.renderProgress();
+      this.emit();
+      this.prepareNext();
+      this.extendQueue();
+    }
+
+    /** voice 是否就是当前曲目 */
+    isCurrentVoice(voice) {
+      return voice.deck ? this.deck === voice.deck && isElementMode(this.current && this.current.mode)
+        : !!voice.engine && this.pcm === voice.engine;
     }
 
     /** 某编码经实际尝试确认无法播放时回调 */
@@ -3206,6 +3853,6 @@
   }
 
   const api = { AmPlayer, Marquee, artistNodes, qualityBadge, qualityIcon, segmentAt, formatTime, detectMode, detectModes, mimeFor, useJocSettings, usePlaybackSettings };
-  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, PcmEngine, JocEngine, JocLiveEngine, sortVariants, pickPlayable };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { ...api, MseEngine, PcmEngine, JocEngine, JocLiveEngine, Mixer, Voice, sortVariants, pickPlayable };
   else global.AmHook = api;
 })(typeof window !== 'undefined' ? window : globalThis);

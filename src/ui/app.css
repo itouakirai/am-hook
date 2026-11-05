@@ -988,6 +988,18 @@ html[dir="rtl"] .volume-pop { transform-origin: left center; }
 .queue-clear { min-height: 32px; padding: 0 8px; border: 0; border-radius: 7px; background: none; color: var(--accent); font-size: 15px; }
 .queue-clear:hover { color: var(--accent-hover); }
 .queue-clear[hidden] { display: none; }
+/* 标题旁的 AutoMix 开关（player.js 的 renderAutomix）：开启时为强调色胶囊；混音进行中 ∞ 沿 8 字流动 */
+.queue-automix {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px 0 8px;
+  border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--muted);
+  font-size: 13px; font-weight: 600; white-space: nowrap; transition: color .15s, background-color .15s, border-color .15s;
+}
+.queue-automix svg { width: 19px; height: 19px; }
+.queue-automix:hover { color: var(--text); border-color: var(--line-strong); }
+.queue-automix[aria-pressed="true"] { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.queue-automix[hidden] { display: none; }
+.queue-automix.mixing path { stroke-dasharray: 62 38; animation: automix-flow 1.4s linear infinite; }
+@keyframes automix-flow { to { stroke-dashoffset: -100; } }
 .queue-empty { margin: 0; padding: 24px 28px 32px; color: var(--muted); font-size: 13px; line-height: 1.5; text-align: center; }
 .queue-empty[hidden] { display: none; }
 .queue-list {
@@ -1987,6 +1999,7 @@ html[dir="rtl"] .quality-option .q-icon { -webkit-mask-position: right center; m
 }
 @keyframes queue-in-lyrics { from { opacity: 0; transform: translateY(24px); } }
 .queue-panel.in-lyrics .queue-head { flex: none; height: 72px; padding: 0 10px; }
+.queue-panel.in-lyrics .queue-automix[aria-pressed="true"] { background: rgba(255, 255, 255, .16); color: #fff; }
 .queue-panel.in-lyrics .queue-list { padding: 0 0 70px; scrollbar-width: none; mask-image: linear-gradient(0deg, transparent, #000 70px); }
 /* 竖向布局的控件里没有随机 / 重复，放在清单标题旁；横向布局的控件里有 */
 .lyrics-overlay.layout-v ~ .queue-panel.in-lyrics .queue-switches { display: flex; }
