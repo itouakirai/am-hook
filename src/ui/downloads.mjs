@@ -21,7 +21,7 @@
 import { prefs, classify, pickVariant } from './prefs.mjs';
 import { buildIlst, imageType } from './mp4-tags.mjs';
 import { buildZip, crc32 } from './zip.mjs';
-import { formatPath, formatName, fitFolder, fitFile } from './naming.mjs';
+import { formatPath, formatName, fitFolder, fitFile, normalizeAlbumName } from './naming.mjs';
 import { ttmlToLrc } from './lrc.mjs';
 import { parseMaster, pickMvVideo, pickMvAudio, mvQualityVars } from './mv/hls.mjs';
 import { createFragmentScanner, tagValue, DEFECTS } from './alac-check.mjs';
@@ -79,11 +79,14 @@ function qualityVars(v) {
 }
 
 /* ---------- 封面 ---------- */
-/** artwork.url 模板 → 指定格式（jpg / png）与尺寸的下载地址 */
+/** artwork.url 模板 → 指定尺寸的 jpg / png；original 按原图扩展名选择格式，无法识别时用 jpg */
 export function coverUrl(template, format, size) {
   if (!template) return '';
-  const f = format === 'png' ? 'png' : 'jpg';
+  // 原图文件名在尺寸段之前（如 cover.png/{w}x{h}bb.jpg）；查询参数与片段不参与判断
+  const source = template.split(/[?#]/, 1)[0].match(/\.(png|jpe?g)(?=\/|$)/i);
+  const f = format === 'png' || (format === 'original' && source && source[1].toLowerCase() === 'png') ? 'png' : 'jpg';
   return template.replace('{w}', size).replace('{h}', size).replace('{c}', 'bb').replace('{f}', f)
+    .replace(/\.(?:jpe?g|png)(?=[?#]|$)/i, `.${f}`)
     .replace(/\{[a-z]+\}/g, '');
 }
 
@@ -411,12 +414,13 @@ function trackInfo(job, task) {
   const aa = (album && album.attributes) || (job.kind === 'album' && job.collection.attributes) || {};
   const artist = task.song.relationships && task.song.relationships.artists && task.song.relationships.artists.data && task.song.relationships.artists.data[0];
   const playlistTags = job.kind === 'playlist' && !job.options.playlistAlbumInfo;
+  const albumName = a.albumName || aa.name || '';
   const discCount = job.kind === 'album' ? job.collection.discCount : 0;
   return {
     mv: !!task.mv,
     title: a.name || '',
     artist: a.artistName || '',
-    album: playlistTags ? job.collection.name : a.albumName || aa.name || '',
+    album: playlistTags ? job.collection.name : job.options.normalizeAlbumName ? normalizeAlbumName(albumName) : albumName,
     albumArtist: playlistTags ? job.collection.artist : aa.artistName || a.albumArtistName || a.artistName || '',
     composer: a.composerName || '',
     genre: (a.genreNames || [])[0] || '',

@@ -121,3 +121,8 @@ export function fitFile(folder, segments) {
   const budget = Math.max(PATH_BUDGET - pathLength(folder) - FILE_SUFFIX, segments.length * 2);
   return pathLength(segments) > budget ? shrink(segments, budget) : segments;
 }
+
+/** 去掉专辑名末尾的 " - EP" / " - Single"；不带分隔符的 EP / Single 属于原名 */
+export function normalizeAlbumName(name) {
+  return name.replace(/\s+-\s+(?:EP|Single)\s*$/i, '') || name;
+}

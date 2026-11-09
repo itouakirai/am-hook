@@ -62,6 +62,11 @@ jobs:
         if: runner.os == 'Linux'
         run: node --test tests/serverless.mjs
 
+      - name: Run download tests
+        # ZIP、标签、文件名模板与封面选项，离线
+        if: runner.os == 'Linux'
+        run: node --test tests/download_core.mjs tests/download_options.mjs
+
       - name: Run ALAC check tests
         # 专辑页 ALAC 检测的解析与判定（src/ui/alac-check.mjs），离线
         if: runner.os == 'Linux'

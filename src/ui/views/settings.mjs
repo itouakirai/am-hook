@@ -497,6 +497,7 @@ export function mount({ root, signal, onLangChange, toast }) {
         el('span', { className: 'set-label' }, el('span', { textContent: t('set.embed') }), el('span', { className: 'set-desc', textContent: t('set.embedDesc') })),
         el('div', { className: 'set-control set-checks-box' }, el('div', { className: 'set-checks' }, ...checks), el('div', { className: 'set-mini-row' }, all, none))),
       row(t('set.sortTags'), t('set.sortTagsDesc'), toggle('sortTags', t('set.sortTags'))),
+      row(t('set.normalizeAlbumName'), t('set.normalizeAlbumNameDesc'), toggle('normalizeAlbumName', t('set.normalizeAlbumName'))),
       row(t('set.playlistAlbumInfo'), t('set.playlistAlbumInfoDesc'), toggle('playlistAlbumInfo', t('set.playlistAlbumInfo'))),
       row(t('set.metaLang'), t('set.metaLangDesc'), text('metaLang', t('set.followCatalog'), t('set.metaLang'), /^[A-Za-z0-9-]{1,35}$/)));
 

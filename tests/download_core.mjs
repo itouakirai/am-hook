@@ -4,13 +4,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildZip, zipParts, crc32, crc32Blob } from '../src/ui/zip.mjs';
 import { buildIlst } from '../src/ui/mp4-tags.mjs';
-import { formatPath, formatName, sanitize, fitFolder, fitFile } from '../src/ui/naming.mjs';
+import { formatPath, formatName, sanitize, fitFolder, fitFile, normalizeAlbumName } from '../src/ui/naming.mjs';
 import { pickMvVideo, pickMvAudio, mvQualityVars } from '../src/ui/mv-hls.mjs';
 // prefs.mjs 在加载时监听 storage 事件（其他标签页修改设置）；Node 中没有全局的 addEventListener
 globalThis.addEventListener ??= () => {};
 const { pickVariant, fallbackChain, DEFAULT_FALLBACK } = await import('../src/ui/prefs.mjs');
 
 const enc = new TextEncoder();
+
+test('album normalization removes only the separated suffix and preserves title text', () => {
+  for (const [raw, expected] of [
+    ['夏のせい ep', '夏のせい ep'], ['夏のせい ep - EP', '夏のせい ep'],
+    ['Wake Me Up! - Single', 'Wake Me Up!'], ['Amore (Special Edition) - EP', 'Amore (Special Edition)'],
+    ['Album\u00a0- EP', 'Album'], ['Album - SINGLE  ', 'Album'],
+    ['EP', 'EP'], ['Single', 'Single'], ['Title EP', 'Title EP'], ['Title-EP', 'Title-EP'],
+    ['Title - EP (Deluxe)', 'Title - EP (Deluxe)'], ['Single - Live', 'Single - Live'], ['', ''], [' - EP', ' - EP'],
+  ]) assert.equal(normalizeAlbumName(raw), expected, raw);
+});
 
 /** 读出 ZIP 的中央目录：[{ name, crc, size, offset }]，并按本地文件头取出内容 */
 async function readZip(blob) {

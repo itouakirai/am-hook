@@ -292,7 +292,8 @@ Like music.apple.com's Library and Playlists, but **stored only in your browser*
   - Save as: **ZIP** (one uncompressed file per album / playlist, ZIP64 above 4 GiB), **Folder** (written straight into a local folder through the File System Access API, with subfolders and optional skipping of existing files; desktop Chrome / Edge), or **Files**; playlists can include an `.m3u8`
   - File name templates for album / playlist folders (ZIP names), album tracks, playlist tracks and single songs; `/` makes subfolders, `{tracknum:02d}` pads, and the variables are `{title}` `{artist}` `{album}` `{album_artist}` `{composer}` `{genre}` `{tracknum}` `{tracktotal}` `{disk}` `{disktotal}` `{year}` `{release_date}` `{codec}` `{quality}` `{bit_depth}` `{sample_rate}` `{sample_rate_kHz}` `{explicit}` `{song_id}` `{album_id}` `{artist_id}` `{isrc}` `{upc}` `{record_label}` `{copyright}` `{playlist}` `{playlist_id}` `{curator}` `{index}`, with a live preview; `/` and other invalid characters in values become `_`
   - Tags: which fields to embed (title, artist, album, album artist, composer, genre, release date, track #, disc #, lyrics, cover, copyright, label, UPC, ISRC, rating, song / album / artist IDs), sort-order tags, original album info or playlist info for playlist tracks, metadata language
-  - Cover art: JPEG / PNG and size, set separately for the embedded cover and the separate `cover.jpg` / `cover.png`
+  - Album names: optional “Clean album suffixes” (off by default) removes only a trailing ` - EP` / ` - Single` from download tags, filename templates and ZIP / folder names; preserves title text such as “夏のせい ep” and leaves playlist names unchanged
+  - Cover art: size and JPEG / PNG / Follow original format, set separately for the embedded cover and the separate `cover.jpg` / `cover.png`; Follow original uses the source file extension in the artwork URL to choose PNG or JPEG, falling back to JPEG when unknown. Embedding is set under Embedded tags
   - Lyrics: separate `.lrc` / `.ttml`, word timing (enhanced LRC), translation / pronunciation lines, lyrics language
 - **Downloading**: the download button on album and playlist pages (next to Play and Shuffle) opens a dialog to change the quality for this download and pick tracks (all songs by default, and the music videos unless that is turned off in Settings; unreleased tracks cannot be picked); songs, music videos, albums and playlists can also be downloaded from every More menu (track rows, search results, shelves…); "Download decrypted file" on the song page goes through the same download manager (`src/ui/downloads.mjs`) and is tagged too.
   - After each song is decrypted in the browser, `media.wasm` writes the iTunes tags (`moov.udta.meta.ilst`, the go-mp4tag fields) with cover art and lyrics into `moov` while converting to a progressive MP4, so the file is not rewritten a second time; cover art and lyrics are fetched alongside the audio and simply left out if unavailable
@@ -447,7 +448,7 @@ Browser-side tests are plain Node scripts. `<playwright>` is the path to a Playw
 | `node --test tests/player_*.cjs` | Player |
 | `node tests/mv_hls.cjs`, `node tests/mv_captions.cjs` | MV playlists and captions |
 | `node --test tests/serverless.mjs` | The serverless backend and the `dist/` layout; also run in CI |
-| `node --test tests/download_core.mjs` | ZIP / ZIP64, iTunes tags, file name templates |
+| `node --test tests/download_core.mjs tests/download_options.mjs` | ZIP / ZIP64, iTunes tags, filename templates, album suffixes and cover options |
 | `node --test tests/alac_check.mjs` | ALAC check: escape-frame end verdicts (including the cases from issue #136), moof / init parsing, the prefetch key in multi-DRM playlists, bandwidth verdicts; also run by CI |
 | `node --test tests/joc_wasm.mjs` | `src/ui/joc.wasm` against the same reference digests as `crates/joc-core`, all 20 HRTF fields, an invalid HRTF, and the real-time factor of both modes; also run by CI |
 
@@ -478,6 +479,7 @@ Browser-side tests are plain Node scripts. `<playwright>` is the path to a Playw
 | `node tests/search_ui.cjs <playwright> [base]`, `node tests/album_ui.cjs <playwright> [base]`, `node tests/playlist_ui.cjs <playwright> [base]`, `node tests/artist_ui.cjs <playwright> [base]`, `node tests/browse_ui.cjs <playwright> [base]` | Search, album, playlist, artist and browse pages (need access to music.apple.com) |
 | `node tests/app_ui.cjs <playwright> [base]` | Single-page app: playback across navigation, queue, Back / Forward, lyrics |
 | `node tests/download_ui.cjs <playwright> [base]` | Batch downloads: settings, album ZIP tags / cover / lyrics, folder mode, playlists and .m3u8, music videos, cancel / retry; needs wrapper-lite with the cn region |
+| `node tests/download_options_ui.cjs <playwright> [base]` | Download options: persistence, album suffixes and cover formats in real downloads; needs wrapper-lite with the jp region |
 | `node tests/radio_live.cjs <playwright> [base] [token-file]` | Stations: needs a media-user-token from token-file, `AM_HOOK_MEDIA_USER_TOKEN` or `target/my-media-user-token.txt`; genre and personal stations, Widevine license / playback / seeking / M4A download of an episode from recently played radio, and live radio simulated over its segments |
 
 </details>

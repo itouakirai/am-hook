@@ -134,7 +134,7 @@ export const OPTIONS = {
     alacMax: [192000, 96000, 48000, 44100],
     atmosMax: [2768, 2448],
     saveMode: ['zip', 'folder', 'files'],
-    coverFormat: ['jpg', 'png'],
+    coverFormat: ['jpg', 'png', 'original'],
     lyricsFormat: ['lrc', 'ttml'],
     // MV：最高分辨率（高度）与音轨（同参考实现的 mv-max / mv-audio-type）
     mvMax: [2160, 1440, 1080, 720, 480],
@@ -196,6 +196,8 @@ export const DEFAULTS = {
     // 标签
     embed: [...TAG_FIELDS],
     sortTags: false,
+    // 去掉专辑名末尾的 " - EP" / " - Single"，同时用于标签与文件名变量
+    normalizeAlbumName: false,
     // 歌单中的曲目写入原专辑信息（专辑名、曲目号等）；关闭时专辑为歌单名、曲目号为歌单中的序号
     playlistAlbumInfo: true,
     // 元数据（歌名、专辑名等）的语言；空为跟随曲库语言
@@ -293,6 +295,7 @@ function clean(section, raw) {
     singleFile: template(r.singleFile, d.singleFile),
     embed: Array.isArray(r.embed) ? TAG_FIELDS.filter((f) => r.embed.includes(f)) : [...d.embed],
     sortTags: bool(r.sortTags, d.sortTags),
+    normalizeAlbumName: bool(r.normalizeAlbumName, d.normalizeAlbumName),
     playlistAlbumInfo: bool(r.playlistAlbumInfo, d.playlistAlbumInfo),
     metaLang: typeof r.metaLang === 'string' && LANG_TAG.test(r.metaLang.trim()) ? r.metaLang.trim() : d.metaLang,
     coverFormat: oneOf(r.coverFormat, o.coverFormat, d.coverFormat),
