@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.6.8 (2026-11-09)
+
+### New
+- ✨ Drop the EP / Single suffix from album names (settings → Downloads → Tags, off by default): "Wake Me Up - Single" becomes "Wake Me Up" in the album and sort tags, `{album}` in file name templates, and album folder / ZIP names alike; only a trailing `EP` / `Single` separated by " - " is removed, so names such as "夏のせい ep" and playlist names are kept
+- ✨ A "Same as source" cover format (PNG for PNG / TIFF sources, otherwise JPEG) and an original-size option (0x0ss) for both embedded and saved covers; the cover settings are now two cards, "Embed in tracks" and "Save as file", each with its own switch, format and size, and a preview of the requested URL
+- ✨ JPEG covers are requested at quality 100 (`bb-100.jpg`) instead of the default ~85%
+
+### Fixes
+- 🐛 Choosing the PNG cover format still downloaded JPEG for most songs and albums, whose artwork URL template hardcodes `.jpg`: the trailing extension is now replaced with the chosen format
+- 🐛 Windows Explorer showed neither tags nor duration for downloaded ALAC files: the leftover `free` box in the audio sample entry after decryption is removed
+
 ## v0.6.7 (2026-11-05)
 
 ### New
