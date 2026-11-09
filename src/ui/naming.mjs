@@ -28,6 +28,17 @@ export const TEMPLATE_SCOPES = {
   singleFile: SONG_VARS,
 };
 
+// Apple Music 给 EP / 单曲的专辑名附加的分类后缀（各店面、各元数据语言都是这两个英文词）：只认末尾
+// 「空白 - 空白」分隔、大小写一致的，「夏のせい ep」「Re-Single」这类名字本身的文字不动
+const ALBUM_SUFFIX = /\s+-\s+(?:EP|Single)\s*$/;
+
+/** 去掉专辑名末尾的 ` - EP` / ` - Single`（设置「去掉专辑名的 EP / Single 后缀」）；去掉后为空时保留原名 */
+export function stripAlbumSuffix(name) {
+  const s = String(name ?? '');
+  const out = s.replace(ALBUM_SUFFIX, '');
+  return out.trim() ? out : s;
+}
+
 const PLACEHOLDER = /\{([A-Za-z_]+)(?::0?(\d{1,2})d)?\}/g;
 
 /** 模板中不认识的变量（unknown，会原样保留）与不适用于该模板的变量（outside，为空、原样保留或没有意义） */

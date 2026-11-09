@@ -291,7 +291,7 @@ Like music.apple.com's Library and Playlists, but **stored only in your browser*
   - Performance: tracks at once, retry attempts, OPFS staging
   - Save as: **ZIP** (one uncompressed file per album / playlist, ZIP64 above 4 GiB), **Folder** (written straight into a local folder through the File System Access API, with subfolders and optional skipping of existing files; desktop Chrome / Edge), or **Files**; playlists can include an `.m3u8`
   - File name templates for album / playlist folders (ZIP names), album tracks, playlist tracks and single songs; `/` makes subfolders, `{tracknum:02d}` pads, and the variables are `{title}` `{artist}` `{album}` `{album_artist}` `{composer}` `{genre}` `{tracknum}` `{tracktotal}` `{disk}` `{disktotal}` `{year}` `{release_date}` `{codec}` `{quality}` `{bit_depth}` `{sample_rate}` `{sample_rate_kHz}` `{explicit}` `{song_id}` `{album_id}` `{artist_id}` `{isrc}` `{upc}` `{record_label}` `{copyright}` `{playlist}` `{playlist_id}` `{curator}` `{index}`, with a live preview; `/` and other invalid characters in values become `_`
-  - Tags: which fields to embed (title, artist, album, album artist, composer, genre, release date, track #, disc #, lyrics, cover, copyright, label, UPC, ISRC, rating, song / album / artist IDs), sort-order tags, original album info or playlist info for playlist tracks, metadata language
+  - Tags: which fields to embed (title, artist, album, album artist, composer, genre, release date, track #, disc #, lyrics, cover, copyright, label, UPC, ISRC, rating, song / album / artist IDs), sort-order tags, original album info or playlist info for playlist tracks, dropping the " - EP" / " - Single" suffix from album names (tags, file and folder names alike; off by default), metadata language
   - Cover art: JPEG / PNG and size, set separately for the embedded cover and the separate `cover.jpg` / `cover.png`
   - Lyrics: separate `.lrc` / `.ttml`, word timing (enhanced LRC), translation / pronunciation lines, lyrics language
 - **Downloading**: the download button on album and playlist pages (next to Play and Shuffle) opens a dialog to change the quality for this download and pick tracks (all songs by default, and the music videos unless that is turned off in Settings; unreleased tracks cannot be picked); songs, music videos, albums and playlists can also be downloaded from every More menu (track rows, search results, shelves…); "Download decrypted file" on the song page goes through the same download manager (`src/ui/downloads.mjs`) and is tagged too.
@@ -447,7 +447,7 @@ Browser-side tests are plain Node scripts. `<playwright>` is the path to a Playw
 | `node --test tests/player_*.cjs` | Player |
 | `node tests/mv_hls.cjs`, `node tests/mv_captions.cjs` | MV playlists and captions |
 | `node --test tests/serverless.mjs` | The serverless backend and the `dist/` layout; also run in CI |
-| `node --test tests/download_core.mjs` | ZIP / ZIP64, iTunes tags, file name templates |
+| `node --test tests/download_core.mjs` | ZIP / ZIP64, iTunes tags, file name templates, album name suffix |
 | `node --test tests/alac_check.mjs` | ALAC check: escape-frame end verdicts (including the cases from issue #136), moof / init parsing, the prefetch key in multi-DRM playlists, bandwidth verdicts; also run by CI |
 | `node --test tests/joc_wasm.mjs` | `src/ui/joc.wasm` against the same reference digests as `crates/joc-core`, all 20 HRTF fields, an invalid HRTF, and the real-time factor of both modes; also run by CI |
 

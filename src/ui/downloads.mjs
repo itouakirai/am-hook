@@ -21,7 +21,7 @@
 import { prefs, classify, pickVariant } from './prefs.mjs';
 import { buildIlst, imageType } from './mp4-tags.mjs';
 import { buildZip, crc32 } from './zip.mjs';
-import { formatPath, formatName, fitFolder, fitFile } from './naming.mjs';
+import { formatPath, formatName, fitFolder, fitFile, stripAlbumSuffix } from './naming.mjs';
 import { ttmlToLrc } from './lrc.mjs';
 import { parseMaster, pickMvVideo, pickMvAudio, mvQualityVars } from './mv/hls.mjs';
 import { createFragmentScanner, tagValue, DEFECTS } from './alac-check.mjs';
@@ -426,11 +426,13 @@ function trackInfo(job, task) {
   const artist = task.song.relationships && task.song.relationships.artists && task.song.relationships.artists.data && task.song.relationships.artists.data[0];
   const playlistTags = job.kind === 'playlist' && !job.options.playlistAlbumInfo;
   const discCount = job.kind === 'album' ? job.collection.discCount : 0;
+  // 专辑名在这里统一处理：标签、排序标签、文件名与文件夹 / ZIP 名都取自 info.album；歌单名不动
+  const albumName = a.albumName || aa.name || '';
   return {
     mv: !!task.mv,
     title: a.name || '',
     artist: a.artistName || '',
-    album: playlistTags ? job.collection.name : a.albumName || aa.name || '',
+    album: playlistTags ? job.collection.name : job.options.stripAlbumSuffix ? stripAlbumSuffix(albumName) : albumName,
     albumArtist: playlistTags ? job.collection.artist : aa.artistName || a.albumArtistName || a.artistName || '',
     composer: a.composerName || '',
     genre: (a.genreNames || [])[0] || '',

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildZip, zipParts, crc32, crc32Blob } from '../src/ui/zip.mjs';
 import { buildIlst } from '../src/ui/mp4-tags.mjs';
-import { formatPath, formatName, sanitize, fitFolder, fitFile } from '../src/ui/naming.mjs';
+import { formatPath, formatName, sanitize, fitFolder, fitFile, stripAlbumSuffix } from '../src/ui/naming.mjs';
 import { pickMvVideo, pickMvAudio, mvQualityVars } from '../src/ui/mv-hls.mjs';
 // prefs.mjs 在加载时监听 storage 事件（其他标签页修改设置）；Node 中没有全局的 addEventListener
 globalThis.addEventListener ??= () => {};
@@ -188,6 +188,19 @@ test('file name templates: padding, subfolders, sanitizing', () => {
   assert.equal(sanitize('Thumbs.db'), '_Thumbs.db');
   assert.equal(sanitize('Live.Local'), 'Live_Local');
   assert.equal(sanitize('\u3000Title\u3000'), 'Title');
+});
+
+test('stripAlbumSuffix: only the trailing " - EP" / " - Single" Apple Music adds', () => {
+  assert.equal(stripAlbumSuffix('Wake Me Up - Single'), 'Wake Me Up');
+  assert.equal(stripAlbumSuffix('Amore (Special Edition) - EP'), 'Amore (Special Edition)');
+  assert.equal(stripAlbumSuffix('Title  -  EP '), 'Title');
+  // 名字本身的文字：没有「 - 」分隔、大小写不同、不在末尾、连字符没有空格
+  for (const keep of ['夏のせい ep', 'Night - ep', 'Single - EP Remixes', 'Re-Single', 'The EP', '- Single', 'EP']) {
+    assert.equal(stripAlbumSuffix(keep), keep);
+  }
+  // 只去一次：「X - EP - Single」之类的名字只去掉 Apple 附加的那一个
+  assert.equal(stripAlbumSuffix('X - EP - Single'), 'X - EP');
+  assert.equal(stripAlbumSuffix(undefined), '');
 });
 
 test('file name templates: total path length stays within the Windows limit', () => {

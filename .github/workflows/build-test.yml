@@ -81,3 +81,8 @@ jobs:
         # 歌词的对唱侧（src/ui/lyrics/ttml.mjs 的 duetSides 照 AMLL 逐行决定 isDuet），离线
         if: runner.os == 'Linux'
         run: node --test tests/agent_duet.mjs
+
+      - name: Run download core tests
+        # 批量下载的纯函数部分（ZIP / ZIP64、iTunes 标签、文件名模板与专辑名后缀、音质选择），离线
+        if: runner.os == 'Linux'
+        run: node --test tests/download_core.mjs

@@ -199,6 +199,8 @@ export const DEFAULTS = {
     sortTags: false,
     // 歌单中的曲目写入原专辑信息（专辑名、曲目号等）；关闭时专辑为歌单名、曲目号为歌单中的序号
     playlistAlbumInfo: true,
+    // 去掉专辑名末尾 Apple Music 附加的 ` - EP` / ` - Single`（标签与文件名、文件夹名一致）
+    stripAlbumSuffix: false,
     // 元数据（歌名、专辑名等）的语言；空为跟随曲库语言
     metaLang: '',
     // 封面：嵌入标签的与另存的 cover 文件分开设置
@@ -298,6 +300,7 @@ function clean(section, raw) {
     embed: Array.isArray(r.embed) ? TAG_FIELDS.filter((f) => r.embed.includes(f)) : [...d.embed],
     sortTags: bool(r.sortTags, d.sortTags),
     playlistAlbumInfo: bool(r.playlistAlbumInfo, d.playlistAlbumInfo),
+    stripAlbumSuffix: bool(r.stripAlbumSuffix, d.stripAlbumSuffix),
     metaLang: typeof r.metaLang === 'string' && LANG_TAG.test(r.metaLang.trim()) ? r.metaLang.trim() : d.metaLang,
     coverFormat: oneOf(r.coverFormat, o.coverFormat, d.coverFormat),
     coverSize: int(r.coverSize, 100, 10000, d.coverSize),

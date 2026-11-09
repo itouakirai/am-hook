@@ -559,6 +559,7 @@ export function mount({ root, signal, onLangChange, toast }) {
         el('div', { className: 'set-control set-checks-box' }, el('div', { className: 'set-checks' }, ...checks), el('div', { className: 'set-mini-row' }, all, none))),
       row(t('set.sortTags'), t('set.sortTagsDesc'), toggle('sortTags', t('set.sortTags'))),
       row(t('set.playlistAlbumInfo'), t('set.playlistAlbumInfoDesc'), toggle('playlistAlbumInfo', t('set.playlistAlbumInfo'))),
+      row(t('set.stripAlbumSuffix'), t('set.stripAlbumSuffixDesc'), toggle('stripAlbumSuffix', t('set.stripAlbumSuffix'))),
       row(t('set.metaLang'), t('set.metaLangDesc'), text('metaLang', t('set.followCatalog'), t('set.metaLang'), /^[A-Za-z0-9-]{1,35}$/)));
 
     // 封面：「嵌入到歌曲」与「另存为文件」两张卡片，各自一个开关（嵌入的开关即「标签」里的封面勾选）、格式、尺寸，

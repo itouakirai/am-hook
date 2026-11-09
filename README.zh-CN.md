@@ -291,7 +291,7 @@ am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
   - 性能：同时下载的曲目数、失败重试次数、是否用 OPFS 暂存
   - 保存方式：**ZIP**（整张专辑 / 歌单一个文件，不压缩，超过 4 GiB 时为 ZIP64）、**文件夹**（File System Access API 直接写入选定的本地文件夹，可建子文件夹，可跳过已存在的文件；需要 Chrome / Edge 桌面版）、**逐个文件**；歌单可附带 `.m3u8` 播放列表
   - 文件名模板：专辑 / 歌单文件夹（ZIP 名）、专辑曲目、歌单曲目、单曲；`/` 表示子文件夹，`{tracknum:02d}` 补零，变量有 `{title}` `{artist}` `{album}` `{album_artist}` `{composer}` `{genre}` `{tracknum}` `{tracktotal}` `{disk}` `{disktotal}` `{year}` `{release_date}` `{codec}` `{quality}` `{bit_depth}` `{sample_rate}` `{sample_rate_kHz}` `{explicit}` `{song_id}` `{album_id}` `{artist_id}` `{isrc}` `{upc}` `{record_label}` `{copyright}` `{playlist}` `{playlist_id}` `{curator}` `{index}`，编辑时实时预览；变量值里的 `/` 等非法字符替换为 `_`
-  - 标签：可选写入的字段（标题、艺人、专辑、专辑艺人、作曲、流派、发行日期、曲目号、碟号、歌词、封面、版权、厂牌、UPC、ISRC、分级、歌曲 / 专辑 / 艺人 ID），排序字段，歌单曲目使用原专辑信息或歌单信息，元数据语言
+  - 标签：可选写入的字段（标题、艺人、专辑、专辑艺人、作曲、流派、发行日期、曲目号、碟号、歌词、封面、版权、厂牌、UPC、ISRC、分级、歌曲 / 专辑 / 艺人 ID），排序字段，歌单曲目使用原专辑信息或歌单信息，去掉专辑名末尾的「 - EP」/「 - Single」（标签与文件名、文件夹名一致，默认关闭），元数据语言
   - 封面：JPEG / PNG 与尺寸，嵌入的封面和另存的 `cover.jpg` / `cover.png` 分开设置
   - 歌词：另存 `.lrc` / `.ttml`、逐字（增强型 LRC）、附带翻译 / 发音、歌词语言
 - **下载**：专辑页与歌单页的下载按钮（播放、随机播放旁）打开对话框，可临时改音质并选择曲目（默认全部歌曲，以及设置中没有关闭时的 MV；未发行的曲目不能选择）；各处的「更多」菜单（曲目行、搜索结果、货架等）中的歌曲、MV、专辑与歌单也可直接下载；歌曲页各音质的「下载解密文件」同样经下载管理器（`src/ui/downloads.mjs`）进行，带标签。
@@ -447,7 +447,7 @@ cargo test --test e2e_test -- --ignored
 | `node --test tests/player_*.cjs` | 播放器 |
 | `node tests/mv_hls.cjs`、`node tests/mv_captions.cjs` | MV 清单与字幕 |
 | `node --test tests/serverless.mjs` | serverless 后端与 `dist/` 的生成，CI 也会运行 |
-| `node --test tests/download_core.mjs` | ZIP / ZIP64、iTunes 标签、文件名模板 |
+| `node --test tests/download_core.mjs` | ZIP / ZIP64、iTunes 标签、文件名模板与专辑名后缀 |
 | `node --test tests/alac_check.mjs` | ALAC 检测：原样帧末尾的判定（含 issue #136 中的实例）、moof / init 解析、多 DRM 清单中的预取密钥、频宽结论；CI 也会运行 |
 | `node --test tests/joc_wasm.mjs` | `src/ui/joc.wasm` 与 `crates/joc-core` 相同的参考摘要、20 组 HRTF、无效 HRTF，以及两种模式的实时倍率；CI 也会运行 |
 
