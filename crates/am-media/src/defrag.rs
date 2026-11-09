@@ -440,6 +440,9 @@ fn build_progressive_moov(moov: &mut Atom, tracks: &[Track]) -> Result<()> {
     for trak in moov.children_mut().iter_mut().filter(|c| &c.kind == b"trak") {
         let id = tkhd_track_id(trak)?;
         let td = *by_id.get(&id).ok_or_else(|| Error::msg(format!("track {id} is missing collected data")))?;
+        if trak.path(&[b"mdia", b"hdlr"]).is_some_and(|h| h.bytes().get(8..12) == Some(b"soun")) {
+            strip_entry_padding(trak.req_mut(&[b"mdia", b"minf", b"stbl", b"stsd"])?);
+        }
         let remap = merge_duplicate_entries(trak.req_mut(&[b"mdia", b"minf", b"stbl", b"stsd"])?);
         let descriptions = normalize_descriptions(td, &remap)?;
         rebuild_sample_table(trak.req_mut(&[b"mdia", b"minf", b"stbl"])?, td, &descriptions)?;
@@ -537,6 +540,33 @@ fn scale_duration(value: u64, from: u64, to: u64) -> Result<u64> {
         result = result.checked_add(r * to / from).ok_or_else(|| Error::new("duration scaling overflows uint64"))?;
     }
     Ok(result)
+}
+
+/// Removes `free`/`skip` boxes from audio sample entries. Decryption keeps the
+/// former `sinf` of an entry as a zeroed `free` box of the same size (see
+/// am-mp4's `patch_init_segment`). Most players ignore it, but the Windows
+/// ALAC parser rejects an `alac` entry with anything after its config box: the
+/// whole file then shows neither tags nor duration in Explorer.
+fn strip_entry_padding(stsd: &mut Atom) {
+    const PADDING: [&FourCC; 2] = [b"free", b"skip"];
+    for entry in stsd.children_mut() {
+        let Body::Data(payload) = &mut entry.body else { continue };
+        // SampleEntry(8) + AudioSampleEntry(20); QuickTime sound versions 1 and 2 add 16 and 36 bytes.
+        let head = match payload.get(8..10) {
+            Some([0, 1]) => 44,
+            Some([0, 2]) => 64,
+            _ => 28,
+        };
+        let Ok(boxes) = bmff::spans(payload, head.min(payload.len()), payload.len()) else { continue };
+        if payload.len() < head || !boxes.iter().any(|b| PADDING.contains(&&b.kind)) {
+            continue;
+        }
+        let mut kept = payload[..head].to_vec();
+        for b in boxes.iter().filter(|b| !PADDING.contains(&&b.kind)) {
+            kept.extend_from_slice(&payload[b.start..b.end]);
+        }
+        *payload = kept;
+    }
 }
 
 /// Drops stsd entries that are byte-identical to an earlier one and returns the
@@ -977,7 +1007,7 @@ fn write_progressive<S: Source, W: Sink>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{entry, fragment, init, sample_data, Run, TrackSpec};
+    use crate::testutil::{entry, fragment, init, leaf, sample_data, Run, TrackSpec};
 
     struct Spec {
         id: u32,
@@ -1124,6 +1154,23 @@ mod tests {
         // mdhd carries the media duration.
         let mdhd = moov.path(&[b"trak", b"mdia", b"mdhd"]).unwrap().bytes();
         assert_eq!(be32(mdhd, 16), 100 * 4096);
+    }
+
+    /// The zeroed `free` left by decryption (the former sinf) must not stay
+    /// inside an audio sample entry: Windows then ignores the whole file.
+    #[test]
+    fn audio_entry_drops_free_left_by_decryption() {
+        let config = leaf(b"alac", &[0x11; 24]);
+        let padded = leaf(b"alac", &[vec![0u8; 28], config.clone(), leaf(b"free", &[0; 89])].concat());
+        let mut src = init(&[TrackSpec { id: 1, timescale: 44100, entry: padded }]);
+        let samples = (0..4).map(|i| (4096, 0, sample_data(1, i))).collect();
+        src.extend(fragment(1, &[Run { track: 1, start_time: 0, samples }], &|_| Vec::new()));
+        let mut out = Vec::new();
+        defragment(&src[..], &mut out, &Options::song()).unwrap();
+        let atoms = bmff::parse(&out).unwrap();
+        let stsd = atoms[1].path(&[b"trak", b"mdia", b"minf", b"stbl", b"stsd"]).unwrap();
+        assert_eq!(stsd.children().len(), 1);
+        assert_eq!(stsd.children()[0].bytes(), [vec![0u8; 28], config].concat());
     }
 
     /// Tags (here with a cover larger than the samples) sit in moov before
