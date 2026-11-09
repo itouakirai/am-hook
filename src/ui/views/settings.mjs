@@ -4,7 +4,7 @@
 // 保存在 prefs.mjs，修改立即生效（播放音质从下一首起，JOC 的方式正在播放的曲目随之切换，见 player.js；进行中的下载沿用开始时的设置）。
 import { prefs, OPTIONS, CODEC_GROUPS, TAG_FIELDS, TAG_NAME, DEFAULTS, DEFAULT_FALLBACK, playbackFor, onNetworkChange } from '../prefs.mjs';
 import { formatPath, fitFolder, fitFile, templateIssues, TEMPLATE_VAR_GROUPS, TEMPLATE_SCOPES } from '../naming.mjs';
-import { downloads } from '../downloads.mjs';
+import { downloads, coverUrl } from '../downloads.mjs';
 import { userToken, askToken, onTokenChange } from '../station.mjs';
 
 const { AmI18n, AmDecrypt } = window;
@@ -31,6 +31,12 @@ function volumeControllable() {
     return false;
   }
 }
+
+/** 封面：常用尺寸挡位，与预览用的一个原图为 jpg 的 artwork 模板 */
+const COVER_SIZES = [1400, 3000];
+const SAMPLE_ARTWORK = 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/33/fd/32/33fd32b1-0e43-9b4a-8ed6-19643f23544e/21UMGIM26092.rgb.jpg/{w}x{h}bb.{f}';
+const ICON_COVER_EMBED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>';
+const ICON_COVER_SAVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9" r="1.6"/><path d="m20.5 15-4.5-4.5L5 20.5"/></svg>';
 
 /** 三个标签页，及各页的分组 id（地址的 hash 指向分组时打开其所在的页） */
 const TABS = ['general', 'playback', 'download'];
@@ -245,6 +251,61 @@ export function mount({ root, signal, onLangChange, toast }) {
       reset.disabled = !Array.isArray(v.fallbackOrder[v.codec]);
     });
     return el('div', { className: 'set-chain-box' }, list, el('div', { className: 'set-mini-row' }, add, reset));
+  }
+
+  /** 封面卡片：标题行带开关，关闭时收起；格式与尺寸为分段按钮（尺寸含常用挡位、原图与自定义），底部预览请求的地址结尾 */
+  function coverPanel({ kind, icon, on, setOn, format, size, original, warn }) {
+    const title = t(`set.cover.${kind}`);
+    const input = el('input', { type: 'checkbox', className: 'set-switch-input' });
+    input.setAttribute('role', 'switch');
+    input.setAttribute('aria-label', title);
+    input.addEventListener('change', () => setOn(input.checked));
+    const head = el('label', { className: 'set-cover-head' },
+      el('span', { className: 'set-cover-icon', innerHTML: icon, ariaHidden: 'true' }),
+      el('span', { className: 'set-label' }, el('span', { textContent: title }), el('span', { className: 'set-desc', textContent: t(`set.cover.${kind}Desc`) })),
+      el('span', { className: 'set-switch' }, input, el('span', { className: 'set-switch-track', ariaHidden: 'true' })));
+
+    const formats = segmented(format, OPTIONS.download.coverFormat.map((f) => [f, t(`set.coverFormat.${f}`)]), t('set.cover.format'));
+
+    // 尺寸：挡位 / 原图 / 自定义（选自定义或尺寸不是挡位时露出数字框）
+    let custom = false;
+    const pick = (value) => {
+      custom = value === 'custom';
+      if (value === 'original') set({ [original]: true });
+      else if (custom) { set({ [original]: false }); requestAnimationFrame(() => { px.focus(); px.select(); }); }
+      else set({ [original]: false, [size]: value });
+    };
+    const [sizes, syncSizes] = radios(t('set.cover.size'),
+      [...COVER_SIZES.map((n) => [n, String(n)]), ['original', t('set.cover.original')], ['custom', t('set.cover.custom')]], pick);
+    const px = number(size, 100, 10000, t('set.cover.size'));
+    const pxBox = el('span', { className: 'set-unit-box set-cover-px' }, px, el('span', { className: 'set-unit', textContent: 'px' }));
+
+    const url = el('code', { className: 'set-cover-url' });
+    const spec = el('span', { className: 'set-cover-spec' });
+    const note = warn ? el('span', { className: 'set-cover-warn', textContent: t('set.cover.embedWarn') }) : null;
+    const field = (key, ...control) => el('div', { className: 'set-cover-field' },
+      el('span', { className: 'set-cover-key', textContent: t(key) }), el('div', { className: 'set-cover-value' }, ...control));
+    const body = el('div', { className: 'set-cover-body' },
+      field('set.cover.format', formats),
+      field('set.cover.size', sizes, pxBox),
+      el('div', { className: 'set-cover-preview' }, url, spec),
+      note);
+    const panel = el('div', { className: `set-cover is-${kind}` }, head, body);
+
+    controls.push((v) => {
+      const enabled = on(v);
+      input.checked = enabled;
+      panel.classList.toggle('is-off', !enabled);
+      body.hidden = !enabled;
+      if (!COVER_SIZES.includes(v[size])) custom = true;
+      const current = v[original] ? 'original' : custom ? 'custom' : v[size];
+      syncSizes(current);
+      pxBox.hidden = current !== 'custom';
+      url.textContent = coverUrl(SAMPLE_ARTWORK, v[format], v[original] ? 'original' : v[size]).split('/').pop();
+      spec.textContent = `${v[original] ? t('set.cover.originalSize') : `${v[size]} × ${v[size]}`} · ${t(`set.cover.spec.${v[format]}`)}`;
+      if (note) note.hidden = !warn(v);
+    });
+    return panel;
   }
 
   function section(id, titleKey, ...rows) {
@@ -500,15 +561,22 @@ export function mount({ root, signal, onLangChange, toast }) {
       row(t('set.playlistAlbumInfo'), t('set.playlistAlbumInfoDesc'), toggle('playlistAlbumInfo', t('set.playlistAlbumInfo'))),
       row(t('set.metaLang'), t('set.metaLangDesc'), text('metaLang', t('set.followCatalog'), t('set.metaLang'), /^[A-Za-z0-9-]{1,35}$/)));
 
-    const formats = o.coverFormat.map((f) => [f, t(`set.coverFormat.${f}`)]);
-    const saveFormatRow = row(t('set.saveCoverFormat'), t('set.saveCoverFormatDesc'), select('saveCoverFormat', formats));
-    const saveSizeRow = row(t('set.saveCoverSize'), t('set.coverSizeDesc'), number('saveCoverSize', 100, 10000, t('set.saveCoverSize')));
-    const cover = section('cover', 'set.cover',
-      row(t('set.coverFormat'), t('set.coverFormatDesc'), select('coverFormat', formats)),
-      row(t('set.coverSize'), t('set.coverSizeDesc'), number('coverSize', 100, 10000, t('set.coverSize'))),
-      row(t('set.saveCover'), t('set.saveCoverDesc'), toggle('saveCover', t('set.saveCover'))),
-      saveFormatRow, saveSizeRow);
-    controls.push((v) => { saveFormatRow.hidden = !v.saveCover; saveSizeRow.hidden = !v.saveCover; });
+    // 封面：「嵌入到歌曲」与「另存为文件」两张卡片，各自一个开关（嵌入的开关即「标签」里的封面勾选）、格式、尺寸，
+    // 底部预览实际请求的地址结尾（如 3000x3000bb-100.jpg）
+    const embedCover = coverPanel({
+      kind: 'embed', icon: ICON_COVER_EMBED,
+      on: (v) => v.embed.includes('cover'),
+      setOn: (on) => set({ embed: TAG_FIELDS.filter((f) => (f === 'cover' ? on : get().embed.includes(f))) }),
+      format: 'coverFormat', size: 'coverSize', original: 'coverOriginal',
+      // 每首歌都带一份：PNG 或原图尺寸时提醒体积
+      warn: (v) => v.coverOriginal || v.coverFormat !== 'jpg',
+    });
+    const saveCover = coverPanel({
+      kind: 'save', icon: ICON_COVER_SAVE,
+      on: (v) => v.saveCover, setOn: (on) => set({ saveCover: on }),
+      format: 'saveCoverFormat', size: 'saveCoverSize', original: 'saveCoverOriginal',
+    });
+    const cover = section('cover', 'set.cover', el('div', { className: 'set-covers' }, embedCover, saveCover));
 
     const lyrics = section('lyrics', 'set.lyrics',
       row(t('set.saveLyrics'), t('set.saveLyricsDesc'), toggle('saveLyrics', t('set.saveLyrics'))),

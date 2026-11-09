@@ -134,7 +134,8 @@ export const OPTIONS = {
     alacMax: [192000, 96000, 48000, 44100],
     atmosMax: [2768, 2448],
     saveMode: ['zip', 'folder', 'files'],
-    coverFormat: ['jpg', 'png'],
+    // source：跟随原图（模板中 /{w}x{h} 前一段的扩展名，如 xxx.rgb.jpg → jpg）
+    coverFormat: ['jpg', 'png', 'source'],
     lyricsFormat: ['lrc', 'ttml'],
     // MV：最高分辨率（高度）与音轨（同参考实现的 mv-max / mv-audio-type）
     mvMax: [2160, 1440, 1080, 720, 480],
@@ -203,9 +204,12 @@ export const DEFAULTS = {
     // 封面：嵌入标签的与另存的 cover 文件分开设置
     coverFormat: 'jpg',
     coverSize: 3000,
+    // 原始尺寸：{w}x{h}bb 换成 0x0ss，忽略尺寸设置
+    coverOriginal: false,
     saveCover: true,
     saveCoverFormat: 'jpg',
     saveCoverSize: 3000,
+    saveCoverOriginal: false,
     // 歌词
     saveLyrics: false,
     lyricsFormat: 'lrc',
@@ -297,7 +301,9 @@ function clean(section, raw) {
     metaLang: typeof r.metaLang === 'string' && LANG_TAG.test(r.metaLang.trim()) ? r.metaLang.trim() : d.metaLang,
     coverFormat: oneOf(r.coverFormat, o.coverFormat, d.coverFormat),
     coverSize: int(r.coverSize, 100, 10000, d.coverSize),
+    coverOriginal: bool(r.coverOriginal, d.coverOriginal),
     saveCover: bool(r.saveCover, d.saveCover),
+    saveCoverOriginal: bool(r.saveCoverOriginal, d.saveCoverOriginal),
     // 旧版本只有一组封面设置，另存的封面沿用它
     saveCoverFormat: oneOf(r.saveCoverFormat, o.coverFormat, oneOf(r.coverFormat, o.coverFormat, d.saveCoverFormat)),
     saveCoverSize: int(r.saveCoverSize, 100, 10000, int(r.coverSize, 100, 10000, d.saveCoverSize)),

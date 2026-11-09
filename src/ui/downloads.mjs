@@ -82,9 +82,23 @@ function qualityVars(v) {
 /** artwork.url 模板 → 指定格式（jpg / png）与尺寸的下载地址 */
 export function coverUrl(template, format, size) {
   if (!template) return '';
-  const f = format === 'png' ? 'png' : 'jpg';
-  return template.replace('{w}', size).replace('{h}', size).replace('{c}', 'bb').replace('{f}', f)
-    .replace(/\{[a-z]+\}/g, '');
+  const f = (format === 'source' ? sourceFormat(template) : format) === 'png' ? 'png' : 'jpg';
+  // size 为 'original' 时取原始尺寸：{w}x{h}bb（或 {c}）换成 0x0ss；自带其他裁切码（如 SC.DN01）的模板保持裁切，按 3000 取
+  let t = template;
+  if (size === 'original') {
+    if (/\{w\}x\{h\}(\{c\}|bb)/.test(t)) t = t.replace(/\{w\}x\{h\}(\{c\}|bb)/, '0x0ss');
+    else size = 3000;
+  }
+  // 歌曲/专辑的模板多数把扩展名写死（{w}x{h}bb.jpg），没有 {f}，要改写结尾的扩展名才能拿到 png
+  // jpg 带上 -100（bb-100.jpg）按 100% 质量转码，不带时约 85%；已有的 -NN 质量后缀先去掉
+  return t.replace('{w}', size).replace('{h}', size).replace('{c}', 'bb').replace('{f}', f)
+    .replace(/\{[a-z]+\}/g, '').replace(/(-\d{1,3})?\.(jpe?g|png|webp)(?=$|[?#])/i, f === 'jpg' ? '-100.jpg' : '.png');
+}
+
+/** 原图格式：取最后一段（{w}x{h}bb.{f}）之前那一段的扩展名；png / tif 等无损格式取 png，其余（含识别不出）取 jpg */
+function sourceFormat(template) {
+  const m = template.match(/\.([a-z0-9]+)\/[^/]*$/i);
+  return m && /^(png|tiff?|bmp|psd)$/i.test(m[1]) ? 'png' : 'jpg';
 }
 
 /** 同一张封面在一个任务中只下载一次 */
@@ -560,7 +574,7 @@ async function exists(job, task) {
 /** 封面：拿不到时不影响下载，只是不写入 */
 function coverFor(job, info, signal, wanted) {
   return wanted
-    ? fetchCover(job.covers, coverUrl(info.artwork, job.options.coverFormat, job.options.coverSize), signal).catch((err) => { console.warn('[am-hook] 封面获取失败', err); return null; })
+    ? fetchCover(job.covers, coverUrl(info.artwork, job.options.coverFormat, job.options.coverOriginal ? 'original' : job.options.coverSize), signal).catch((err) => { console.warn('[am-hook] 封面获取失败', err); return null; })
     : Promise.resolve(null);
 }
 
@@ -593,7 +607,7 @@ async function downloadSong(job, task, info, signal) {
   const wantLyrics = (embed.has('lyrics') || o.saveLyrics) && !noLyrics;
   const coverPromise = coverFor(job, info, signal, embed.has('cover'));
   // 另存的封面也与音频同时获取，打包时直接用缓存
-  if (o.saveCover && job.kind !== 'playlist') fetchCover(job.covers, coverUrl(info.artwork, o.saveCoverFormat, o.saveCoverSize), signal).catch(() => {});
+  if (o.saveCover && job.kind !== 'playlist') fetchCover(job.covers, coverUrl(info.artwork, o.saveCoverFormat, o.saveCoverOriginal ? 'original' : o.saveCoverSize), signal).catch(() => {});
   const lyricsPromise = wantLyrics ? fetchLyrics(job, task, signal, /atmos|binaural|downmix/i.test(v.group_id)) : Promise.resolve(null);
   const finishCheck = o.alacCheckTag && classify(v).kind === 'alac' ? checkWhileDownloading(task, track, v, o) : null;
   // tags() 在全部分段下载完之后才调用，检测所需的数据这时已经齐了
@@ -829,7 +843,7 @@ async function extras(job) {
   if (o.saveCover && (!single(job) || (job.kind === 'song' && job.mode === 'folder'))) {
     const song = job.tasks.find((x) => !x.mv);
     const art = job.kind === 'playlist' || !song ? job.collection.artwork : trackInfo(job, song).artwork;
-    const cover = await fetchCover(job.covers, coverUrl(art, o.saveCoverFormat, o.saveCoverSize), job.ctl.signal).catch(() => null);
+    const cover = await fetchCover(job.covers, coverUrl(art, o.saveCoverFormat, o.saveCoverOriginal ? 'original' : o.saveCoverSize), job.ctl.signal).catch(() => null);
     if (cover) out.push({ path: [`cover.${cover.type === 'png' ? 'png' : 'jpg'}`], data: cover.bytes });
   }
   if (job.kind === 'playlist' && o.m3u) out.push({ path: [`${fitFile(job.folder, [formatName(o.playlistFolder, { playlist: job.collection.name, playlist_id: job.cid, curator: job.collection.artist })])[0]}.m3u8`], data: m3u(job) });
