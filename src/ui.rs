@@ -229,6 +229,13 @@ async fn mv_forward(state: &AppState, request: reqwest::RequestBuilder) -> Respo
 pub struct LyricsQuery {
     /// 歌曲所在地区的默认语言（BCP 47，如 `zh-Hans-CN`），转发给 wrapper-lite
     pub language: Option<String>,
+    /// 发音（transliteration）用的文字，如 `en-Latn`（wrapper-lite 的默认）、`ko-Hang`、`ja-Kana`，转发给 wrapper-lite
+    pub script: Option<String>,
+}
+
+/// 语言 / 文字标签：非空时只允许字母、数字与连字符，最长 35 个字符
+fn valid_tag(tag: Option<&str>) -> bool {
+    tag.is_none_or(|t| t.len() <= 35 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
 /// 歌曲的 TTML 歌词：向 wrapper-lite `/lyrics` 获取后原样返回 XML。没有歌词时返回 404。
@@ -241,10 +248,14 @@ pub async fn lyrics_handler(
         return bad_request("Invalid adamId");
     }
     let language = query.language.as_deref().filter(|l| !l.is_empty());
-    if language.is_some_and(|l| l.len() > 35 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
+    if !valid_tag(language) {
         return bad_request("Invalid language");
     }
-    match state.wrapper.fetch_lyrics(&adam_id, language).await {
+    let script = query.script.as_deref().filter(|s| !s.is_empty());
+    if !valid_tag(script) {
+        return bad_request("Invalid script");
+    }
+    match state.wrapper.fetch_lyrics(&adam_id, language, script).await {
         Ok(Lyrics::Found(ttml)) => Response::builder()
             .status(StatusCode::OK)
             .header(CONTENT_TYPE, "application/ttml+xml; charset=utf-8")

@@ -215,11 +215,15 @@ export const DEFAULTS = {
     // 歌词
     saveLyrics: false,
     lyricsFormat: 'lrc',
+    // 嵌入标签的歌词格式：多数播放器只认 LRC（或纯文本），TTML 原样写入
+    lyricsEmbedFormat: 'lrc',
     syllable: false,
     lyricsTranslation: true,
     lyricsPronunciation: false,
     // wrapper-lite /lyrics 的 language；空为跟随元数据语言
     lyricsLang: '',
+    // wrapper-lite /lyrics 的 script（发音用的文字，如 ko-Hang）；空为不传，即 wrapper-lite 默认的 en-Latn
+    lyricsScript: '',
   },
   joc: {
     mode: 'off',
@@ -312,10 +316,12 @@ function clean(section, raw) {
     saveCoverSize: int(r.saveCoverSize, 100, 10000, int(r.coverSize, 100, 10000, d.saveCoverSize)),
     saveLyrics: bool(r.saveLyrics, d.saveLyrics),
     lyricsFormat: oneOf(r.lyricsFormat, o.lyricsFormat, d.lyricsFormat),
+    lyricsEmbedFormat: oneOf(r.lyricsEmbedFormat, o.lyricsFormat, d.lyricsEmbedFormat),
     syllable: bool(r.syllable, d.syllable),
     lyricsTranslation: bool(r.lyricsTranslation, d.lyricsTranslation),
     lyricsPronunciation: bool(r.lyricsPronunciation, d.lyricsPronunciation),
     lyricsLang: typeof r.lyricsLang === 'string' && LANG_TAG.test(r.lyricsLang.trim()) ? r.lyricsLang.trim() : d.lyricsLang,
+    lyricsScript: typeof r.lyricsScript === 'string' && LANG_TAG.test(r.lyricsScript.trim()) ? r.lyricsScript.trim() : d.lyricsScript,
   };
 }
 

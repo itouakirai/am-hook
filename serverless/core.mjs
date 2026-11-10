@@ -495,13 +495,16 @@ async function mvLicense(wrapper, request) {
 }
 
 /** 歌曲的 TTML 歌词：向 wrapper-lite `/lyrics` 获取后原样返回 XML。没有歌词时返回 404 */
-async function lyrics(wrapper, adamId, language) {
+async function lyrics(wrapper, adamId, language, script) {
   if (!/^[0-9]+$/.test(adamId)) return fail(400, 'Invalid adamId');
-  if (language && (language.length > 35 || !/^[0-9A-Za-z-]+$/.test(language))) return fail(400, 'Invalid language');
+  const badTag = (tag) => tag && (tag.length > 35 || !/^[0-9A-Za-z-]+$/.test(tag));
+  if (badTag(language)) return fail(400, 'Invalid language');
+  // script：发音用的文字（如 ko-Hang；wrapper-lite 默认 en-Latn）
+  if (badTag(script)) return fail(400, 'Invalid script');
   const notFound = () => json(404, { code: 1, msg: 'lyrics not found' });
   let reply;
   try {
-    reply = await wrapperSend(wrapper, `/lyrics?${query(language ? { adamId, language } : { adamId })}`, { timeout: 15000 });
+    reply = await wrapperSend(wrapper, `/lyrics?${query({ adamId, ...(language ? { language } : {}), ...(script ? { script } : {}) })}`, { timeout: 15000 });
   } catch (error) {
     return fail(502, `Request to wrapper-lite failed: ${error.message}`);
   }
@@ -546,7 +549,7 @@ function wrapperRoute(method, path, url, request, wrapper) {
     if (id === null) return fail(400, 'Invalid adamId');
     if (match[1] === 'parse/song') handler = () => songMaster(wrapper, id);
     else if (match[1] === 'parse/mv') handler = () => mvMasterById(wrapper, id);
-    else if (match[1] === 'lyrics') handler = () => lyrics(wrapper, id, url.searchParams.get('language') ?? '');
+    else if (match[1] === 'lyrics') handler = () => lyrics(wrapper, id, url.searchParams.get('language') ?? '', url.searchParams.get('script') ?? '');
     else handler = () => (validMvId(id) ? forward(wrapper, `/webplayback?${query({ adamId: id })}`) : fail(400, 'Invalid adamId'));
   }
   if (!handler) return null;

@@ -404,9 +404,11 @@
       return text;
     },
 
-    async lyrics(adamId, language, signal) {
+    /** script：发音用的文字（如 ko-Hang），空为 wrapper-lite 的默认 en-Latn */
+    async lyrics(adamId, language, signal, script) {
       if (!settings.local) {
-        const res = await fetch(`/lyrics/${adamId}${language ? `?language=${encodeURIComponent(language)}` : ''}`, { signal });
+        const params = query({ language, script });
+        const res = await fetch(`/lyrics/${adamId}${params ? `?${params}` : ''}`, { signal });
         if (res.status === 404) return null;
         if (!res.ok) {
           // 服务端把 wrapper-lite 的限流转成 502 / 500，原因只在 msg 里
@@ -415,7 +417,7 @@
         }
         return res.text();
       }
-      const { res, text } = await localRequest(`/lyrics?${query({ adamId, language })}`, { signal });
+      const { res, text } = await localRequest(`/lyrics?${query({ adamId, language, script })}`, { signal });
       if (res.status === 404) return null;
       let payload;
       try { payload = JSON.parse(text); } catch { throw failure(`wrapper-lite HTTP ${res.status}`, res); }

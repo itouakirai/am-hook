@@ -734,7 +734,7 @@ const LYRICS_ATTEMPTS = 3;
 const LYRICS_THROTTLED = 4;
 
 /**
- * 歌词：wrapper-lite 返回逐字 TTML，按设置转为 LRC（嵌入的也是 LRC）；获取失败时间隔 1 秒、2 秒重试。
+ * 歌词：wrapper-lite 返回逐字 TTML，按设置转为 LRC（嵌入与另存各自选用 LRC 或原样的 TTML）；获取失败时间隔 1 秒、2 秒重试。
  * spatial：下载的是空间音频版本（全景声、双耳、缩混），LRC 按 TTML 的 lyricOffset 推迟；另存的 TTML 原样保留（自带这个偏移）
  */
 async function fetchLyrics(job, task, signal, spatial) {
@@ -747,7 +747,7 @@ async function fetchLyrics(job, task, signal, spatial) {
     while (true) {
       try {
         await AmWrapper.throttle.wait(signal);
-        ttml = await AmWrapper.lyrics(task.id, lang, signal);
+        ttml = await AmWrapper.lyrics(task.id, lang, signal, o.lyricsScript || undefined);
         break;
       } catch (err) {
         // 被限流：等冷却结束再取，不占用重试次数（否则限流期间歌词会被悄悄丢掉）
@@ -785,7 +785,7 @@ function tagsFor(info, embed, o, cover, lyrics, custom = null) {
     date: on('created') ? info.date : '',
     track: on('tracknum') ? info.track : null,
     disc: on('disk') ? info.disc : null,
-    lyrics: on('lyrics') && lyrics ? lyrics.lrc : '',
+    lyrics: on('lyrics') && lyrics ? (o.lyricsEmbedFormat === 'ttml' ? lyrics.ttml : lyrics.lrc) : '',
     cover: on('cover') ? cover : null,
     copyright: on('copyright') ? info.copyright : '',
     label: on('record_company') ? info.label : '',

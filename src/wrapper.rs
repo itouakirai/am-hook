@@ -194,11 +194,15 @@ impl Wrapper {
     }
 
     /// 从 `/lyrics` 接口获取歌曲的 TTML 歌词（响应中的 `data.lyrics`）。
-    /// `language` 为歌曲所在地区的默认语言（如 `zh-Hans-CN`），有值时原样转发
-    pub async fn fetch_lyrics(&self, adam_id: &str, language: Option<&str>) -> Result<Lyrics, String> {
+    /// `language` 为歌曲所在地区的默认语言（如 `zh-Hans-CN`），`script` 为发音用的文字（如 `ko-Hang`，
+    /// wrapper-lite 默认 `en-Latn`），有值时原样转发
+    pub async fn fetch_lyrics(&self, adam_id: &str, language: Option<&str>, script: Option<&str>) -> Result<Lyrics, String> {
         let mut request = self.get("/lyrics").query(&[("adamId", adam_id)]);
         if let Some(language) = language {
             request = request.query(&[("language", language)]);
+        }
+        if let Some(script) = script {
+            request = request.query(&[("script", script)]);
         }
         let reply = self
             .send(request.timeout(Duration::from_secs(15)))

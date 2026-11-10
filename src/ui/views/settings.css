@@ -192,6 +192,45 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
 .set-cover-warn { color: var(--warn); font-size: 12px; line-height: 1.45; }
 .set-cover-warn[hidden] { display: none; }
 
+/* 歌词：上面两张卡片沿用封面的样式；下面是共用的 LRC 内容（选项 + 预览）与歌词语言 */
+.set-cover-url.is-tag::before { content: "→ "; }
+.set-cover-url.is-file::before { content: "→ …/"; }
+.set-lyrics-lrc { display: grid; gap: 12px; padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+.set-lyrics-lrc[hidden] { display: none; }
+.set-cover-url.is-tag { font-family: inherit; font-weight: 500; }
+.set-lyrics-grid { display: grid; gap: 14px; }
+.set-lyrics-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; align-items: start; }
+.set-lyrics-opts .set-cover-value > .set-segmented { flex: 0 1 auto; }
+.set-lyrics-lang { border-top: 1px solid var(--line); }
+.set-lang { width: 260px; }
+.set-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.set-chip {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 13px 0 9px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); color: var(--muted);
+  font: inherit; font-size: 13px; cursor: pointer; transition: border-color .12s, background .12s, color .12s;
+}
+.set-chip:hover { border-color: var(--line-strong); color: var(--text); }
+.set-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-chip-mark {
+  position: relative; width: 16px; height: 16px; border: 1.5px solid var(--faint); border-radius: 50%; transition: background .12s, border-color .12s;
+}
+.set-chip[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--text); font-weight: 500; }
+.set-chip[aria-pressed="true"] .set-chip-mark { border-color: var(--accent); background: var(--accent); }
+.set-chip[aria-pressed="true"] .set-chip-mark::after {
+  content: ""; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 1.8px 1.8px 0; transform: rotate(45deg);
+}
+/* LRC 预览：行首时间淡色、逐字时间强调色；发音与翻译行变淡 */
+.set-lrc {
+  display: grid; align-content: start; gap: 4px; margin: 0; padding: 12px 14px; overflow-x: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+  color: var(--text); font-family: var(--mono); font-size: 12px; line-height: 1.5;
+}
+.set-lrc-line { white-space: pre; }
+.set-lrc-line.is-pr, .set-lrc-line.is-tr { color: var(--muted); }
+.set-lrc-time { color: var(--faint); }
+.set-lrc-word { color: color-mix(in srgb, var(--accent) 75%, var(--muted)); font-size: 11px; }
+
 .set-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin: 24px 0 8px; }
 
 @media (max-width: 483px) {
@@ -204,6 +243,7 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
   .set-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .set-covers { grid-template-columns: minmax(0, 1fr); }
   .set-cover + .set-cover { border-left: 0; border-top: 1px solid var(--line); }
+  .set-lyrics-opts { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
   .set-row:not(.set-link):not(:has(.set-switch)):not(:has(.set-number)) { flex-direction: column; align-items: stretch; }

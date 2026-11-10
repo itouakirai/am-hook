@@ -5,6 +5,7 @@
 import { prefs, OPTIONS, CODEC_GROUPS, TAG_FIELDS, TAG_NAME, DEFAULTS, DEFAULT_FALLBACK, playbackFor, onNetworkChange } from '../prefs.mjs';
 import { formatPath, fitFolder, fitFile, templateIssues, TEMPLATE_VAR_GROUPS, TEMPLATE_SCOPES } from '../naming.mjs';
 import { downloads, coverUrl } from '../downloads.mjs';
+import { ttmlToLrc } from '../lrc.mjs';
 import { userToken, askToken, onTokenChange } from '../station.mjs';
 
 const { AmI18n, AmDecrypt } = window;
@@ -37,6 +38,38 @@ const COVER_SIZES = [1400, 3000];
 const SAMPLE_ARTWORK = 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/33/fd/32/33fd32b1-0e43-9b4a-8ed6-19643f23544e/21UMGIM26092.rgb.jpg/{w}x{h}bb.{f}';
 const ICON_COVER_EMBED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>';
 const ICON_COVER_SAVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9" r="1.6"/><path d="m20.5 15-4.5-4.5L5 20.5"/></svg>';
+
+/** 歌词：嵌入（音符旁一段文字）与另存（文本文件）的图标，与预览用的两句示例（逐字，带罗马音；翻译为 i18n 键） */
+const ICON_LYRICS_EMBED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 17V5l7-1.5"/><circle cx="5.5" cy="17" r="2.5"/><path d="M13 10h8M13 14h8M13 18h5"/></svg>';
+const ICON_LYRICS_SAVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3.5H7a2.5 2.5 0 0 0-2.5 2.5v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V9z"/><path d="M14 3.5V9h5.5M8.5 13h7M8.5 16.5h4.5"/></svg>';
+// 发音按文字（script）给出：日语歌没有片假名的发音，与 Apple Music 一致
+const SAMPLE_LYRICS = [
+  { begin: 12.4, words: ['夜空に', '光る', '星'], roman: { Latn: ['yozora ni', 'hikaru', 'hoshi'], Hang: ['요조라니', '히카루', '호시'] }, tr: 'set.lyrics.sample1' },
+  { begin: 15.8, words: ['君を', '探して'], roman: { Latn: ['kimi wo', 'sagashite'], Hang: ['키미오', '사가시테'] }, tr: 'set.lyrics.sample2' },
+];
+/**
+ * 发音文字（wrapper-lite /lyrics 的 script）：取自 music.apple.com 的 MusicKit 歌词组件，它请求
+ * syllable-lyrics 时带 l[script] = `${界面语言}-${文字}`，语言 → 文字的映射（其余语言为 Latn）每种文字取第一个语言。
+ * 实测（2026-11）只有 Latn（罗马音 / 拼音 / 粤拼）、Hang（谚文）、Kana（片假名，只有韩语歌）返回发音，前缀的语言不影响结果；
+ * 空为不传，即 wrapper-lite 默认的 en-Latn
+ */
+const LYRICS_SCRIPTS = ['ja-Kana', 'ko-Hang'];
+const LYRICS_SCRIPTS_OTHER = ['ru-Cyrl', 'ar-Arab', 'ur-Aran', 'zh-Hans', 'hi-Deva', 'bn-Beng', 'pa-Guru', 'gu-Gujr', 'or-Orya', 'ta-Taml',
+  'te-Telu', 'kn-Knda', 'ml-Mlym', 'si-Sinh', 'th-Thai', 'lo-Laoo', 'km-Khmr', 'my-Mymr', 'am-Ethi', 'ka-Geor', 'hy-Armn', 'he-Hebr', 'el-Grek', 'bo-Tibt'];
+
+/** 按界面语言显示的语言 / 地区名（Intl.DisplayNames），取不到时用代码本身 */
+const displayNames = new Map();
+function displayName(type, code) {
+  const locale = AmI18n.lang === 'zh' ? 'zh-CN' : 'en';
+  try {
+    if (!displayNames.has(`${locale}:${type}`)) displayNames.set(`${locale}:${type}`, new Intl.DisplayNames([locale], { type, fallback: 'none' }));
+    return displayNames.get(`${locale}:${type}`).of(code) || code;
+  } catch {
+    return code;
+  }
+}
+const langName = (tag) => displayName('language', tag);
+const regionName = (cc) => displayName('region', cc.toUpperCase());
 
 /** 三个标签页，及各页的分组 id（地址的 hash 指向分组时打开其所在的页） */
 const TABS = ['general', 'playback', 'download'];
@@ -72,6 +105,11 @@ export function mount({ root, signal, onLangChange, toast }) {
 
   const get = () => prefs.get('download');
   const set = (patch) => prefs.set('download', patch);
+
+  // 元数据 / 歌词语言的下拉框用的地区表（/amp/v1/storefronts，i18n.js 缓存）；主地区变了重新分组
+  let storefrontMap = null;
+  AmI18n.storefronts().then((map) => { if (!signal.aborted && map) { storefrontMap = map; sync(); } });
+  signal.addEventListener('abort', AmI18n.onSettingsChange(() => sync()), { once: true });
 
   /* ---------- 控件 ---------- */
   function row(label, desc, control, { id, wide } = {}) {
@@ -253,18 +291,35 @@ export function mount({ root, signal, onLangChange, toast }) {
     return el('div', { className: 'set-chain-box' }, list, el('div', { className: 'set-mini-row' }, add, reset));
   }
 
-  /** 封面卡片：标题行带开关，关闭时收起；格式与尺寸为分段按钮（尺寸含常用挡位、原图与自定义），底部预览请求的地址结尾 */
-  function coverPanel({ kind, icon, on, setOn, format, size, original, warn }) {
-    const title = t(`set.cover.${kind}`);
+  /**
+   * 功能卡片（封面、歌词共用）：标题行是图标 + 名称说明 + 开关，关闭时只剩标题行。
+   * prefix：i18n 前缀（如 set.cover），kind 为 embed / save；返回 [卡片, 内容区]
+   */
+  function featurePanel({ prefix, kind, icon, on, setOn }, ...children) {
+    const title = t(`${prefix}.${kind}`);
     const input = el('input', { type: 'checkbox', className: 'set-switch-input' });
     input.setAttribute('role', 'switch');
     input.setAttribute('aria-label', title);
     input.addEventListener('change', () => setOn(input.checked));
     const head = el('label', { className: 'set-cover-head' },
       el('span', { className: 'set-cover-icon', innerHTML: icon, ariaHidden: 'true' }),
-      el('span', { className: 'set-label' }, el('span', { textContent: title }), el('span', { className: 'set-desc', textContent: t(`set.cover.${kind}Desc`) })),
+      el('span', { className: 'set-label' }, el('span', { textContent: title }), el('span', { className: 'set-desc', textContent: t(`${prefix}.${kind}Desc`) })),
       el('span', { className: 'set-switch' }, input, el('span', { className: 'set-switch-track', ariaHidden: 'true' })));
+    const body = el('div', { className: 'set-cover-body' }, ...children);
+    const panel = el('div', { className: `set-cover is-${kind}` }, head, body);
+    controls.push((v) => {
+      const enabled = on(v);
+      input.checked = enabled;
+      panel.classList.toggle('is-off', !enabled);
+      body.hidden = !enabled;
+    });
+    return panel;
+  }
+  const coverField = (key, ...control) => el('div', { className: 'set-cover-field' },
+    el('span', { className: 'set-cover-key', textContent: t(key) }), el('div', { className: 'set-cover-value' }, ...control));
 
+  /** 封面卡片：格式与尺寸为分段按钮（尺寸含常用挡位、原图与自定义），底部预览请求的地址结尾 */
+  function coverPanel({ kind, icon, on, setOn, format, size, original, warn }) {
     const formats = segmented(format, OPTIONS.download.coverFormat.map((f) => [f, t(`set.coverFormat.${f}`)]), t('set.cover.format'));
 
     // 尺寸：挡位 / 原图 / 自定义（选自定义或尺寸不是挡位时露出数字框）
@@ -283,20 +338,13 @@ export function mount({ root, signal, onLangChange, toast }) {
     const url = el('code', { className: 'set-cover-url' });
     const spec = el('span', { className: 'set-cover-spec' });
     const note = warn ? el('span', { className: 'set-cover-warn', textContent: t('set.cover.embedWarn') }) : null;
-    const field = (key, ...control) => el('div', { className: 'set-cover-field' },
-      el('span', { className: 'set-cover-key', textContent: t(key) }), el('div', { className: 'set-cover-value' }, ...control));
-    const body = el('div', { className: 'set-cover-body' },
-      field('set.cover.format', formats),
-      field('set.cover.size', sizes, pxBox),
+    const panel = featurePanel({ prefix: 'set.cover', kind, icon, on, setOn },
+      coverField('set.cover.format', formats),
+      coverField('set.cover.size', sizes, pxBox),
       el('div', { className: 'set-cover-preview' }, url, spec),
       note);
-    const panel = el('div', { className: `set-cover is-${kind}` }, head, body);
 
     controls.push((v) => {
-      const enabled = on(v);
-      input.checked = enabled;
-      panel.classList.toggle('is-off', !enabled);
-      body.hidden = !enabled;
       if (!COVER_SIZES.includes(v[size])) custom = true;
       const current = v[original] ? 'original' : custom ? 'custom' : v[size];
       syncSizes(current);
@@ -306,6 +354,167 @@ export function mount({ root, signal, onLangChange, toast }) {
       if (note) note.hidden = !warn(v);
     });
     return panel;
+  }
+
+  /**
+   * 歌词：与封面相同的「嵌入到歌曲 / 另存为文件」两张卡片（嵌入的开关即「标签」里的歌词勾选，标签里总是 LRC），
+   * 下面是两者共用的 LRC 内容（时间轴、附加行，附实时预览；只另存 TTML 时不适用而收起）与歌词语言
+   */
+  function lyricsSection(o) {
+    // 嵌入：格式可选 LRC / TTML；TTML 多数播放器不认，选中时提醒
+    const embedFormats = segmented('lyricsEmbedFormat', o.lyricsFormat.map((f) => [f, f.toUpperCase()]), t('set.lyrics.format'));
+    const tag = el('code', { className: 'set-cover-url is-tag' });
+    const embedSpec = el('span', { className: 'set-cover-spec' });
+    const embedWarn = el('span', { className: 'set-cover-warn', textContent: t('set.lyrics.embedWarn') });
+    const embedPanel = featurePanel({
+      prefix: 'set.lyrics', kind: 'embed', icon: ICON_LYRICS_EMBED,
+      on: (v) => v.embed.includes('lyrics'),
+      setOn: (on) => set({ embed: TAG_FIELDS.filter((f) => (f === 'lyrics' ? on : get().embed.includes(f))) }),
+    }, coverField('set.lyrics.format', embedFormats), el('div', { className: 'set-cover-preview' }, tag, embedSpec), embedWarn);
+    controls.push((v) => {
+      tag.textContent = t('set.lyrics.embedTag', { format: v.lyricsEmbedFormat.toUpperCase() });
+      embedSpec.textContent = t(`set.lyrics.embedSpec.${v.lyricsEmbedFormat}`);
+      embedWarn.hidden = v.lyricsEmbedFormat !== 'ttml';
+    });
+
+    // 另存：格式分段按钮，预览与歌曲同名的文件名（按「文件名」里的单曲模板）
+    const formats = segmented('lyricsFormat', o.lyricsFormat.map((f) => [f, f.toUpperCase()]), t('set.lyrics.format'));
+    const file = el('code', { className: 'set-cover-url is-file' });
+    const spec = el('span', { className: 'set-cover-spec' });
+    const savePanel = featurePanel({
+      prefix: 'set.lyrics', kind: 'save', icon: ICON_LYRICS_SAVE,
+      on: (v) => v.saveLyrics, setOn: (on) => set({ saveLyrics: on }),
+    }, coverField('set.lyrics.format', formats), el('div', { className: 'set-cover-preview' }, file, spec));
+    controls.push((v) => {
+      const folder = fitFolder(formatPath(v.albumFolder || DEFAULTS.download.albumFolder, SAMPLE));
+      file.textContent = `${fitFile(folder, formatPath(v.songFile || DEFAULTS.download.songFile, SAMPLE)).pop()}.${v.lyricsFormat}`;
+      spec.textContent = t(`set.lyrics.spec.${v.lyricsFormat}`);
+    });
+
+    // LRC 内容：时间轴（逐行 / 逐字）与附加行（翻译、发音），预览用真实的转换（lrc.mjs）把示例 TTML 转出来
+    const [timing, syncTiming] = radios(t('set.lyrics.timing'),
+      [['line', t('set.lyrics.timing.line')], ['word', t('set.lyrics.timing.word')]], (value) => set({ syllable: value === 'word' }));
+    const timingDesc = el('span', { className: 'set-desc' });
+    const chip = (key, label) => {
+      const b = el('button', { type: 'button', className: 'set-chip' },
+        el('span', { className: 'set-chip-mark', ariaHidden: 'true' }), el('span', { textContent: label }));
+      b.addEventListener('click', () => set({ [key]: !get()[key] }));
+      controls.push((v) => b.setAttribute('aria-pressed', String(!!v[key])));
+      return b;
+    };
+    const extras = el('div', { className: 'set-chips' },
+      chip('lyricsTranslation', t('set.lyrics.extra.translation')),
+      chip('lyricsPronunciation', t('set.lyrics.extra.pronunciation')));
+    const preview = el('pre', { className: 'set-lrc', ariaLabel: t('set.lyrics.preview') });
+    const lrcBox = el('div', { className: 'set-lyrics-lrc' },
+      el('div', { className: 'set-lyrics-lrc-head' },
+        el('span', { className: 'set-label' }, el('span', { textContent: t('set.lyrics.lrc') }), el('span', { className: 'set-desc', textContent: t('set.lyrics.lrcDesc') }))),
+      el('div', { className: 'set-lyrics-grid' },
+        el('div', { className: 'set-lyrics-opts' },
+          el('div', { className: 'set-cover-field' }, el('span', { className: 'set-cover-key', textContent: t('set.lyrics.timing') }),
+            el('div', { className: 'set-cover-value' }, timing), timingDesc),
+          el('div', { className: 'set-cover-field' }, el('span', { className: 'set-cover-key', textContent: t('set.lyrics.extra') }),
+            extras, el('span', { className: 'set-desc', textContent: t('set.lyrics.extraDesc') }))),
+        preview));
+    controls.push((v) => {
+      syncTiming(v.syllable ? 'word' : 'line');
+      timingDesc.textContent = t(`set.lyrics.timingDesc.${v.syllable ? 'word' : 'line'}`);
+      let lrc = '';
+      try { lrc = ttmlToLrc(sampleTtml((v.lyricsScript || 'en-Latn').split('-').pop()), { syllable: v.syllable, translation: v.lyricsTranslation, pronunciation: v.lyricsPronunciation }); } catch { /* 预览失败时留空 */ }
+      preview.replaceChildren(...lrc.split('\n').map(lrcLine));
+      lrcBox.hidden = !((v.embed.includes('lyrics') && v.lyricsEmbedFormat === 'lrc') || (v.saveLyrics && v.lyricsFormat === 'lrc'));
+    });
+
+    const langRow = row(t('set.lyricsLang'), t('set.lyricsLangDesc'), langSelect('lyricsLang', t('set.followMeta'), t('set.lyricsLang'), { all: true }));
+    langRow.classList.add('set-lyrics-lang');
+    const scriptRow = row(t('set.lyricsScript'), t('set.lyricsScriptDesc'), scriptSelect());
+    scriptRow.classList.add('set-lyrics-lang');
+    controls.push((v) => { langRow.hidden = scriptRow.hidden = !(v.embed.includes('lyrics') || v.saveLyrics); });
+    return [el('div', { className: 'set-covers' }, embedPanel, savePanel), lrcBox, langRow, scriptRow];
+  }
+
+  /** 发音文字的下拉框：默认（拉丁字母）与实测有发音的文字在前，其余文字另成一组；已保存的未知值单独保留 */
+  function scriptSelect() {
+    const node = el('select', { className: 'set-select set-lang' });
+    node.setAttribute('aria-label', t('set.lyricsScript'));
+    node.addEventListener('change', () => set({ lyricsScript: node.value }));
+    // 文字名默认取 Intl.DisplayNames；Hans 只显示「简体」容易被当成拼音，改写成「简体汉字」
+    const scriptName = (code) => (code === 'Hans' ? t('set.scriptHans') : displayName('script', code));
+    const option = (tag, text = `${scriptName(tag.split('-').pop())} · ${tag}`) => el('option', { value: tag, textContent: text });
+    controls.push((v) => {
+      const known = [...LYRICS_SCRIPTS, ...LYRICS_SCRIPTS_OTHER];
+      node.replaceChildren(...[
+        el('optgroup', { label: t('set.scriptWorks') },
+          option('', `${t('set.scriptLatn')} · en-Latn · ${t('settings.default')}`),
+          ...LYRICS_SCRIPTS.map((tag) => option(tag))),
+        v.lyricsScript && !known.includes(v.lyricsScript) ? option(v.lyricsScript, v.lyricsScript) : null,
+        el('optgroup', { label: t('set.scriptOther') }, ...LYRICS_SCRIPTS_OTHER.map((tag) => option(tag))),
+      ].filter(Boolean));
+      node.value = v.lyricsScript;
+    });
+    return node;
+  }
+
+  /**
+   * 语言下拉框（取代手填 BCP 47）：空 = 跟随…；当前主地区在 /amp/v1/storefronts 里支持的语言（默认语言在前），
+   * all 时另列其他地区的语言；已保存的值不在表里（旧版本手填的）时单独保留一项。地区表载入前只有空与当前值
+   */
+  function langSelect(key, emptyLabel, label, { all = false } = {}) {
+    const node = el('select', { className: 'set-select set-lang' });
+    node.setAttribute('aria-label', label);
+    node.addEventListener('change', () => set({ [key]: node.value }));
+    const collator = new Intl.Collator(AmI18n.lang === 'zh' ? 'zh-CN' : 'en');
+    const fill = (v) => {
+      const cc = AmI18n.storefront;
+      const sf = storefrontMap && storefrontMap[cc];
+      const here = sf ? [sf.default, ...sf.tags.filter((tag) => tag !== sf.default)] : [];
+      const others = all && storefrontMap
+        ? [...new Set(Object.values(storefrontMap).flatMap((s) => s.tags))].filter((tag) => !here.includes(tag))
+          .sort((a, b) => collator.compare(langName(a), langName(b)))
+        : [];
+      const option = (tag, suffix = '') => el('option', { value: tag, textContent: `${langName(tag)} · ${tag}${suffix}` });
+      const saved = v[key];
+      node.replaceChildren(...[
+        el('option', { value: '', textContent: emptyLabel }),
+        saved && !here.includes(saved) && !others.includes(saved) ? option(saved) : null,
+        here.length ? el('optgroup', { label: t('set.langHere', { region: regionName(cc) }) },
+          ...here.map((tag) => option(tag, tag === sf.default ? ` · ${t('settings.default')}` : ''))) : null,
+        others.length ? el('optgroup', { label: t('set.langOther') }, ...others.map((tag) => option(tag))) : null,
+      ].filter(Boolean));
+      node.value = saved;
+    };
+    controls.push(fill);
+    return node;
+  }
+
+  /** 预览的一行：行首时间、逐字时间分别着色；发音、翻译行（示例里的固定文字）整行变淡 */
+  function lrcLine(line) {
+    const words = line.replace(/\[[^\]]*\]|<[^>]*>/g, '');
+    const kind = SAMPLE_LYRICS.some((l) => Object.values(l.roman).some((r) => r.join(' ') === words)) ? ' is-pr' : SAMPLE_LYRICS.some((l) => t(l.tr) === words) ? ' is-tr' : '';
+    return el('div', { className: `set-lrc-line${kind}` }, ...line.split(/(\[[^\]]*\]|<[^>]*>)/).filter(Boolean).map((part) => (
+      part.startsWith('[') ? el('span', { className: 'set-lrc-time', textContent: part })
+        : part.startsWith('<') ? el('span', { className: 'set-lrc-word', textContent: part })
+          : document.createTextNode(part))));
+  }
+
+  /** 示例歌词的 TTML（逐字时间，行内的翻译与发音），与 Apple Music 的结构一致；翻译随界面语言，发音随 script（没有该文字的发音时省略） */
+  function sampleTtml(script) {
+    const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const lines = SAMPLE_LYRICS.map(({ begin, words, roman: romans, tr }) => {
+      const roman = romans[script];
+      let at = begin;
+      const spans = words.map((w, i) => {
+        const end = at + w.length * 0.32;
+        const span = [`<span begin="${at.toFixed(2)}" end="${end.toFixed(2)}">${xml(w)}</span>`, roman ? `<span begin="${at.toFixed(2)}" end="${end.toFixed(2)}">${xml(roman[i])}</span>` : ''];
+        at = end;
+        return span;
+      });
+      return `<p begin="${begin.toFixed(2)}" end="${at.toFixed(2)}">${spans.map((s) => s[0]).join('')}`
+        + (roman ? `<span ttm:role="x-roman">${spans.map((s) => s[1]).join(' ')}</span>` : '')
+        + `<span ttm:role="x-translation">${xml(t(tr))}</span></p>`;
+    });
+    return '<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word">'
+      + `<body><div>${lines.join('')}</div></body></tt>`;
   }
 
   function section(id, titleKey, ...rows) {
@@ -560,7 +769,7 @@ export function mount({ root, signal, onLangChange, toast }) {
       row(t('set.sortTags'), t('set.sortTagsDesc'), toggle('sortTags', t('set.sortTags'))),
       row(t('set.playlistAlbumInfo'), t('set.playlistAlbumInfoDesc'), toggle('playlistAlbumInfo', t('set.playlistAlbumInfo'))),
       row(t('set.stripAlbumSuffix'), t('set.stripAlbumSuffixDesc'), toggle('stripAlbumSuffix', t('set.stripAlbumSuffix'))),
-      row(t('set.metaLang'), t('set.metaLangDesc'), text('metaLang', t('set.followCatalog'), t('set.metaLang'), /^[A-Za-z0-9-]{1,35}$/)));
+      row(t('set.metaLang'), t('set.metaLangDesc'), langSelect('metaLang', t('set.followCatalog'), t('set.metaLang'))));
 
     // 封面：「嵌入到歌曲」与「另存为文件」两张卡片，各自一个开关（嵌入的开关即「标签」里的封面勾选）、格式、尺寸，
     // 底部预览实际请求的地址结尾（如 3000x3000bb-100.jpg）
@@ -579,13 +788,7 @@ export function mount({ root, signal, onLangChange, toast }) {
     });
     const cover = section('cover', 'set.cover', el('div', { className: 'set-covers' }, embedCover, saveCover));
 
-    const lyrics = section('lyrics', 'set.lyrics',
-      row(t('set.saveLyrics'), t('set.saveLyricsDesc'), toggle('saveLyrics', t('set.saveLyrics'))),
-      row(t('set.lyricsFormat'), t('set.lyricsFormatDesc'), select('lyricsFormat', o.lyricsFormat.map((f) => [f, `.${f}`]))),
-      row(t('set.syllable'), t('set.syllableDesc'), toggle('syllable', t('set.syllable'))),
-      row(t('set.lyricsTranslation'), t('set.lyricsTranslationDesc'), toggle('lyricsTranslation', t('set.lyricsTranslation'))),
-      row(t('set.lyricsPronunciation'), t('set.lyricsPronunciationDesc'), toggle('lyricsPronunciation', t('set.lyricsPronunciation'))),
-      row(t('set.lyricsLang'), t('set.lyricsLangDesc'), text('lyricsLang', t('set.followMeta'), t('set.lyricsLang'), /^[A-Za-z0-9-]{1,35}$/)));
+    const lyrics = section('lyrics', 'set.lyrics', ...lyricsSection(o));
 
     const reset = el('button', { type: 'button', className: 'set-btn set-btn-danger', textContent: t('set.reset') });
     reset.addEventListener('click', () => {
