@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v0.6.9 (2026-11-10)
+
+### New
+- ✨ Custom lyrics fonts (settings → Playback → Lyrics font, also switchable from the lyrics menu): the lyrics screen uses the selected font, with the system font filling in missing characters. Fonts are stored only in this browser's IndexedDB; upload ttf / otf / woff / woff2 / ttc (weights of one family are merged into one entry, with name, weight, italic and variable weight range read from the font), enter a font file or @font-face CSS URL (Google Fonts, 中文网字计划 result.css), use an installed font, or add one from the built-in 中文网字计划 catalog (67 families). Split web fonts download and save only the subsets the lyrics use, and the lyrics wait for them before layout so they don't flash; "Download all" makes a font work offline. The library and selection sync across tabs
+- ✨ Lyrics language and pronunciation script for playback (settings → Playback → Lyrics), separate from the download options; the lyrics screen refetches when they change
+- ✨ Redesigned download lyrics settings: embed and save are two cards like Cover, sharing the LRC options (line / word timing, translation, pronunciation) with a live preview; embedded lyrics can be TTML (with a warning that most players only read LRC); lyrics and metadata languages are picked from the storefront's languages; new pronunciation script option (only Latin, Hangul and Kana currently return pronunciations)
+- ✨ Back off when wrapper-lite rate limits (429): new downloads pause per Retry-After (else exponential backoff), then run at half concurrency until 3 tracks succeed; throttled tracks are requeued without using up retries, and lyrics requests wait instead of being dropped. The server forwards /parse/song's 429 and Retry-After instead of turning it into a 500
+
+### Fixes
+- 🐛 Binaural and downmix AAC are no longer attenuated a second time by the "ALAC / AAC volume" trim: they are rendered from the Atmos mix and are about as loud as it. The setting is renamed "Non-spatial volume"
+
 ## v0.6.8 (2026-11-09)
 
 ### New
