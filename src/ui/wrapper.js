@@ -20,6 +20,9 @@
  *   lyrics(id, lang, signal) TTML 原文，没有歌词时为 null
  *   mvMaster(id, signal)     { masterUrl, masterBody }：MV master 总是由 am-hook 以 User-Agent: AM 获取（否则可能没有 4K）
  *   license(body, signal)    /license 的 data：MV 的 PlayReady license、AAC-LC 歌曲的 Widevine（或 PlayReady）license
+ *   sleep(ms, signal)        等待 ms 毫秒，signal 中止时以 signal.reason 拒绝
+ *   throttle                 wrapper-lite 限流（429 / rate limited）后的共用冷却：remaining() / wait(signal) / limit(base) / ok()，
+ *                            请求失败时抛出的 Error 带 throttled（限流）或 final（banned）；下载管理器据此暂停并降低并发
  */
 (function (global) {
   'use strict';
@@ -68,6 +71,95 @@
   let settings = clean(null);
   try { settings = clean(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); } catch {}
   const listeners = new Set();
+
+  /* ---------- 限流（429 / rate limited）后的共用冷却 ----------
+   * 批量下载同时有多首歌在请求 wrapper-lite，一处被限流后其余请求照常发出只会让限流持续、升级
+   * （公共 wrapper-lite 超限后先回 `rate limited (concurrency)`，继续超限会被 `banned`）。
+   * 所以任何 wrapper-lite 请求被限流时记一次 hit()：设置全局冷却期（优先用 Retry-After，没有则指数退避加抖动），
+   * 下载管理器在冷却期内不启动新曲目，冷却后按 limit() 降低有效并发，之后每成功几首（ok()）恢复一级。
+   * 同一轮冷却期内同时到达的限流只算一次，不会把级别连续叠高。 */
+
+  const BASE_DELAY = 5000;
+  const MAX_DELAY = 120000;
+  /** 服务器给出的等待时间也不超过这么久，避免异常值让下载卡死 */
+  const MAX_RETRY_AFTER = 600000;
+  const MAX_LEVEL = 4;
+  /** 冷却结束后连续成功这么多首，级别降低一级 */
+  const RECOVER_AFTER = 3;
+  const THROTTLED = /\b429\b|rate.?limit|too many requests/i;
+  const BANNED = /\bbanned\b/i;
+  let level = 0;
+  let until = 0;
+  let successes = 0;
+
+  const throttle = {
+    /** 冷却期还剩多少毫秒（0 表示可以发请求） */
+    remaining: () => Math.max(0, until - Date.now()),
+    /** 记录一次限流；retryAfterMs 为服务器给出的等待时间，未知时按级别退避（±20% 抖动） */
+    hit(retryAfterMs) {
+      const now = Date.now();
+      if (now >= until) level = Math.min(level + 1, MAX_LEVEL);
+      const delay = retryAfterMs > 0
+        ? Math.min(retryAfterMs, MAX_RETRY_AFTER) + Math.random() * 1000
+        : Math.min(MAX_DELAY, BASE_DELAY * 2 ** (level - 1)) * (0.8 + Math.random() * 0.4);
+      until = Math.max(until, now + delay);
+      successes = 0;
+    },
+    /** 等到冷却期结束（等待期间冷却期可能被延长，所以循环再看）；signal 中止时以 signal.reason 拒绝 */
+    async wait(signal) {
+      for (let ms; (ms = throttle.remaining()) > 0; ) await sleep(ms, signal);
+    },
+    /** 限流后的有效并发：base 每一级减半，至少 1；base 为 0（不限）时原样返回 */
+    limit: (base) => (base > 0 ? Math.max(1, Math.floor(base / 2 ** level)) : base),
+    /** 一首歌下载成功：冷却结束后连续成功几首，级别降低一级 */
+    ok() {
+      if (level && throttle.remaining() === 0 && ++successes >= RECOVER_AFTER) { level--; successes = 0; }
+    },
+    state: () => ({ level, remaining: throttle.remaining() }),
+    /** 恢复初始状态（测试用） */
+    reset() { level = 0; until = 0; successes = 0; },
+  };
+
+  /** 等待 ms 毫秒；signal（可省略）中止时立即以 signal.reason 拒绝 */
+  function sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal && signal.aborted) return reject(signal.reason);
+      const onAbort = () => { clearTimeout(timer); reject(signal.reason); };
+      const timer = setTimeout(() => {
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /** Retry-After（秒数或 HTTP 日期）→ 毫秒，没有时为 0 */
+  function retryAfter(headers) {
+    const value = headers && headers.get && headers.get('Retry-After');
+    if (!value) return 0;
+    if (/^\s*\d+(\.\d+)?\s*$/.test(value)) return Number(value) * 1000;
+    const date = Date.parse(value);
+    return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now());
+  }
+
+  /**
+   * wrapper-lite 请求失败的 Error。HTTP 429、或 msg / 错误文字里有 429 / rate limited / too many requests 视为限流：
+   * 带 throttled，并记入全局冷却；banned 带 final（重试没有意义，也不进入冷却）。
+   * 服务端转发时 wrapper-lite 的限流可能变成 500 / 502，原因只在 msg 里，所以也看 msg。
+   * res：失败的 Response（取 status 与 Retry-After）；msg：响应体里的 msg（没有时省略）
+   */
+  function failure(message, res, msg) {
+    const { status, headers } = res;
+    const err = new Error(message);
+    const text = `${msg || ''} ${message}`;
+    if (BANNED.test(text)) {
+      err.final = true;
+    } else if (status === 429 || THROTTLED.test(text)) {
+      err.throttled = true;
+      throttle.hit(retryAfter(headers));
+    }
+    return err;
+  }
 
   /* ---------- 本地模式的限并发与限速（与服务端 src/wrapper.rs 相同：先取并发名额，再按滑动窗口占速率配额） ---------- */
 
@@ -149,8 +241,8 @@
   async function localJson(path, options) {
     const { res, text } = await localRequest(path, options);
     let payload;
-    try { payload = JSON.parse(text); } catch { throw new Error(res.ok ? t('wrapper.invalid') : `wrapper-lite HTTP ${res.status}`); }
-    if (payload.code !== 0) throw new Error(payload.msg || `wrapper-lite HTTP ${res.status}`);
+    try { payload = JSON.parse(text); } catch { throw failure(res.ok ? t('wrapper.invalid') : `wrapper-lite HTTP ${res.status}`, res); }
+    if (payload.code !== 0) throw failure(payload.msg || `wrapper-lite HTTP ${res.status}`, res, payload.msg);
     return payload.data;
   }
 
@@ -158,7 +250,7 @@
   async function serverJson(url, options) {
     const res = await fetch(url, options);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || (data.code !== undefined && data.code !== 0)) throw new Error(data.msg || `HTTP ${res.status}`);
+    if (!res.ok || (data.code !== undefined && data.code !== 0)) throw failure(data.msg || `HTTP ${res.status}`, res, data.msg);
     return data;
   }
 
@@ -237,6 +329,8 @@
     hint: HINT,
     normalizeAuth,
     parseSongMaster,
+    throttle,
+    sleep,
 
     save(next) {
       for (const key of ['rate', 'concurrency']) {
@@ -281,7 +375,7 @@
       if (master) {
         // Apple CDN（aod.itunes.apple.com）允许跨源请求，master 与 media m3u8 都直接获取
         const res = await fetch(master, { signal });
-        if (!res.ok) throw new Error(`master m3u8 HTTP ${res.status}`);
+        if (!res.ok) throw failure(`master m3u8 HTTP ${res.status}`, res);
         const masterUrl = res.url || master;
         return { masterUrl, variants: parseSongMaster(await res.text(), masterUrl) };
       }
@@ -305,7 +399,7 @@
       if (!res.ok) {
         let msg = '';
         try { msg = JSON.parse(text).msg; } catch {}
-        throw new Error(msg || `HTTP ${res.status}`);
+        throw failure(msg || `HTTP ${res.status}`, res, msg);
       }
       return text;
     },
@@ -314,16 +408,20 @@
       if (!settings.local) {
         const res = await fetch(`/lyrics/${adamId}${language ? `?language=${encodeURIComponent(language)}` : ''}`, { signal });
         if (res.status === 404) return null;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          // 服务端把 wrapper-lite 的限流转成 502 / 500，原因只在 msg 里
+          const msg = await res.json().then((body) => body && body.msg, () => '');
+          throw failure(`HTTP ${res.status}`, res, msg);
+        }
         return res.text();
       }
       const { res, text } = await localRequest(`/lyrics?${query({ adamId, language })}`, { signal });
       if (res.status === 404) return null;
       let payload;
-      try { payload = JSON.parse(text); } catch { throw new Error(`wrapper-lite HTTP ${res.status}`); }
+      try { payload = JSON.parse(text); } catch { throw failure(`wrapper-lite HTTP ${res.status}`, res); }
       // wrapper-lite 以 HTTP 200 + code 404 表示该歌曲没有歌词
       if (payload.code === 404) return null;
-      if (payload.code !== 0) throw new Error(payload.msg || `wrapper-lite HTTP ${res.status}`);
+      if (payload.code !== 0) throw failure(payload.msg || `wrapper-lite HTTP ${res.status}`, res, payload.msg);
       const ttml = payload.data && payload.data.lyrics;
       return ttml && ttml.trim() ? ttml : null;
     },

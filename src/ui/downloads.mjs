@@ -383,6 +383,7 @@ async function prepare(job, spec) {
         done: 0,
         total: 0,
         attempts: 0,
+        throttles: 0,
         quality: '',
         // 下载时检测 ALAC 的结论：{ bad }（缺陷帧数）或 { failed: true }；未检测时为 null
         check: null,
@@ -504,8 +505,18 @@ function nextTask() {
   return null;
 }
 
+/** 限流冷却结束后继续启动曲目的定时器（见 pump） */
+let resumeTimer = null;
+
 function pump() {
-  const limit = prefs.get('download').concurrency;
+  // 遇到限流（429）后：冷却期内不启动新曲目，之后有效并发按级别减半，每成功几首再恢复一级（见 throttle.js）
+  const cooling = AmWrapper.throttle.remaining();
+  if (cooling > 0) {
+    if (!resumeTimer) resumeTimer = setTimeout(() => { resumeTimer = null; pump(); }, cooling + 50);
+    notify();
+    return;
+  }
+  const limit = AmWrapper.throttle.limit(prefs.get('download').concurrency);
   while (running < limit) {
     const next = nextTask();
     if (!next) break;
@@ -546,17 +557,19 @@ async function runTask(job, task) {
     notify();
     await deliver(job, task);
     task.state = 'done';
+    AmWrapper.throttle.ok();
   } catch (err) {
     const aborted = (err && err.name === 'AbortError') || signal.aborted;
     if (task.result) { task.result.dispose(); task.result = null; }
     if (aborted) {
       task.state = 'cancelled';
+    } else if (err.throttled && !err.final && ++task.throttles <= THROTTLED_RETRIES) {
+      // 被限流：不算失败重试（不占用 retries），等全局冷却结束后再排队；加一点随机，避免同时重启
+      task.attempts--;
+      requeue(task, err, AmWrapper.throttle.remaining() + Math.random() * 1500);
     } else if (!err.final && task.attempts <= o.retries) {
       // 自动重试：稍等再排队
-      task.state = 'queued';
-      task.waiting = true;
-      task.error = (err && err.message) || String(err);
-      setTimeout(() => { task.waiting = false; pump(); }, 1500 * task.attempts);
+      requeue(task, err, 1500 * task.attempts);
     } else {
       task.state = 'error';
       task.error = (err && err.message) || String(err);
@@ -566,6 +579,16 @@ async function runTask(job, task) {
     task.ctl = null;
     notify();
   }
+}
+
+/** 单首歌被限流时最多自动重新排队几次（不占用 retries）；用尽后按普通失败处理 */
+const THROTTLED_RETRIES = 8;
+
+function requeue(task, err, delay) {
+  task.state = 'queued';
+  task.waiting = true;
+  task.error = (err && err.message) || String(err);
+  setTimeout(() => { task.waiting = false; pump(); }, delay);
 }
 
 /** 保存到文件夹且已存在同名文件时跳过 */
@@ -583,6 +606,7 @@ function coverFor(job, info, signal, wanted) {
 /** 歌曲：按设置选音质 → 浏览器内解密；已存在而跳过时返回 null */
 async function downloadSong(job, task, info, signal) {
   const o = job.options;
+  await AmWrapper.throttle.wait(signal);
   const { variants } = await AmWrapper.songMaster(task.id, signal);
   let picked;
   if (job.variant) {
@@ -596,6 +620,7 @@ async function downloadSong(job, task, info, signal) {
   task.path = filePath(job, task, info, quality);
   if (await exists(job, task)) return null;
 
+  await AmWrapper.throttle.wait(signal);
   const track = await AmDecrypt.openTrack(v.url, signal);
   track.repair = o.alacRepair;
   task.total = track.size;
@@ -705,14 +730,8 @@ async function downloadVideo(job, task, info, signal) {
 
 /** 歌词获取失败（不含没有歌词的 404）时的总尝试次数 */
 const LYRICS_ATTEMPTS = 3;
-
-/** 等待 ms 毫秒；取消时立即以 AbortError 结束 */
-function wait(ms, signal) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
-  });
-}
+/** 歌词请求被限流时最多等几轮冷却 */
+const LYRICS_THROTTLED = 4;
 
 /**
  * 歌词：wrapper-lite 返回逐字 TTML，按设置转为 LRC（嵌入的也是 LRC）；获取失败时间隔 1 秒、2 秒重试。
@@ -723,14 +742,19 @@ async function fetchLyrics(job, task, signal, spatial) {
   try {
     const lang = o.lyricsLang || job.lang || undefined;
     let ttml;
-    for (let attempt = 1; ; attempt++) {
+    let failures = 0;
+    let throttled = 0;
+    while (true) {
       try {
+        await AmWrapper.throttle.wait(signal);
         ttml = await AmWrapper.lyrics(task.id, lang, signal);
         break;
       } catch (err) {
-        if (signal.aborted || attempt >= LYRICS_ATTEMPTS) throw err;
-        console.warn(`[am-hook] 歌词获取失败，${attempt} 秒后重试`, err);
-        await wait(1000 * attempt, signal);
+        // 被限流：等冷却结束再取，不占用重试次数（否则限流期间歌词会被悄悄丢掉）
+        if (err.throttled && !signal.aborted && ++throttled <= LYRICS_THROTTLED) continue;
+        if (signal.aborted || err.final || ++failures >= LYRICS_ATTEMPTS) throw err;
+        console.warn(`[am-hook] 歌词获取失败，${failures} 秒后重试`, err);
+        await AmWrapper.sleep(1000 * failures, signal);
       }
     }
     if (!ttml) return null;
@@ -911,6 +935,7 @@ function retry(job, task) {
   for (const x of targets) {
     x.state = 'queued';
     x.attempts = 0;
+    x.throttles = 0;
     x.error = '';
   }
   job.packed = false;

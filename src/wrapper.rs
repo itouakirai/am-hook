@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use reqwest::header::{HeaderValue, AUTHORIZATION};
+use reqwest::header::{HeaderValue, AUTHORIZATION, RETRY_AFTER};
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -58,6 +58,8 @@ pub fn normalize_authorization(raw: &str) -> Result<Option<String>, String> {
 pub struct Reply {
     pub status: StatusCode,
     pub body: Bytes,
+    /// 上游的 `Retry-After`（限流时给出），转发给浏览器让它按此退避
+    pub retry_after: Option<HeaderValue>,
 }
 
 impl Reply {
@@ -228,8 +230,9 @@ impl Wrapper {
 async fn read_reply(request: RequestBuilder) -> Result<Reply, reqwest::Error> {
     let response = request.send().await?;
     let status = response.status();
+    let retry_after = response.headers().get(RETRY_AFTER).cloned();
     let body = response.bytes().await?;
-    Ok(Reply { status, body })
+    Ok(Reply { status, body, retry_after })
 }
 
 /// 已发出请求占用的并发名额：[`Slot::release`] 立即归还；未调用就被丢弃（请求出错或被取消）时

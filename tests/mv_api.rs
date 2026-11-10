@@ -100,6 +100,30 @@ async fn song_master_returns_only_the_wrapper_url() {
 }
 
 #[tokio::test]
+async fn wrapper_rate_limit_reaches_the_browser_as_429_with_retry_after() {
+    // wrapper-lite 限流（HTTP 429，可带 Retry-After）要原样告诉浏览器，批量下载才能据此暂停；
+    // 不能被当作无效响应变成 500
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let limited = || async { (StatusCode::TOO_MANY_REQUESTS, [("retry-after", "17")], "slow down") };
+    let mock = Router::new().route("/m3u8", get(limited)).route("/webplayback", get(limited));
+    let task = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+    let state = Arc::new(AppState::new(format!("http://{addr}")));
+
+    let response = ui::master_handler(State(state.clone()), Path("1".into())).await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers()["retry-after"], "17");
+    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["code"], 1);
+    assert!(body["msg"].as_str().unwrap().contains("429"));
+
+    let response = ui::mv_webplayback_handler(State(state), Path("1794822079".into())).await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers()["retry-after"], "17");
+    task.abort();
+}
+
+#[tokio::test]
 async fn parses_mv_master_with_fixed_user_agent() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

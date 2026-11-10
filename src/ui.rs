@@ -212,12 +212,15 @@ pub async fn mv_license_handler(
 
 async fn mv_forward(state: &AppState, request: reqwest::RequestBuilder) -> Response<Body> {
     match state.wrapper.send(request.timeout(std::time::Duration::from_secs(15))).await {
-        Ok(reply) => Response::builder()
-            .status(reply.status)
-            .header(CONTENT_TYPE, "application/json")
-            .header(axum::http::header::CACHE_CONTROL, "no-store")
-            .body(Body::from(reply.body))
-            .unwrap(),
+        Ok(reply) => with_retry_after(
+            Response::builder()
+                .status(reply.status)
+                .header(CONTENT_TYPE, "application/json")
+                .header(axum::http::header::CACHE_CONTROL, "no-store")
+                .body(Body::from(reply.body))
+                .unwrap(),
+            reply.retry_after,
+        ),
         Err(error) => log::note(gateway_error("wrapper-lite request failed"), format!("wrapper-lite request failed: {error}")),
     }
 }
@@ -352,6 +355,12 @@ pub async fn master_handler(
         Err(error) => return upstream_error("failed to fetch master m3u8 from wrapper-lite", error),
     };
 
+    // 限流原样转给浏览器（429 + Retry-After），浏览器据此暂停批量下载；否则会被下面当作无效响应变成 500，看不出是限流
+    if reply.status == StatusCode::TOO_MANY_REQUESTS {
+        let response = json_response(StatusCode::TOO_MANY_REQUESTS, json!({ "code": 1, "msg": "wrapper-lite rate limited (HTTP 429)" }));
+        return log::note(with_retry_after(response, reply.retry_after), "wrapper-lite HTTP 429");
+    }
+
     let payload = match reply.json::<serde_json::Value>() {
         Ok(value) => value,
         Err(error) => return upstream_error("invalid response from wrapper-lite", error),
@@ -392,6 +401,14 @@ fn gateway_error(message: &str) -> Response<Body> {
 }
 
 /// 上游请求失败：响应只带概要，请求日志中附上具体原因
+/// 带上 wrapper-lite 给出的 `Retry-After`（限流时），浏览器据此退避
+fn with_retry_after(mut response: Response<Body>, retry_after: Option<axum::http::HeaderValue>) -> Response<Body> {
+    if let Some(value) = retry_after {
+        response.headers_mut().insert(axum::http::header::RETRY_AFTER, value);
+    }
+    response
+}
+
 fn upstream_error(message: &str, error: impl std::fmt::Display) -> Response<Body> {
     log::note(internal_error(message), format!("{message}: {error}"))
 }
