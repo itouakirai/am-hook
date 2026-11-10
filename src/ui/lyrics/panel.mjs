@@ -705,36 +705,71 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     root.style.setProperty('--lyrics-font-weight', String(prefs.weight));
     applyFont();
   }
+  /** 返回字体是否变了 */
   function applyFont() {
     const family = lyricFonts.familyValue();
+    if (family === root.style.getPropertyValue('--lyrics-font-family')) return false;
     if (family) root.style.setProperty('--lyrics-font-family', family);
     else root.style.removeProperty('--lyrics-font-family');
+    return true;
   }
 
   /**
-   * 换了字体，或字体的字面（网络字体按 unicode-range 分片）加载完成后：AMLL 按排版时的字形量好了行高与逐字遮罩，
-   * 要重新排版。一批字面接连加载完时只排一次
+   * AMLL 按排版时的字形量好了行高与逐字遮罩，字形变了就要整个重新排版（歌词会闪一下）。
+   * 所以排版前先等选定字体里歌词要用的分片加载完（lyricFonts.prepare），排版时记下已加载的字面（builtFaces）；
+   * 之后只有排版后才加载完、且含有歌词里的字的字面（等待超时的分片）才重新排版，一批接连加载完时只排一次
    */
+  let builtFaces = new Set();
+  let builtChars = new Set();
+  let pendingLines = false;
+  let linesToken = 0;
+  let fontToken = 0;
+  const linesText = (lines) => lines
+    .map((line) => line.words.map((w) => w.word + (w.romanWord || '')).join('') + line.translatedLyric + line.romanLyric)
+    .join('');
+  function rememberFaces() {
+    builtChars = new Set([...linesText(view.getLyricLines())].map((c) => c.codePointAt(0)));
+    builtFaces = new Set([...document.fonts].filter((face) => face.status === 'loaded' && lyricFonts.isSelectedFace(face)));
+  }
+  function rebuild() {
+    view.rebuildLyricView(currentTime());
+    rememberFaces();
+  }
+
   let fontTimer = 0;
   function fontRelayout() {
     clearTimeout(fontTimer);
-    fontTimer = setTimeout(() => { if (open) relayout(); }, 120);
+    fontTimer = setTimeout(() => { if (open && !pendingLines) relayout(); }, 120);
+  }
+  /** 等歌词要用的分片加载完再执行 apply；期间又有新的调用时只执行最后一次 */
+  function afterFonts(apply) {
+    const token = ++fontToken;
+    const text = song ? linesText(view.getLyricLines()) : '';
+    lyricFonts.prepare(text, prefs.weight).then(() => { if (token === fontToken) apply(); });
   }
   lyricFonts.onChange((kind) => {
     if (kind === 'usage') return;
-    applyFont();
-    fontRelayout();
     if (!menu.hidden) renderMenu();
+    afterFonts(() => { if (applyFont()) fontRelayout(); });
   });
+  const lateFaces = new Set();
+  let lateTimer = 0;
   document.fonts.addEventListener('loadingdone', (event) => {
-    if (event.fontfaces.some((face) => lyricFonts.isSelectedFace(face))) fontRelayout();
+    for (const face of event.fontfaces) if (lyricFonts.isSelectedFace(face)) lateFaces.add(face);
+    if (!lateFaces.size) return;
+    clearTimeout(lateTimer);
+    lateTimer = setTimeout(() => {
+      const late = [...lateFaces].some((face) => !builtFaces.has(face) && lyricFonts.faceCovers(face, builtChars));
+      lateFaces.clear();
+      if (late && open && !pendingLines) relayout();
+    }, 120);
   });
 
   /** 改了字号或字重后重新排版：AMLL 只在尺寸变化时读取字号，行高要按新字号重新计算 */
   function relayout() {
     view.onResize();
     if (!lyricsVisible || !song) return;
-    view.rebuildLyricView(currentTime());
+    rebuild();
     view.setCurrentTime(currentTime(), true);
     view.resetScroll();
   }
@@ -789,9 +824,27 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       .catch((error) => { if (!controller.signal.aborted) console.warn('[am-hook] 歌词背景加载失败', error); });
   }
 
-  function setLines() {
-    view.setLyricLines(toAmllLines(song, shown), currentTime());
+  /** 排版歌词（先等字体分片，见 rememberFaces）；reset 时按当前进度对齐并滚到当前行 */
+  function setLines({ reset = false } = {}) {
+    const lines = toAmllLines(song, shown);
+    const token = ++linesToken;
+    pendingLines = true;
     renderCredits();
+    lyricFonts.prepare(linesText(lines), prefs.weight).then(() => {
+      if (token !== linesToken) return;
+      pendingLines = false;
+      view.setLyricLines(lines, currentTime());
+      rememberFaces();
+      if (reset) {
+        view.setCurrentTime(currentTime(), true);
+        view.resetScroll();
+      }
+    });
+  }
+  function clearLines() {
+    linesToken++;
+    pendingLines = false;
+    view.setLyricLines([]);
   }
 
   /** 歌词按钮的文案：播放条上为「歌词」，界面里为「显示 / 隐藏歌词」，按下状态表示歌词正在显示 */
@@ -819,8 +872,8 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     wake();
     syncDock();
     if (!visible || !changed || !song) return;
-    if (!view.getLyricLines().length) setLines();
-    else view.rebuildLyricView(currentTime());
+    if (!view.getLyricLines().length) { setLines({ reset: true }); return; }
+    rebuild();
     view.setCurrentTime(currentTime(), true);
     view.resetScroll();
   }
@@ -1064,8 +1117,9 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     if (values[index] === prefs[key]) return;
     prefs[key] = values[index];
     savePrefs(prefs);
-    applyPrefs();
-    relayout();
+    if (key !== 'weight') { applyPrefs(); relayout(); return; }
+    // 换字重可能换用字体的另一个字面：等它的分片加载完再排版
+    afterFonts(() => { applyPrefs(); relayout(); });
   }
 
   /** 改歌词来源后重新取这首歌的歌词；结果不是选定的来源时提示原因 */
@@ -1190,12 +1244,10 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
           syncOptions();
           // 展开界面里正在等这首歌的歌词时直接排版
           if (lyricsVisible) {
-            setLines();
-            view.setCurrentTime(currentTime(), true);
-            view.resetScroll();
+            setLines({ reset: true });
           } else {
             // 改歌词来源时可能已有上一来源的歌词行，清掉后再次显示时按新歌词排版（见 applyVisibility）
-            view.setLyricLines([]);
+            clearLines();
           }
         })
         .catch((error) => {
@@ -1225,7 +1277,7 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     unavailable = false;
     toggle.removeAttribute('aria-busy');
     credits.replaceChildren();
-    view.setLyricLines([]);
+    clearLines();
     closeMenu();
     has.translation = has.pronunciation = false;
     syncOptions();

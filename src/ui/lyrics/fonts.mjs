@@ -654,6 +654,34 @@ export const lyricFonts = {
     const entry = this.selected();
     return !!entry && (faceInfo.get(face)?.id === entry.id || face.family.replace(/^["']|["']$/g, '') === alias(entry.id));
   },
+  /**
+   * 先加载选定字体里显示这段文字要用的字面（网络字体只下载 unicode-range 与文字相交的分片），最多等 timeout 毫秒。
+   * 歌词界面等它完成后再排版，避免分片陆续到达时一次次重新排版
+   */
+  async prepare(text, weight = lyricsWeight(), timeout = 3000) {
+    await this.ready;
+    const entry = this.selected();
+    if (!entry || entry.origin === 'local' || !text) return;
+    // 空格也要：它常在单独的拉丁分片里
+    const chars = [...new Set(text.replace(/\s/g, ' '))].join('');
+    const load = register(entry).then(() => document.fonts.load(`${weight} 16px ${quote(alias(entry.id))}`, chars));
+    let timer = 0;
+    await Promise.race([load.catch(() => {}), new Promise((resolve) => { timer = setTimeout(resolve, timeout); })]);
+    clearTimeout(timer);
+  },
+  /** 字面的 unicode-range 是否含有 chars（Set<码位>）里的字 */
+  faceCovers(face, chars) {
+    const range = face.unicodeRange || '';
+    if (!range || /^U\+0-10FFFF$/i.test(range.trim())) return true;
+    return range.split(',').some((part) => {
+      const m = /U\+([0-9a-f?]+)(?:-([0-9a-f]+))?/i.exec(part.trim());
+      if (!m) return false;
+      const lo = parseInt(m[1].replace(/\?/g, '0'), 16);
+      const hi = m[2] ? parseInt(m[2], 16) : parseInt(m[1].replace(/\?/g, 'f'), 16);
+      for (const code of chars) if (code >= lo && code <= hi) return true;
+      return false;
+    });
+  },
   register,
   usage,
   onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
