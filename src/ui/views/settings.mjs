@@ -57,6 +57,14 @@ const LYRICS_SCRIPTS = ['ja-Kana', 'ko-Hang'];
 const LYRICS_SCRIPTS_OTHER = ['ru-Cyrl', 'ar-Arab', 'ur-Aran', 'zh-Hans', 'hi-Deva', 'bn-Beng', 'pa-Guru', 'gu-Gujr', 'or-Orya', 'ta-Taml',
   'te-Telu', 'kn-Knda', 'ml-Mlym', 'si-Sinh', 'th-Thai', 'lo-Laoo', 'km-Khmr', 'my-Mymr', 'am-Ethi', 'ka-Geor', 'hy-Armn', 'he-Hebr', 'el-Grek', 'bo-Tibt'];
 
+/** 发音文字下拉框里每种文字的示例字母（让人一眼看出写出来是什么样子） */
+const SCRIPT_SAMPLES = {
+  Latn: 'abc', Kana: 'アイウ', Hang: '가나다', Cyrl: 'абв', Arab: 'ابت', Aran: 'ابت', Hans: '汉字', Deva: 'कखग',
+  Beng: 'কখগ', Guru: 'ਕਖਗ', Gujr: 'કખગ', Orya: 'କଖଗ', Taml: 'கஙச', Telu: 'కఖగ', Knda: 'ಕಖಗ', Mlym: 'കഖഗ',
+  Sinh: 'කඛග', Thai: 'กขค', Laoo: 'ກຂຄ', Khmr: 'កខគ', Mymr: 'ကခဂ', Ethi: 'ሀለሐ', Geor: 'აბგ', Armn: 'աբգ',
+  Hebr: 'אבג', Grek: 'αβγ', Tibt: 'ཀཁག',
+};
+
 /** 按界面语言显示的语言 / 地区名（Intl.DisplayNames），取不到时用代码本身 */
 const displayNames = new Map();
 function displayName(type, code) {
@@ -108,8 +116,8 @@ export function mount({ root, signal, onLangChange, toast }) {
 
   // 元数据 / 歌词语言的下拉框用的地区表（/amp/v1/storefronts，i18n.js 缓存）；主地区变了重新分组
   let storefrontMap = null;
-  AmI18n.storefronts().then((map) => { if (!signal.aborted && map) { storefrontMap = map; sync(); } });
-  signal.addEventListener('abort', AmI18n.onSettingsChange(() => sync()), { once: true });
+  AmI18n.storefronts().then((map) => { if (!signal.aborted && map) { storefrontMap = map; sync(); syncPlayback(); } });
+  signal.addEventListener('abort', AmI18n.onSettingsChange(() => { sync(); syncPlayback(); }), { once: true });
 
   /* ---------- 控件 ---------- */
   function row(label, desc, control, { id, wide } = {}) {
@@ -427,31 +435,68 @@ export function mount({ root, signal, onLangChange, toast }) {
 
     const langRow = row(t('set.lyricsLang'), t('set.lyricsLangDesc'), langSelect('lyricsLang', t('set.followMeta'), t('set.lyricsLang'), { all: true }));
     langRow.classList.add('set-lyrics-lang');
-    const scriptRow = row(t('set.lyricsScript'), t('set.lyricsScriptDesc'), scriptSelect());
-    scriptRow.classList.add('set-lyrics-lang');
-    controls.push((v) => { langRow.hidden = scriptRow.hidden = !(v.embed.includes('lyrics') || v.saveLyrics); });
-    return [el('div', { className: 'set-covers' }, embedPanel, savePanel), lrcBox, langRow, scriptRow];
+    const scriptLine = scriptRow(DOWNLOAD_BIND, 'set.lyricsScriptDesc');
+    scriptLine.classList.add('set-lyrics-lang');
+    controls.push((v) => { langRow.hidden = scriptLine.hidden = !(v.embed.includes('lyrics') || v.saveLyrics); });
+    return [el('div', { className: 'set-covers' }, embedPanel, savePanel), lrcBox, langRow, scriptLine];
+  }
+
+  /** 语言、发音文字下拉框绑定的设置分组：默认为下载（controls / set），播放页传 PLAY_BIND */
+  const DOWNLOAD_BIND = { push: (fn) => controls.push(fn), write: (patch) => set(patch) };
+
+  /**
+   * 发音文字一行：下拉框（每项带几个该文字的字母作示例），说明随选中的文字变化：
+   * 开头一句为 introKey，后面是「发音用 abc… 这样的字母写出」与例子或限制（set.scriptDesc.*）
+   */
+  function scriptRow(bind, introKey) {
+    const node = row(t('set.lyricsScript'), ' ', scriptSelect(bind));
+    const desc = node.querySelector('.set-desc');
+    bind.push((v) => {
+      const code = v.lyricsScript ? v.lyricsScript.split('-').pop() : 'Latn';
+      const sample = SCRIPT_SAMPLES[code];
+      const detail = ['Latn', 'Hang', 'Kana'].includes(code) ? t(`set.scriptDesc.${code}`)
+        : sample ? t('set.scriptDesc.none', { sample }) : t('set.scriptDesc.unknown');
+      desc.textContent = `${t(introKey)} ${detail}`;
+    });
+    return node;
   }
 
   /** 发音文字的下拉框：默认（拉丁字母）与实测有发音的文字在前，其余文字另成一组；已保存的未知值单独保留 */
-  function scriptSelect() {
+  function scriptSelect(bind = DOWNLOAD_BIND) {
     const node = el('select', { className: 'set-select set-lang' });
     node.setAttribute('aria-label', t('set.lyricsScript'));
-    node.addEventListener('change', () => set({ lyricsScript: node.value }));
+    // 没有发音的文字默认收起：列表末尾的「更多文字…」展开（选中的就是其中之一时总是展开）
+    const MORE = '__more__'; // 不是合法的语言标签，不会与真实的值冲突
+    let expanded = false;
+    let saved = '';
+    node.addEventListener('change', () => {
+      if (node.value !== MORE) { bind.write({ lyricsScript: node.value }); return; }
+      expanded = true;
+      fill(saved);
+      // 展开后直接再弹出列表（不支持 showPicker 的浏览器需要用户再点一次）
+      try { node.showPicker(); } catch { /* 忽略 */ }
+    });
     // 文字名默认取 Intl.DisplayNames；Hans 只显示「简体」容易被当成拼音，改写成「简体汉字」
     const scriptName = (code) => (code === 'Hans' ? t('set.scriptHans') : displayName('script', code));
-    const option = (tag, text = `${scriptName(tag.split('-').pop())} · ${tag}`) => el('option', { value: tag, textContent: text });
-    controls.push((v) => {
+    // 每项为「文字名 · 示例字母…」，不认识的已保存值只显示代码本身
+    const label = (code) => `${code === 'Latn' ? t('set.scriptLatn') : scriptName(code)} · ${SCRIPT_SAMPLES[code]}…`;
+    const option = (tag, text = label(tag.split('-').pop())) => el('option', { value: tag, textContent: text });
+    function fill(current) {
+      saved = current;
       const known = [...LYRICS_SCRIPTS, ...LYRICS_SCRIPTS_OTHER];
+      const showOther = expanded || LYRICS_SCRIPTS_OTHER.includes(current);
       node.replaceChildren(...[
         el('optgroup', { label: t('set.scriptWorks') },
-          option('', `${t('set.scriptLatn')} · en-Latn · ${t('settings.default')}`),
+          option('', `${label('Latn')} · ${t('settings.default')}`),
           ...LYRICS_SCRIPTS.map((tag) => option(tag))),
-        v.lyricsScript && !known.includes(v.lyricsScript) ? option(v.lyricsScript, v.lyricsScript) : null,
-        el('optgroup', { label: t('set.scriptOther') }, ...LYRICS_SCRIPTS_OTHER.map((tag) => option(tag))),
+        current && !known.includes(current) ? option(current, current) : null,
+        showOther
+          ? el('optgroup', { label: t('set.scriptOther') }, ...LYRICS_SCRIPTS_OTHER.map((tag) => option(tag)))
+          : el('option', { value: MORE, textContent: t('set.scriptMore') }),
       ].filter(Boolean));
-      node.value = v.lyricsScript;
-    });
+      node.value = current;
+    }
+    bind.push((v) => fill(v.lyricsScript));
     return node;
   }
 
@@ -459,10 +504,10 @@ export function mount({ root, signal, onLangChange, toast }) {
    * 语言下拉框（取代手填 BCP 47）：空 = 跟随…；当前主地区在 /amp/v1/storefronts 里支持的语言（默认语言在前），
    * all 时另列其他地区的语言；已保存的值不在表里（旧版本手填的）时单独保留一项。地区表载入前只有空与当前值
    */
-  function langSelect(key, emptyLabel, label, { all = false } = {}) {
+  function langSelect(key, emptyLabel, label, { all = false, bind = DOWNLOAD_BIND } = {}) {
     const node = el('select', { className: 'set-select set-lang' });
     node.setAttribute('aria-label', label);
-    node.addEventListener('change', () => set({ [key]: node.value }));
+    node.addEventListener('change', () => bind.write({ [key]: node.value }));
     const collator = new Intl.Collator(AmI18n.lang === 'zh' ? 'zh-CN' : 'en');
     const fill = (v) => {
       const cc = AmI18n.storefront;
@@ -483,7 +528,7 @@ export function mount({ root, signal, onLangChange, toast }) {
       ].filter(Boolean));
       node.value = saved;
     };
-    controls.push(fill);
+    bind.push(fill);
     return node;
   }
 
@@ -527,6 +572,7 @@ export function mount({ root, signal, onLangChange, toast }) {
   const setPlay = (patch) => prefs.set('playback', patch);
   const setJoc = (patch) => prefs.set('joc', patch);
   let playResetArmed = false;
+  const PLAY_BIND = { push: (fn) => playControls.push(({ play }) => fn(play)), write: (patch) => setPlay(patch) };
 
   /** 单选按钮组（分段样式）：options 为 [value, label]，onPick(value)；返回 [节点, 同步函数] */
   function radios(label, options, onPick) {
@@ -651,6 +697,11 @@ export function mount({ root, signal, onLangChange, toast }) {
     const volume = section('volume', 'set.volume',
       row(t('set.stereoGain'), t('set.stereoGainDesc'), dbInput(t('set.stereoGain'), -20, 'stereoGain')));
 
+    // 歌词界面（lyrics/panel.mjs）请求 Apple Music 歌词用的语言与发音文字，与下载的「歌词」分组分开设置
+    const lyrics = section('play-lyrics', 'set.lyrics',
+      row(t('set.lyricsLang'), t('set.lyricsLangDesc'), langSelect('lyricsLang', t('set.followCatalog'), t('set.lyricsLang'), { all: true, bind: PLAY_BIND })),
+      scriptRow(PLAY_BIND, 'set.playLyricsScriptDesc'));
+
     const reset = el('button', { type: 'button', className: 'set-btn set-btn-danger', textContent: t('set.playReset') });
     reset.addEventListener('click', () => {
       if (!playResetArmed) {
@@ -665,7 +716,7 @@ export function mount({ root, signal, onLangChange, toast }) {
       toast(t('set.resetDone'));
     });
 
-    playback.replaceChildren(quality, transitions, spatialSection, volume, el('div', { className: 'set-footer' }, reset));
+    playback.replaceChildren(quality, transitions, spatialSection, volume, lyrics, el('div', { className: 'set-footer' }, reset));
     syncPlayback();
   }
 

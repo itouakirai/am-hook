@@ -130,6 +130,15 @@ import('/assets/lyrics/panel.mjs')
       navigate: (href) => navigate(href),
       onLangChange: AmI18n.onChange,
       onShow: resolveTarget,
+      lyricsOptions: () => { const p = prefs.get('playback'); return { language: p.lyricsLang, script: p.lyricsScript }; },
+    });
+    // 设置中心「播放 › 歌词」的语言或发音文字变了：重新取正在显示的歌词
+    const lyricsKey = () => { const p = prefs.get('playback'); return `${p.lyricsLang}|${p.lyricsScript}`; };
+    let lyricsOptionsKey = lyricsKey();
+    prefs.onChange((section) => {
+      if (section !== 'playback' || lyricsKey() === lyricsOptionsKey) return;
+      lyricsOptionsKey = lyricsKey();
+      lyrics.lyricsOptionsChanged();
     });
 
     // 标题旁的喜爱与「更多」（同 music.apple.com 全屏播放界面）：条目为正在播放的歌曲，先用播放队列里的信息，

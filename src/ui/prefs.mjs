@@ -157,6 +157,9 @@ export const DEFAULTS = {
     transition: 'automix',
     // 交叉淡化的时长（秒，1–12）
     crossfade: 6,
+    // 歌词界面请求 wrapper-lite /lyrics 的 language（空为跟随曲库语言）与 script（空为不传，即 en-Latn），与下载的分开设置
+    lyricsLang: '',
+    lyricsScript: '',
   },
   download: {
     codec: 'alac',
@@ -236,6 +239,7 @@ export const DEFAULTS = {
 };
 
 const LANG_TAG = /^[A-Za-z0-9-]{0,35}$/;
+const langTag = (v, d) => (typeof v === 'string' && LANG_TAG.test(v.trim()) ? v.trim() : d);
 /** iTunes 自定义字段名（----:com.apple.iTunes:<名称>） */
 export const TAG_NAME = /^[A-Za-z0-9 _.-]{1,64}$/;
 const int = (v, min, max, fallback) => {
@@ -266,6 +270,8 @@ function clean(section, raw) {
       spatial: oneOf(r.spatial, o.spatial, d.spatial),
       transition: oneOf(r.transition, o.transition, d.transition),
       crossfade: int(r.crossfade, 1, 12, d.crossfade),
+      lyricsLang: langTag(r.lyricsLang, d.lyricsLang),
+      lyricsScript: langTag(r.lyricsScript, d.lyricsScript),
     };
   }
   if (section === 'joc') {

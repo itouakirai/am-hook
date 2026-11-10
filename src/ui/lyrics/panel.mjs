@@ -2,7 +2,8 @@
  * 在线播放的全屏播放界面：用 AMLL（Apple Music-like Lyrics，见 browser/amll）显示歌词，接到 AmPlayer 上。
  *
  *   歌词     AmWrapper.lyrics()：wrapper-lite /lyrics 的 TTML 原文（经服务端 GET /lyrics/<adamId>?language=<曲库语言>，或浏览器直连本地 wrapper-lite），
- *            language 取歌曲所在地区的曲库语言（AmI18n.catalogLang：选定的语言，否则为地区默认语言），取不到时不传；首次打开歌词界面时才请求并缓存；没有歌词时隐藏按钮。
+ *            language 取设置中心「播放 › 歌词」选的歌词语言，没选时为歌曲所在地区的曲库语言（AmI18n.catalogLang：选定的语言，否则为地区默认语言），
+ *            取不到时不传；script 取那里选的发音文字（没选时不传）；首次打开歌词界面时才请求并缓存；没有歌词时隐藏按钮。
  *            歌词来源选 AMLL 歌词库时先由浏览器直接请求 AMLL TTML DB（https://amll.dev/reference/http-api/overview，允许跨域）的
  *            GET /v1/lyrics/get?appleMusicId=<adamId>，未收录或请求失败时仍用上面的 Apple Music 歌词。
  *            ttml.mjs 解析 TTML，toAmllLines() 转成 AMLL 的 LyricLine（对唱侧由 ttml.mjs 的 duetSides() 照 AMLL 逐行决定）
@@ -249,7 +250,7 @@ const safeName = (name) => name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim
  * onShow()：界面展开或展开期间切歌时调用（如更新标题旁的喜爱与「更多」按钮）。
  * 返回 { setTrack(id, country), close() }：setTrack 在切歌时调用，界面跟随正在播放的歌曲；close 收起界面。
  */
-export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onLangChange, navigate, onShow }) {
+export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onLangChange, navigate, onShow, lyricsOptions }) {
   const $ = (selector) => root.querySelector(selector);
   const stage = $('.lyrics-stage');
   const panel = $('.lyric-panel');
@@ -1026,6 +1027,14 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     });
   }
 
+  /** 设置中心改了歌词语言或发音文字：丢掉缓存的 Apple Music 歌词；正在显示（或加载）的是它时按新设置重新取 */
+  function lyricsOptionsChanged() {
+    delete sources.apple;
+    if (!adamId || !request || lyricsSource === 'amll') return;
+    request = null;
+    fetchLyrics();
+  }
+
   /**
    * 在点击处弹出菜单（键盘打开时在按钮中心），同 amp-contextual-menu-button：
    * 右侧放不下时改到左侧，下方放不下（留 40px）时改为向上展开。
@@ -1085,8 +1094,10 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       }
     }
     const apple = await remember('apple', async () => {
-      const language = await (async () => globalThis.AmI18n?.catalogLang(getMeta()?.country || country))().catch(() => undefined);
-      const text = await globalThis.AmWrapper.lyrics(id, language);
+      const options = lyricsOptions?.() || {};
+      const language = options.language
+        || await (async () => globalThis.AmI18n?.catalogLang(getMeta()?.country || country))().catch(() => undefined);
+      const text = await globalThis.AmWrapper.lyrics(id, language, undefined, options.script || undefined);
       return text == null ? null : { text, source: 'apple' };
     });
     return { ...parse(apple), amllStatus: status };
@@ -1369,5 +1380,5 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
   syncLayout();
   syncToggle();
 
-  return { setTrack, close: hide };
+  return { setTrack, close: hide, lyricsOptionsChanged };
 }
