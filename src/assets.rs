@@ -123,6 +123,9 @@ pub static ASSETS: &[Asset] = &[
     asset!("/assets/lyrics/backdrop-render.mjs", JS, "lyrics/backdrop-render.mjs"),
     asset!("/assets/lyrics/backdrop-worker.mjs", JS, "lyrics/backdrop-worker.mjs"),
     asset!("/assets/lyrics/pulse.mjs", JS, "lyrics/pulse.mjs"),
+    // 歌词字体：字体库（上传 / 网址 / 本机 / 中文网字计划，数据只存在浏览器的 IndexedDB）与中文网字计划的字体目录
+    asset!("/assets/lyrics/fonts.mjs", JS, "lyrics/fonts.mjs"),
+    asset!("/assets/lyrics/font-catalog.mjs", JS, "lyrics/font-catalog.mjs"),
     // 页面视图：`<name>.html` 为页面内容，`<name>.mjs` 为页面脚本（导出 mount，见 app.mjs）
     asset!("/assets/views/home.html", HTML, "views/home.html"),
     asset!("/assets/views/home.mjs", JS, "views/home.mjs"),
@@ -160,6 +163,7 @@ pub static ASSETS: &[Asset] = &[
     asset!("/assets/views/settings.html", HTML, "views/settings.html"),
     asset!("/assets/views/settings.mjs", JS, "views/settings.mjs"),
     asset!("/assets/views/settings.css", CSS, "views/settings.css"),
+    asset!("/assets/views/settings-fonts.mjs", JS, "views/settings-fonts.mjs"),
     asset!("/assets/views/download-dialog.mjs", JS, "views/download-dialog.mjs"),
     // 专辑页的 ALAC 检测对话框（检测逻辑见 /assets/alac-check.mjs）
     asset!("/assets/views/alac-check-dialog.mjs", JS, "views/alac-check-dialog.mjs"),

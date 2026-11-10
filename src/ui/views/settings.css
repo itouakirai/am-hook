@@ -251,3 +251,128 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
   .set-control > .set-input:not(.set-number), .set-select { width: 100%; }
   .set-title { font-size: 26px; }
 }
+
+/* 歌词字体（views/settings-fonts.mjs）：仿歌词界面的大字预览、字体库（单选）、四种添加方式 */
+.set-font-top { padding: 12px; }
+.set-font-stage {
+  display: grid; gap: 12px; padding: 18px 20px 14px; border-radius: 12px; overflow: hidden;
+  background: radial-gradient(120% 140% at 0% 0%, #4b2a5e 0%, #20243f 55%, #121418 100%); color: #fff;
+}
+.set-font-stage-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; font-size: 12px; color: rgba(255, 255, 255, .6); }
+.set-font-stage-name { overflow: hidden; color: rgba(255, 255, 255, .92); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.set-font-stage-sample { min-height: 1.3em; font-size: clamp(24px, 4.2vw, 38px); line-height: 1.3; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.set-font-text-row { display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, .6); font-size: 12px; }
+.set-font-text-row > span { flex: 0 0 auto; }
+.set-font-text {
+  flex: 1 1 auto; min-width: 0; height: 30px; border-color: rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .08); color: #fff;
+}
+.set-font-text::placeholder { color: rgba(255, 255, 255, .4); }
+.set-font-text:focus { border-color: rgba(255, 255, 255, .5); }
+
+.set-font-list { display: grid; gap: 6px; }
+.set-font {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 10px;
+  border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); transition: border-color .12s, background .12s;
+}
+.set-font:hover { border-color: var(--line-strong); }
+.set-font.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); box-shadow: inset 0 0 0 1px var(--accent); }
+.set-font-main {
+  position: relative; display: grid; gap: 3px; flex: 1 1 auto; min-width: 0; padding: 10px 12px 10px 36px;
+  border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.set-font-main::before {
+  content: ""; position: absolute; top: 13px; left: 12px; width: 14px; height: 14px; box-sizing: border-box;
+  border: 1.5px solid var(--line-strong); border-radius: 50%;
+}
+.set-font-main[aria-checked="true"]::before { border: 4.5px solid var(--accent); }
+.set-font-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 11px; }
+.set-font-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.set-font-name > :first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-font-tag {
+  flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 500;
+}
+.set-font-sample { overflow: hidden; font-size: 20px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.set-font-meta { color: var(--muted); font-size: 12px; }
+.set-font-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.set-font-actions [hidden] { display: none; }
+.set-font-link { display: inline-flex; align-items: center; text-decoration: none; }
+.set-font-remove.is-armed { border-color: var(--error); color: var(--error); }
+.set-font-empty { padding: 4px 2px; color: var(--muted); font-size: 12px; }
+.set-font-empty[hidden] { display: none; }
+
+.set-font-add { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.set-font-add-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 68px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.set-font-add-btn svg { width: 22px; height: 22px; color: var(--muted); }
+.set-font-add-btn:hover { border-color: var(--line-strong); }
+.set-font-add-btn[aria-selected="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.set-font-add-btn[aria-selected="true"] svg { color: var(--accent); }
+.set-font-add-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-font-panels[hidden] { display: none; }
+.set-font-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
+.set-font-panel > p { margin: 0; }
+.set-font-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.set-font-line .set-input { flex: 1 1 220px; min-width: 0; }
+.set-font-search[hidden] { display: none; }
+.set-font-sub { margin-top: 4px; font-size: 13px; font-weight: 500; }
+.set-font-check.is-bad { color: var(--warn); }
+.set-btn-accent { border-color: var(--accent); background: var(--accent); color: #fff; }
+.set-btn-accent:hover { background: var(--accent-hover); }
+.set-btn-accent:disabled { opacity: .6; }
+.set-btn-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.set-btn-link:hover { text-decoration: underline; }
+
+/* 上传：拖放区（整个分组也接受拖放） */
+.set-font-drop {
+  position: relative; display: grid; justify-items: center; gap: 4px; padding: 20px 14px; border: 1.5px dashed var(--line-strong); border-radius: 10px;
+  text-align: center; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.set-font-drop:hover, .set-card.is-dragging .set-font-drop { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.set-font-drop-icon svg { width: 26px; height: 26px; color: var(--accent); }
+.set-font-drop-title { font-size: 14px; font-weight: 600; }
+.set-font-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.set-font-drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-card.is-dragging { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* 本机字体 */
+.set-font-local { display: grid; max-height: 360px; overflow-y: auto; border-radius: 9px; }
+.set-font-local:empty { display: none; }
+.set-font-local-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 4px;
+  border-top: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: auto 48px;
+}
+.set-font-local-row:first-child { border-top: 0; }
+.set-font-local-text { display: grid; gap: 1px; min-width: 0; }
+.set-font-local-name { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 中文网字计划：预览图卡片与选中字体的详情 */
+.set-font-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 460px; overflow-y: auto; padding: 2px; }
+.set-font-card {
+  display: grid; align-content: start; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color .12s;
+}
+.set-font-card:hover { border-color: var(--line-strong); }
+.set-font-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.set-font-card img { display: block; width: 100%; aspect-ratio: 7 / 1; object-fit: contain; object-position: left center; padding: 6px 8px; border-radius: 6px; background: #f4f4f6; }
+.set-font-card-name { font-size: 13px; font-weight: 500; }
+.set-font-card-count { color: var(--muted); font-size: 11.5px; }
+.set-font-detail { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); }
+.set-font-detail[hidden] { display: none; }
+.set-font-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.set-font-detail-name { font-size: 15px; font-weight: 600; }
+.set-font-detail .set-chip { padding: 0 11px; font-size: 12px; }
+.set-font-detail-sample { min-height: 1.35em; font-size: 30px; line-height: 1.35; overflow-wrap: anywhere; transition: opacity .2s; }
+.set-font-detail-sample.is-loading { opacity: .35; }
+.set-font-storage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.set-font-persist { color: var(--ok, #30d158); }
+
+@media (max-width: 640px) {
+  .set-font-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .set-font { flex-wrap: wrap; padding-right: 0; }
+  .set-font-actions { width: 100%; justify-content: flex-start; padding: 0 10px 10px 36px; }
+  .set-font-actions:empty { display: none; }
+  .set-font-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+}

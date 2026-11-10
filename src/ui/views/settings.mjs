@@ -7,6 +7,7 @@ import { formatPath, fitFolder, fitFile, templateIssues, TEMPLATE_VAR_GROUPS, TE
 import { downloads, coverUrl } from '../downloads.mjs';
 import { ttmlToLrc } from '../lrc.mjs';
 import { userToken, askToken, onTokenChange } from '../station.mjs';
+import { fontSection } from './settings-fonts.mjs';
 
 const { AmI18n, AmDecrypt } = window;
 const { t } = AmI18n;
@@ -618,8 +619,13 @@ export function mount({ root, signal, onLangChange, toast }) {
     return el('div', { className: 'set-unit-box' }, input, el('span', { className: 'set-unit', textContent: 'dB' }));
   }
 
+  // 歌词字体分组（settings-fonts.mjs）的监听随每次重绘（切换界面语言）与离开设置页中止
+  let fontsAbort = null;
+  signal.addEventListener('abort', () => fontsAbort?.abort(), { once: true });
   function renderPlayback() {
     playControls.length = 0;
+    fontsAbort?.abort();
+    fontsAbort = new AbortController();
 
     // 音质：Wi-Fi 与移动数据分别设置，标出当前网络用的是哪一个
     const networkNote = el('div', { className: 'set-network' });
@@ -716,7 +722,10 @@ export function mount({ root, signal, onLangChange, toast }) {
       toast(t('set.resetDone'));
     });
 
-    playback.replaceChildren(quality, transitions, spatialSection, volume, lyrics, el('div', { className: 'set-footer' }, reset));
+    // 歌词字体：字体库与添加字体（上传、网址、本机字体、中文网字计划），保存在浏览器的 IndexedDB 里，「恢复默认」不影响
+    const fonts = fontSection({ section, toast, signal: fontsAbort.signal });
+
+    playback.replaceChildren(quality, transitions, spatialSection, volume, lyrics, fonts, el('div', { className: 'set-footer' }, reset));
     syncPlayback();
   }
 

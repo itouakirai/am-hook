@@ -26,6 +26,7 @@ import { parseTTML, duetSides } from './ttml.mjs';
 import { DomLyricPlayer, BackgroundRender, MeshGradientRenderer } from './amll-core.mjs';
 import { ArtworkBackdrop } from './backdrop.mjs';
 import { BeatPulse } from './pulse.mjs';
+import { lyricFonts } from './fonts.mjs';
 
 const validTokens = (voice) => voice.tokens.filter((token) => token.begin !== 0 || token.end !== 0);
 const plainText = (voice) => validTokens(voice).map((t) => t.text + (t.spaceAfter ? ' ' : '')).join('').trim() || voice.text;
@@ -698,11 +699,36 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     }
   }
 
-  /** 字号与字重写在歌词界面的 CSS 变量上（见 app.css 的 .lyric-panel） */
+  /** 字号、字重与字体写在歌词界面的 CSS 变量上（见 app.css 的 .lyric-panel；字体见 fonts.mjs，默认为系统字体） */
   function applyPrefs() {
     root.style.setProperty('--lyrics-font-scale', String(prefs.scale));
     root.style.setProperty('--lyrics-font-weight', String(prefs.weight));
+    applyFont();
   }
+  function applyFont() {
+    const family = lyricFonts.familyValue();
+    if (family) root.style.setProperty('--lyrics-font-family', family);
+    else root.style.removeProperty('--lyrics-font-family');
+  }
+
+  /**
+   * 换了字体，或字体的字面（网络字体按 unicode-range 分片）加载完成后：AMLL 按排版时的字形量好了行高与逐字遮罩，
+   * 要重新排版。一批字面接连加载完时只排一次
+   */
+  let fontTimer = 0;
+  function fontRelayout() {
+    clearTimeout(fontTimer);
+    fontTimer = setTimeout(() => { if (open) relayout(); }, 120);
+  }
+  lyricFonts.onChange((kind) => {
+    if (kind === 'usage') return;
+    applyFont();
+    fontRelayout();
+    if (!menu.hidden) renderMenu();
+  });
+  document.fonts.addEventListener('loadingdone', (event) => {
+    if (event.fontfaces.some((face) => lyricFonts.isSelectedFace(face))) fontRelayout();
+  });
 
   /** 改了字号或字重后重新排版：AMLL 只在尺寸变化时读取字号，行高要按新字号重新计算 */
   function relayout() {
@@ -975,6 +1001,8 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       menuItem(stepper(t('lyrics.fontWeight'), t(`lyrics.weight${prefs.weight}`),
         ['weightLighter', weight > 0], ['weightBolder', weight < FONT_WEIGHTS.length - 1])),
       separator(),
+      ...fontItems(),
+      separator(),
       menuItem(menuNode('span', '', t('lyrics.source')), 'presentation', 'lyrics-menu-heading'),
       ...['apple', 'amll'].map((source) => menuItem(menuButton({
         label: t(source === 'apple' ? 'lyrics.sourceApple' : 'lyrics.sourceAmll'),
@@ -995,6 +1023,34 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       menuItem(menuButton({ label: t('lyrics.download'), icon: 'download', action: 'download', disabled: !lyricsText })),
     ];
     menu.replaceChildren(...items);
+  }
+
+  /**
+   * 字体：系统默认与字体库里的字体（单选，最多列出最近添加的 6 款，选中的总在其中），以及打开设置中心的「管理字体…」。
+   * 字体名用各自的字体显示
+   */
+  const MENU_FONTS = 6;
+  function fontItems() {
+    const current = lyricFonts.selected();
+    let list = lyricFonts.entries.slice(-MENU_FONTS);
+    if (current && !list.includes(current)) list = [...list.slice(1), current];
+    const option = (entry) => {
+      const button = menuButton({
+        label: entry ? entry.name : t('lyrics.fontSystem'), icon: current === entry ? 'check' : '',
+        action: 'font', value: entry ? entry.id : 'system', checked: current === entry,
+      });
+      if (entry) {
+        lyricFonts.register(entry).catch(() => {});
+        button.querySelector('.lyrics-menu-text').style.fontFamily = `${lyricFonts.cssFamily(entry)}, var(--lyrics-system-font)`;
+      }
+      return menuItem(button);
+    };
+    return [
+      menuItem(menuNode('span', '', t('lyrics.font')), 'presentation', 'lyrics-menu-heading'),
+      option(null),
+      ...list.map(option),
+      ...(navigate ? [menuItem(menuButton({ label: t('lyrics.fontManage'), action: 'fontManage' }))] : []),
+    ];
   }
 
   /** 字号 / 字重按钮：在可选值里前后移一档 */
@@ -1288,6 +1344,13 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       closeMenu(true);
       prefs.pulse = !prefs.pulse;
       savePrefs(prefs);
+    } else if (action === 'font') {
+      closeMenu(true);
+      lyricFonts.select(value === 'system' ? '' : value);
+    } else if (action === 'fontManage') {
+      closeMenu(true);
+      hide();
+      navigate('/settings#lyrics-font');
     } else if (action === 'download') {
       closeMenu(true);
       downloadTTML();
