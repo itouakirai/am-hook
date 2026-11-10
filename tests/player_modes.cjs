@@ -102,7 +102,7 @@ test('the playback quality setting picks the tier, falls back down, and gates Do
   assert.equal(pick('hires'), 'audio-stereo-256');
 });
 
-test('the ALAC / AAC volume trim attenuates only the audio element and never EC-3 or the slider value', () => {
+test('the non-spatial volume trim attenuates only the audio element and never spatial tracks or the slider value', () => {
   const player = Object.assign(Object.create(AmPlayer.prototype), {
     volume: 0.8, audio: { volume: 1 }, pcm: null, current: { codecs: 'alac' }, mixGain: 1, mixer: { volumeChanged() {} },
   });
@@ -117,6 +117,19 @@ test('the ALAC / AAC volume trim attenuates only the audio element and never EC-
     apply();
     assert.equal(player.audio.volume, 0.8);
     assert.equal(player.pcm.gain.gain.value, 0.8);
+    player.pcm = null;
+    // binaural / downmix AAC come from the Atmos mix and are about as quiet, so they are not attenuated either
+    for (const group of ['audio-stereo-256-binaural', 'audio-stereo-128-downmix', 'audio-HE-stereo-64-binaural']) {
+      player.current = { codecs: 'mp4a.40.2', variant: { group_id: group } };
+      apply();
+      assert.equal(player.audio.volume, 0.8, group);
+    }
+    player.current = { id: '1468058171:audio-stereo-256-downmix', codecs: 'mp4a.40.2' };
+    apply();
+    assert.equal(player.audio.volume, 0.8);
+    player.current = { codecs: 'mp4a.40.2', variant: { group_id: 'audio-stereo-256' } };
+    apply();
+    assert.ok(Math.abs(player.audio.volume - 0.8 * 10 ** (-6 / 20)) < 1e-9);
     player.current = null;
     apply();
     assert.equal(player.audio.volume, 0.8);

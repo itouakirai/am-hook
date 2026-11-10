@@ -693,7 +693,7 @@ export function mount({ root, signal, onLangChange, toast }) {
     const spatialSection = section('spatial', 'set.spatialSection',
       spatialRow, row(t('set.joc'), t('set.jocModeDesc'), mode, { wide: true }), datasetRow, gainRow);
 
-    // ALAC / AAC 的音量补偿：与 JOC 开关无关（浏览器自己解码的全景声同样比立体声母带小声）
+    // 非空间音频（ALAC / 立体声 AAC）的音量补偿：与 JOC 开关无关（浏览器自己解码的全景声同样比立体声母带小声）
     const volume = section('volume', 'set.volume',
       row(t('set.stereoGain'), t('set.stereoGainDesc'), dbInput(t('set.stereoGain'), -20, 'stereoGain')));
 

@@ -91,6 +91,15 @@
   function jocSettings() { return jocStore ? jocStore.get() : JOC_OFF; }
 
   function isEc3(codecs) { return /^(ec-3|ec3)$/i.test(String(codecs)); }
+  /**
+   * 空间音频曲目：E-AC-3（全景声）与它的双耳、立体声缩混 AAC。三者都由全景声混音而来，响度相近，
+   * 通常比立体声母带小 8–9 dB；「非空间音频音量」（stereoGain）只衰减其余曲目
+   */
+  function isSpatialItem(item) {
+    if (isEc3(item.codecs)) return true;
+    const group = (item.variant && item.variant.group_id) || item.id || '';
+    return /binaural|downmix/i.test(group);
+  }
   /** JOC 的两种输出：joc2 = Speaker 2.0，jocbin = 双耳 */
   function isJocMode(mode) { return mode === 'joc2' || mode === 'jocbin'; }
   /** 自己调度 PCM（Web Audio）的播放方式：内置 EC-3 解码与 JOC 渲染 */
@@ -1868,7 +1877,7 @@
 
   /**
    * 一首在播放（或已准备好）的曲目，与播放方式无关：<audio> 方式为 deck（{ audio, mse, clock }），PCM 方式为 engine。
-   * 音量为播放器的基础音量（滑块与 ALAC / AAC 补偿，见 AmPlayer.baseGain）乘过渡的增益
+   * 音量为播放器的基础音量（滑块与非空间音频的补偿，见 AmPlayer.baseGain）乘过渡的增益
    */
   class Voice {
     constructor(player, item, mode, { deck = null, engine = null }) {
@@ -2311,7 +2320,7 @@
       this.bindUi();
       this.bindQueueUi();
       this.bindKeys(root.ownerDocument);
-      /** 音量滑块的值（0–1）；audio 元素上的实际音量还要乘 ALAC / AAC 的补偿，见 applyVolume */
+      /** 音量滑块的值（0–1）；audio 元素上的实际音量还要乘非空间音频的补偿，见 applyVolume */
       this.volume = 1;
       try {
         const v = parseFloat(localStorage.getItem('am-hook:volume'));
@@ -2621,8 +2630,8 @@
     }
 
     /**
-     * 把音量交给输出：PCM（EC-3 / JOC）用滑块的值；audio 元素播放 ALAC / AAC 时再乘设置中心的补偿（只衰减，不会削波），
-     * 让它与通常更小声的全景声接近。经 MSE 播放的 E-AC-3 不补偿。换曲目（含无缝接续）与设置变化时调用
+     * 把音量交给输出：PCM（EC-3 / JOC）用滑块的值；audio 元素播放非空间音频（ALAC / 立体声 AAC）时再乘设置中心的补偿
+     * （只衰减，不会削波），让它与通常更小声的全景声接近。经 MSE 播放的 E-AC-3 与双耳、缩混 AAC 不补偿（isSpatialItem）。换曲目（含无缝接续）与设置变化时调用
      */
     applyVolume() {
       const c = this.current;
@@ -2635,10 +2644,10 @@
       this.mixer.volumeChanged();
     }
 
-    /** 某首歌的基础音量（不含过渡的增益）：PCM 为滑块的值，<audio> 播放 ALAC / AAC 时再乘补偿 */
+    /** 某首歌的基础音量（不含过渡的增益）：PCM 为滑块的值，<audio> 播放非空间音频（ALAC / 立体声 AAC）时再乘补偿 */
     baseGain(item, mode) {
       if (isPcmMode(mode)) return this.volume;
-      const db = item && !isEc3(item.codecs) ? Number(jocSettings().stereoGain) || 0 : 0;
+      const db = item && !isSpatialItem(item) ? Number(jocSettings().stereoGain) || 0 : 0;
       return this.volume * 10 ** (Math.min(0, db) / 20);
     }
 
