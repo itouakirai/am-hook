@@ -22,7 +22,7 @@ async fn body(resp: Response) -> bytes::Bytes {
 #[ignore = "requires live wrapper-lite; run locally with --ignored"]
 async fn test_lyrics_e2e() {
     // wrapper-lite /lyrics 的 TTML 原样返回；没有歌词的歌曲为 404，非法 ID 为 400
-    use am_hook::ui::{lyrics_handler, LyricsQuery};
+    use am_hook::handlers::{lyrics_handler, LyricsQuery};
     use axum::extract::{Path, Query, State};
     // 不传 language：由 wrapper-lite 按歌曲所在地区的默认语言返回
     let no_language = || Query(LyricsQuery { language: None, script: None });

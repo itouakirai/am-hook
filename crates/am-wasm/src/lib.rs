@@ -1,4 +1,4 @@
-//! am-hook 浏览器端解密的 wasm 导出（C ABI），JS 调用方见 `src/ui/hook-worker.js`。
+//! am-hook 浏览器端解密的 wasm 导出（C ABI），JS 调用方见 `web/decrypt/hook-worker.js`。
 //!
 //! 用法：`hook_alloc` 申请缓冲区 → 写入数据 → 调用处理函数（原地改写，长度不变）→ 读回 → `hook_free`。
 //! 失败时返回值为 0 / null，错误信息通过 `hook_error_ptr` / `hook_error_len` 读取。

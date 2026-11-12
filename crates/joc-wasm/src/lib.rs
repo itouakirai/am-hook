@@ -1,4 +1,4 @@
-//! C ABI for the browser build.  `src/ui/joc-decode-worker.js` is the only caller.
+//! C ABI for the browser build.  `web/joc/decode-worker.js` is the only caller.
 //!
 //! Buffers cross the boundary by pointer: `joc_alloc` reserves memory, the caller
 //! writes into it, and `joc_free` releases it.  A stream is an opaque pointer; the

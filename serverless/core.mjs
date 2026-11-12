@@ -1,11 +1,11 @@
-// am-hook 的 serverless 后端（Vercel Edge Function 与 Cloudflare Worker 共用），对应二进制里的 src/amp.rs 与 src/ui.rs。
+// am-hook 的 serverless 后端（Vercel Edge Function 与 Cloudflare Worker 共用），对应二进制里的 src/amp.rs 与 src/handlers.rs。
 // 只用 Web 标准接口（fetch / Request / Response），平台差异由入口处理：api/handler.mjs（Vercel）、serverless/cloudflare.mjs。
 //
 // 与二进制的区别：
 // - 没有常驻进程：amp-api 的响应缓存交给平台 CDN（响应带 `s-maxage`），不做连接保活与后台预热；
 //   developer token 缓存在实例内存里，平台提供 `tokenStore` 时跨实例共享。
 // - wrapper-lite 转发是可选的：设置了环境变量 AM_HOOK_WRAPPER_URL 才启用（可另设 AM_HOOK_WRAPPER_AUTH），
-//   否则页面默认由浏览器直连用户自己的 wrapper-lite（见 src/ui/wrapper.js）。实例之间不共享状态，不限速、不限并发。
+//   否则页面默认由浏览器直连用户自己的 wrapper-lite（见 web/wrapper.js）。实例之间不共享状态，不限速、不限并发。
 
 const WEB_ORIGIN = 'https://music.apple.com';
 const API_ORIGIN = 'https://amp-api-edge.music.apple.com';
@@ -575,7 +575,7 @@ export async function handle(request, env = {}, platform = {}) {
   const wrapper = wrapperConfig(env);
 
   if (method === 'GET') {
-    // 部署环境，页面在 wrapper.js 之前加载（二进制由 src/ui.rs 的 host_js_handler 生成）
+    // 部署环境，页面在 wrapper.js 之前加载（二进制由 src/handlers.rs 的 host_js_handler 生成）
     if (path === '/assets/host.js') {
       const host = { serverWrapper: wrapper !== null };
       const hint = String(env?.AM_HOOK_WRAPPER_HINT ?? '').trim();

@@ -38,8 +38,8 @@ pub struct AppState {
     pub amp: Arc<crate::amp::Amp>,
     /// 按客户端 IP 限流（见 [`crate::limit`]）
     pub client_limit: crate::limit::ClientLimit,
-    /// `/status` 的共用缓存（见 [`crate::ui::status_handler`]）
-    pub status_cache: crate::ui::StatusCache,
+    /// `/status` 的共用缓存（见 [`crate::handlers::status_handler`]）
+    pub status_cache: crate::handlers::StatusCache,
 }
 
 impl AppState {

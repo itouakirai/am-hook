@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>am-hook</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23fb2c55'/%3E%3Cpath d='M9.5 16.5V7l7-1.5v9' fill='none' stroke='white' stroke-width='1.8'/%3E%3Ccircle cx='7.5' cy='16.5' r='2' fill='white'/%3E%3Ccircle cx='14.5' cy='14.5' r='2' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/lyrics/amll.css">
+  <link rel="stylesheet" href="/assets/download/downloads.css">
+</head>
+<!--
+  单页应用：与 music.apple.com 相同，服务端对所有站内页面地址都返回本页。
+  导航、播放条、音频与歌词界面常驻；页面视图（/assets/views/）由前端路由（app.mjs）切换，跳转页面时播放不中断。
+-->
+<body>
+  <!--
+    导航（官网 .navigation）：≥484px 为左侧边栏（logo、返回、主页、新发现、排行榜、广播、设置、资料库与歌单，底部为主地区、曲库语言、界面语言与 wrapper-lite 状态）；
+    <484px 为顶部固定的 52px 顶栏（返回 / logo / 菜单按钮），菜单按钮展开为整屏菜单，内容与侧边栏相同
+  -->
+  <nav class="navigation" id="nav" data-i18n-attr="aria-label=nav.label">
+    <div class="nav-header">
+      <button class="btn top-back" type="button" data-back data-i18n-attr="aria-label=nav.back,title=nav.back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        <span data-i18n="nav.back"></span>
+      </button>
+      <a class="brand" href="/" aria-label="am-hook">
+        <svg class="brand-logo" viewBox="0 0 83 20" aria-hidden="true"><path class="brand-apple" transform="rotate(180 7.7 10)" d="M10.824 3.189c-.698.834-1.805 1.496-2.913 1.398-.145-1.128.41-2.33 1.036-3.065C9.644.662 10.848.05 11.835 0c.121 1.178-.336 2.33-1.01 3.19zm.999 1.619c.624.049 2.425.244 3.578 1.98-.096.074-2.137 1.272-2.113 3.79.024 3.01 2.593 4.012 2.617 4.037-.024.074-.407 1.419-1.344 2.812-.817 1.224-1.657 2.422-3.002 2.447-1.297.024-1.73-.783-3.218-.783-1.489 0-1.97.758-3.194.807-1.297.048-2.28-1.297-3.097-2.52C.368 14.908-.904 10.408.825 7.375c.84-1.516 2.377-2.47 4.034-2.495 1.273-.023 2.45.857 3.218.857.769 0 2.137-1.027 3.746-.93z"/><path d="M34.752 19.746V6.243h-.088l-5.433 13.503h-2.074L21.711 6.243h-.087v13.503h-2.548V1.399h3.235l5.833 14.621h.1l5.82-14.62h3.248v18.347h-2.56zm16.649 0h-2.586v-2.263h-.062c-.725 1.602-2.061 2.504-4.072 2.504-2.86 0-4.61-1.894-4.61-4.958V6.37h2.698v8.125c0 2.034.95 3.127 2.81 3.127 1.95 0 3.124-1.373 3.124-3.458V6.37H51.4zm7.394-13.618c3.06 0 5.046 1.73 5.134 4.196h-2.536c-.15-1.296-1.087-2.11-2.598-2.11-1.462 0-2.436.724-2.436 1.793 0 .839.6 1.41 2.023 1.741l2.136.496c2.686.636 3.71 1.704 3.71 3.636 0 2.442-2.236 4.12-5.333 4.12-3.285 0-5.26-1.64-5.509-4.183h2.673c.25 1.398 1.187 2.085 2.836 2.085 1.623 0 2.623-.687 2.623-1.78 0-.865-.487-1.373-1.924-1.704l-2.136-.508c-2.498-.585-3.735-1.806-3.735-3.75 0-2.391 2.049-4.032 5.072-4.032M66.1 2.836c0-.878.7-1.577 1.561-1.577.862 0 1.55.7 1.55 1.577 0 .864-.688 1.576-1.55 1.576a1.573 1.573 0 0 1-1.56-1.576zm.212 3.534h2.698v13.376h-2.698zm14.089 4.603c-.275-1.424-1.324-2.556-3.085-2.556-2.086 0-3.46 1.767-3.46 4.64 0 2.938 1.386 4.642 3.485 4.642 1.66 0 2.748-.928 3.06-2.48H83C82.713 18.067 80.477 20 77.317 20c-3.76 0-6.208-2.62-6.208-6.942 0-4.247 2.448-6.93 6.183-6.93 3.385 0 5.446 2.213 5.683 4.845h-2.573z"/></svg>
+      </a>
+      <button class="menuicon" id="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-content" data-i18n-attr="aria-label=nav.menu,title=nav.menu">
+        <span class="menuicon-bread menuicon-bread-top"><span class="menuicon-crust menuicon-crust-top"></span></span>
+        <span class="menuicon-bread menuicon-bread-bottom"><span class="menuicon-crust menuicon-crust-bottom"></span></span>
+      </button>
+    </div>
+    <div class="nav-content" id="nav-content">
+      <ul class="nav-list">
+        <li class="nav-item nav-item-back">
+          <button class="nav-link" type="button" data-back>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></span>
+            <span class="nav-label" data-i18n="nav.back"></span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/" data-nav="home">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg></span>
+            <span class="nav-label" data-i18n="nav.home"></span>
+          </a>
+        </li>
+        <!-- 新发现（官网 /{cc}/new 的编辑推荐，跟随主地区，见 views/browse.mjs） -->
+        <li class="nav-item">
+          <a class="nav-link" href="/new" data-nav="new">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 7.2l1.35 3.45L16.8 12l-3.45 1.35L12 16.8l-1.35-3.45L7.2 12l3.45-1.35z"/></svg></span>
+            <span class="nav-label" data-i18n="nav.new"></span>
+          </a>
+        </li>
+        <!-- 排行榜（官网 /{cc}/new/top-charts，即「新发现」底部的入口；/new/top-charts 跟随主地区） -->
+        <li class="nav-item">
+          <a class="nav-link" href="/new/top-charts" data-nav="charts">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><rect x="5" y="11" width="3.5" height="6" rx="1"/><rect x="10.25" y="5" width="3.5" height="12" rx="1"/><rect x="15.5" y="8" width="3.5" height="9" rx="1"/></svg></span>
+            <span class="nav-label" data-i18n="nav.charts"></span>
+          </a>
+        </li>
+        <!-- 广播（官网 /{cc}/radio，跟随主地区；电台页见 views/station.mjs） -->
+        <li class="nav-item">
+          <a class="nav-link" href="/radio" data-nav="radio">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.48M7.76 16.24a6 6 0 0 1 0-8.48M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg></span>
+            <span class="nav-label" data-i18n="nav.radio"></span>
+          </a>
+        </li>
+        <!-- 设置中心（/settings，views/settings.mjs）：下载设置，以及之后的播放设置等，见 prefs.mjs -->
+        <li class="nav-item">
+          <a class="nav-link" href="/settings" data-nav="settings">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.6a1.8 1.8 0 0 1 3.4 0l.3.9a1.8 1.8 0 0 0 2.5 1l.8-.4a1.8 1.8 0 0 1 2.4 2.4l-.4.8a1.8 1.8 0 0 0 1 2.5l.9.3a1.8 1.8 0 0 1 0 3.4l-.9.3a1.8 1.8 0 0 0-1 2.5l.4.8a1.8 1.8 0 0 1-2.4 2.4l-.8-.4a1.8 1.8 0 0 0-2.5 1l-.3.9a1.8 1.8 0 0 1-3.4 0l-.3-.9a1.8 1.8 0 0 0-2.5-1l-.8.4a1.8 1.8 0 0 1-2.4-2.4l.4-.8a1.8 1.8 0 0 0-1-2.5l-.9-.3a1.8 1.8 0 0 1 0-3.4l.9-.3a1.8 1.8 0 0 0 1-2.5l-.4-.8a1.8 1.8 0 0 1 2.4-2.4l.8.4a1.8 1.8 0 0 0 2.5-1z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <span class="nav-label" data-i18n="nav.settings"></span>
+          </a>
+        </li>
+        <!-- 资料库（官网侧边栏的「资料库」分组）：数据只保存在本浏览器中，见 library.mjs 与 views/library.mjs -->
+        <li class="nav-section"><span class="nav-section-title" data-i18n="nav.library"></span></li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/recently-added" data-nav="library:recently-added">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span>
+            <span class="nav-label" data-i18n="library.recently-added"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/artists" data-nav="library:artists">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
+            <span class="nav-label" data-i18n="library.artists"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/albums" data-nav="library:albums">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".9" fill="currentColor"/></svg></span>
+            <span class="nav-label" data-i18n="library.albums"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/songs" data-nav="library:songs">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg></span>
+            <span class="nav-label" data-i18n="library.songs"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/music-videos" data-nav="library:music-videos">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="13" rx="2.5"/><path d="M8 21h8"/><path d="m10.5 9 4 2.5-4 2.5z" fill="currentColor"/></svg></span>
+            <span class="nav-label" data-i18n="library.music-videos"></span>
+          </a>
+        </li>
+        <!-- 歌单（官网侧边栏的「播放列表」分组）：所有歌单、喜爱的歌曲，然后是文件夹与各个歌单（app.mjs 渲染，可拖到文件夹里）；
+             + 新建歌单或文件夹。分组标题也是拖放目标：拖到这里移到最上层 -->
+        <li class="nav-section" data-drop-folder="">
+          <span class="nav-section-title" data-i18n="nav.playlists"></span>
+          <button class="nav-section-add" type="button" data-new-playlist aria-haspopup="menu" aria-expanded="false" data-i18n-attr="aria-label=library.new,title=library.new">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/all-playlists" data-nav="library:all-playlists">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span>
+            <span class="nav-label" data-i18n="library.all-playlists"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/library/favorite-songs" data-nav="library:favorite-songs">
+            <span class="nav-icon nav-icon-favorite"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></span>
+            <span class="nav-label" data-i18n="library.favoriteSongs"></span>
+          </a>
+        </li>
+        <li><ul class="nav-playlists" id="nav-playlists"></ul></li>
+      </ul>
+      <!-- 设置：主地区与曲库语言打开选择面板（pickers.mjs），界面语言直接在中文 / English 间切换 -->
+      <div class="nav-footer">
+        <button class="nav-link nav-setting" type="button" data-picker="storefront" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5 5.6 4.8A1.2 1.2 0 0 1 6.7 4h10.6a1.2 1.2 0 0 1 1.1.8L20 9.5"/><path d="M4 9.5a2.67 2.67 0 0 0 5.33 0 2.67 2.67 0 0 0 5.34 0 2.67 2.67 0 0 0 5.33 0"/><path d="M5.5 12.5V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-6.5"/><path d="M10 20v-4.5h4V20"/></svg></span>
+          <span class="nav-setting-text">
+            <span class="nav-setting-caption" data-i18n="settings.storefront"></span>
+            <span class="nav-setting-value" data-setting-value="storefront"></span>
+          </span>
+        </button>
+        <button class="nav-link nav-setting" type="button" data-picker="ampLang" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M4 11h10M4 16h6"/><path d="M19.5 14.5V5l-3 1"/><circle cx="17" cy="17" r="2.5"/></svg></span>
+          <span class="nav-setting-text">
+            <span class="nav-setting-caption" data-i18n="settings.ampLang"></span>
+            <span class="nav-setting-value" data-setting-value="ampLang"></span>
+          </span>
+        </button>
+        <button class="nav-link nav-setting" type="button" data-lang-toggle>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5.5h9M8 3.5v2M10.5 5.5c-.7 3.6-3 6.4-6.5 8"/><path d="M5.8 9c1 1.7 2.7 3.1 4.7 3.8"/><path d="m12.5 20.5 4-9.5 4 9.5M14 17h5"/></svg></span>
+          <span class="nav-setting-text">
+            <span class="nav-setting-caption" data-i18n="lang.caption"></span>
+            <span class="nav-setting-value lang-label"></span>
+          </span>
+        </button>
+        <!-- 使用的 wrapper-lite：服务端转发或浏览器直连本地 wrapper-lite（pickers.mjs，设置由 wrapper.js 保存） -->
+        <button class="nav-link nav-setting" type="button" data-picker="wrapper" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4.5" width="16" height="6" rx="1.8"/><rect x="4" y="13.5" width="16" height="6" rx="1.8"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></svg></span>
+          <span class="nav-setting-text">
+            <span class="nav-setting-caption" data-i18n="settings.wrapper"></span>
+            <span class="nav-setting-value" data-setting-value="wrapper"></span>
+          </span>
+        </button>
+        <!-- wrapper-lite 状态（app.mjs）：上行为状态与地区数，下行为地区代码；一行放不下时折叠为「+N」，点击展开全部 -->
+        <div class="wrapper-status" id="nav-status">
+          <button class="wrapper-status-head" type="button" aria-expanded="false" aria-controls="nav-status-regions" disabled>
+            <span class="status-dot"></span>
+            <span class="wrapper-status-name">wrapper-lite</span>
+            <span class="wrapper-status-state" aria-live="polite"></span>
+            <svg class="wrapper-status-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <ul class="wrapper-status-regions" id="nav-status-regions" hidden></ul>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 主地区 / 曲库语言的选择面板（pickers.mjs）：放在导航外面，导航的 backdrop-filter 会限制 fixed 定位 -->
+  <button class="picker-scrim" id="picker-scrim" type="button" tabindex="-1" aria-hidden="true" hidden></button>
+  <section class="picker" id="picker" role="dialog" aria-labelledby="picker-title" hidden>
+    <header class="picker-head">
+      <h2 class="picker-title" id="picker-title"></h2>
+      <button class="picker-close" type="button" data-i18n-attr="aria-label=settings.close,title=settings.close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+      <p class="picker-hint"></p>
+    </header>
+    <div class="picker-body"></div>
+  </section>
+
+  <div class="app-view" id="view"></div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <!--
+    全屏播放界面，布局照 AMLL 的 react-full（PrebuiltLyricPlayer / AutoLyricLayout）：宽大于高时为横向布局（左封面与控件、右歌词），
+    否则为竖向布局（显示歌词时顶部为小封面与歌名，隐藏时为大封面）。lyrics-vl / lyrics-vc 是竖向布局的两套网格，
+    横向布局时为 display: contents；lyrics-phony-* 只用于测量竖向布局里封面的目标位置（见 lyrics/panel.mjs）。
+  -->
+  <section class="lyrics-overlay" id="lyrics-overlay" role="dialog" data-i18n-attr="aria-label=lyrics.title" hidden>
+    <canvas class="lyrics-backdrop" aria-hidden="true" hidden></canvas>
+    <div class="lyrics-shade" aria-hidden="true"></div>
+    <div class="lyrics-stage">
+      <!-- 收起按钮（AMLL 的 ControlThumb）：平时是一条短横，鼠标移上去变成跟随指针的 ✕；手机上也可以向下拖动收起 -->
+      <div class="lyrics-thumb">
+        <button class="lyrics-close" type="button" data-i18n-attr="aria-label=lyrics.close,title=lyrics.close"><span></span><span></span></button>
+      </div>
+      <div class="lyrics-vl">
+        <div class="lyrics-phony-small" aria-hidden="true"></div>
+        <div class="lyrics-head lyrics-head--compact">
+          <div class="lyrics-meta"><h2 class="lyrics-title"></h2><p class="lyrics-artist"></p></div>
+        </div>
+        <div class="lyric-panel"></div>
+        <!-- 待播清单打开时占据这块区域（player.js 的 placeQueue） -->
+        <div class="lyrics-queue-slot" aria-hidden="true"></div>
+      </div>
+      <div class="lyrics-vc">
+        <div class="lyrics-phony-big" aria-hidden="true"></div>
+        <div class="lyrics-head lyrics-head--main">
+          <div class="lyrics-meta"><h2 class="lyrics-title"></h2><p class="lyrics-artist"></p></div>
+          <!-- 喜爱与「更多」由 app.mjs 填入；竖向布局显示歌词时移到上面的小标题行 -->
+          <div class="lyrics-actions"></div>
+        </div>
+      </div>
+      <div class="lyrics-cover"><img class="lyrics-art" alt="" hidden></div>
+      <div class="lyrics-dock">
+        <!-- 播放条并入这里（进度条、时间与音质标志、播放控件、音量） -->
+        <div class="lyrics-controls"></div>
+        <!-- 底部开关：歌词开关与待播清单开关从播放条移过来；空位是 react-full 里 AirPlay 按钮的位置 -->
+        <div class="lyrics-toggles">
+          <span class="lyrics-toggles-gap"></span>
+        </div>
+      </div>
+      <!-- 歌词选项（同 music.apple.com 全屏歌词的翻译按钮）：横向布局在歌词区右上角，竖向布局在歌词区左下角、控件上方 -->
+      <div class="lyrics-translation-menu" hidden>
+        <button class="lyrics-translation-button" type="button" aria-haspopup="menu" aria-expanded="false" data-i18n-attr="aria-label=lyrics.translationMenu,title=lyrics.translationMenu"></button>
+      </div>
+      <button class="lyrics-follow" type="button" data-i18n="lyrics.follow" hidden></button>
+    </div>
+    <button class="lyrics-menu-scrim" type="button" tabindex="-1" aria-hidden="true" hidden></button>
+    <ul class="lyrics-menu" role="menu" data-i18n-attr="aria-label=lyrics.translationMenu" hidden></ul>
+    <!-- 音质详情（player.js 的 renderQualityPanel）：当前音质的规格与播放方式，以及这首歌的其他音质，点击切换 -->
+    <div class="quality-panel" id="quality-panel" role="dialog" data-i18n-attr="aria-label=player.qualityInfo" hidden></div>
+  </section>
+
+  <!-- 下载中心（download/center.mjs）：与播放条一样常驻，位于播放条上方；点击展开各下载任务的列表 -->
+  <section class="dl-dock" id="downloads" data-i18n-attr="aria-label=dlc.title" hidden>
+    <div class="dl-panel" id="downloads-panel" role="dialog" data-i18n-attr="aria-label=dlc.title" hidden>
+      <header class="dl-panel-head">
+        <h2 class="dl-panel-title" data-i18n="dlc.title"></h2>
+        <a class="dl-settings" href="/settings" data-i18n="dlc.settings"></a>
+        <button class="dl-clear" type="button" data-i18n="dlc.clear"></button>
+      </header>
+      <p class="dl-empty" data-i18n="dlc.empty"></p>
+      <ul class="dl-jobs"></ul>
+    </div>
+    <div class="dlc-bar">
+      <button class="dlc-bar-main" type="button" aria-expanded="false" aria-controls="downloads-panel">
+        <span class="dl-ring" aria-hidden="true">
+          <svg viewBox="0 0 36 36"><circle class="dl-ring-track" cx="18" cy="18" r="15.9" pathLength="100"/><circle class="dl-ring-fill" cx="18" cy="18" r="15.9" pathLength="100"/></svg>
+          <span class="dl-ring-icon"></span>
+        </span>
+        <span class="dlc-bar-text">
+          <span class="dlc-bar-title"></span>
+          <span class="dlc-bar-sub"></span>
+        </span>
+        <svg class="dlc-bar-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+      </button>
+      <button class="dl-icon-btn dlc-bar-hide" type="button" data-i18n-attr="aria-label=dlc.hide,title=dlc.hide" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+      <div class="dlc-bar-track" aria-hidden="true"><div class="dlc-bar-fill"></div></div>
+    </div>
+  </section>
+
+  <!--
+    播放条，照 music.apple.com 的 chrome-player：浮在页面底部的毛玻璃胶囊，左边播放控件，中间 LCD（封面、两行标题、
+    播放方式标志、底部细进度条），右边歌词 / 待播清单 / 音量。打开歌词时整个移进歌词界面（lyrics/panel.mjs），按那里的样式重排。
+  -->
+  <div class="player" id="player" hidden>
+    <div class="player-center">
+      <button class="player-switch player-shuffle" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h3c2.2 0 3.4 1 4.5 2.8l3 4.4C14.6 16 15.8 17 18 17h2.5"/><path d="M3 17h3c1.6 0 2.7-.6 3.6-1.6M14.4 8.6C15.3 7.6 16.4 7 18 7h2.5"/><path d="m18 4 3 3-3 3M18 14l3 3-3 3"/></svg>
+      </button>
+      <button class="player-skip skip-prev" type="button" data-i18n-attr="aria-label=player.previous,title=player.previous">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M11.5 6.5v11L4 12zM20 6.5v11L12.5 12z"/></svg>
+      </button>
+      <button class="player-toggle" type="button"></button>
+      <button class="player-skip skip-next" type="button" data-i18n-attr="aria-label=player.next,title=player.next">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12.5 6.5v11L20 12zM4 6.5v11l7.5-5.5z"/></svg>
+      </button>
+      <button class="player-switch player-repeat" type="button" aria-pressed="false"></button>
+    </div>
+    <div class="player-lcd">
+      <div class="player-track">
+        <img class="player-art" alt="">
+        <div class="player-text">
+          <span class="player-title"></span>
+          <span class="player-sub"></span>
+        </div>
+        <!-- 音质标志：只在全屏播放界面里显示（进度条下方居中），点击弹出音质详情（#quality-panel） -->
+        <button class="player-mode" type="button" aria-controls="quality-panel" aria-haspopup="dialog" aria-expanded="false" hidden></button>
+      </div>
+      <div class="player-progress">
+        <span class="time time-cur">0:00</span>
+        <div class="seek" role="slider" tabindex="0" data-i18n-attr="aria-label=player.seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <div class="seek-track"><div class="seek-buffer"></div><div class="seek-fill"></div></div>
+          <div class="seek-thumb"></div>
+        </div>
+        <span class="time time-total">0:00</span>
+      </div>
+    </div>
+    <div class="player-right">
+      <button class="player-lyrics" type="button" hidden aria-pressed="false" aria-controls="lyrics-overlay">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z"/><path d="M8 7.5h8M8 11h5"/></svg>
+      </button>
+      <div class="player-volume">
+        <div class="volume-pop">
+          <input class="volume" type="range" min="0" max="1" step="0.01" data-i18n-attr="aria-label=player.volume">
+        </div>
+        <button class="volume-toggle" type="button" data-i18n-attr="aria-label=player.mute,title=player.mute">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 9.2h3L11 5.3c.65-.55 1.5-.1 1.5.75v11.9c0 .85-.85 1.3-1.5.75l-4.5-3.9h-3A1.5 1.5 0 0 1 2 13.3V10.7c0-.83.67-1.5 1.5-1.5Z"/><path class="volume-wave volume-wave-1" d="M15.2 9.3a3.8 3.8 0 0 1 0 5.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path class="volume-wave volume-wave-2" d="M17.6 7a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path class="volume-wave volume-wave-3" d="M20 4.7a10.3 10.3 0 0 1 0 14.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path class="volume-mute" d="m15.5 9.5 5 5m0-5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <p class="player-msg" hidden></p>
+  </div>
+
+  <script src="/assets/i18n.js"></script>
+  <script src="/assets/host.js"></script>
+  <script src="/assets/wrapper.js"></script>
+  <script src="/assets/decrypt/decrypt.js"></script>
+  <script src="/assets/player/automix.js"></script>
+  <script src="/assets/player/player.js"></script>
+  <script type="module" src="/assets/app.mjs"></script>
+</body>
+</html>

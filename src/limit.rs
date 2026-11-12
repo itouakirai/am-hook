@@ -109,7 +109,7 @@ pub fn parse_ip_header(raw: &str) -> Result<Option<String>, String> {
         .map_err(|_| format!("Invalid --client-ip-header '{name}'"))
 }
 
-/// 转发 wrapper-lite 接口的中间件。`/status`（所有客户端共用缓存，见 ui.rs）不限
+/// 转发 wrapper-lite 接口的中间件。`/status`（所有客户端共用缓存，见 handlers.rs）不限
 pub async fn limit_clients(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response<Body> {
     let limit = &state.client_limit;
     if !limit.enabled() || request.uri().path() == "/status" {

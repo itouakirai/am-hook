@@ -6,7 +6,7 @@ license = "AGPL-3.0-only OR MIT"
 description = "E-AC-3 JOC (Dolby Atmos) object reconstruction and stereo rendering (speaker 2.0 / binaural)"
 
 # 来自 am-hook-joc（https://github.com/TheM14/am-hook-joc），MIT 许可见 LICENSE。
-# 浏览器构建见 crates/joc-wasm（scripts/build-wasm.sh -> src/ui/joc.wasm）
+# 浏览器构建见 crates/joc-wasm（scripts/build-wasm.sh -> web/joc/joc.wasm）
 
 [dependencies]
 # .jochrtf 是 .npy 成员组成的 ZIP

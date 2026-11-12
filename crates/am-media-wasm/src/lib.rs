@@ -1,4 +1,4 @@
-//! am-media 的 wasm 导出（C ABI），JS 调用方见 `src/ui/media-worker.js`。
+//! am-media 的 wasm 导出（C ABI），JS 调用方见 `web/media/media-worker.js`。
 //!
 //! 约定：
 //! - 输入先用 `media_alloc` 申请并写入，调用后由 JS 用 `media_free` 释放；字符串为 UTF-8。

@@ -1,4 +1,4 @@
-//! Browser media core for am-hook, compiled to `src/ui/media.wasm` by `crates/am-media-wasm`.
+//! Browser media core for am-hook, compiled to `web/media/media.wasm` by `crates/am-media-wasm`.
 //!
 //! - [`playready`]: PlayReady license challenges and XMR content-key extraction;
 //! - [`widevine`]: Widevine license challenges and content-key extraction;

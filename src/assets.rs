@@ -1,7 +1,9 @@
-//! 内嵌的前端资源（`src/ui/`）。
+//! 内嵌的前端资源（`web/`）。
 //!
-//! 新增页面资源只需要在 [`ASSETS`] 里加一行：路由由 [`router`](crate::router) 按表注册，
-//! 不需要再写 handler。页面加载的是带内容哈希的地址（长期缓存），原地址以 `no-cache` + 内容 ETag 提供（见 [`Served`]）。
+//! 对外地址与源文件一一对应：`web/<path>` 就是 `/assets/<path>`（外壳 `web/app.html` 是 `/`）。
+//! 新增页面资源只需要在 [`ASSETS`] 里加一行 `asset!("<path>")`：路由由 [`router`](crate::router) 按表注册，
+//! `Content-Type` 按扩展名决定，不需要再写 handler。`web/` 下没登记的文件（除说明文档外）会让测试失败。
+//! 页面加载的是带内容哈希的地址（长期缓存），原地址以 `no-cache` + 内容 ETag 提供（见 [`Served`]）。
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -27,149 +29,179 @@ pub struct Asset {
     pub body: &'static [u8],
 }
 
-/// `asset!("/对外地址", MIME, "src/ui/ 下的文件")`
+const fn ends_with(s: &str, suffix: &str) -> bool {
+    let (s, suffix) = (s.as_bytes(), suffix.as_bytes());
+    if s.len() < suffix.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < suffix.len() {
+        if s[s.len() - suffix.len() + i] != suffix[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// 按扩展名决定 `Content-Type`（scripts/build-static.mjs 不需要它：静态托管平台自己按扩展名判断）
+const fn mime_of(file: &str) -> &'static str {
+    if ends_with(file, ".html") {
+        HTML
+    } else if ends_with(file, ".js") || ends_with(file, ".mjs") {
+        JS
+    } else if ends_with(file, ".css") {
+        CSS
+    } else if ends_with(file, ".wasm") {
+        WASM
+    } else {
+        BIN
+    }
+}
+
+/// `asset!("web/ 下的路径")`：对外地址为 `/assets/<路径>`
 macro_rules! asset {
-    ($url:literal, $mime:expr, $file:literal) => {
-        Asset { url: $url, mime: $mime, body: include_bytes!(concat!("ui/", $file)) }
+    ($file:literal) => {
+        Asset { url: concat!("/assets/", $file), mime: mime_of($file), body: include_bytes!(concat!("../web/", $file)) }
     };
 }
 
 /// 单页应用外壳：所有页面地址（首页、歌曲 / MV / 专辑 / 歌单 / 艺人页、编辑页、资料库）都返回它，
 /// 页面视图（`/assets/views/`）由前端路由（app.mjs）切换，播放条与歌词界面常驻，站内跳转时播放不中断
-pub static APP_HTML: Asset = asset!("/", HTML, "app.html");
+pub static APP_HTML: Asset = Asset { url: "/", mime: HTML, body: include_bytes!("../web/app.html") };
 
+/// 全部页面资源，按 `web/` 的目录分组（各目录的职责见 docs/architecture.zh-CN.md）
 pub static ASSETS: &[Asset] = &[
-    // 前端路由、设置面板、资料库存储（浏览器 IndexedDB，服务端不保存任何资料库数据）与播放器
-    asset!("/assets/app.css", CSS, "app.css"),
-    asset!("/assets/app.mjs", JS, "app.mjs"),
-    asset!("/assets/settings.mjs", JS, "settings.mjs"),
-    asset!("/assets/library.mjs", JS, "library.mjs"),
-    asset!("/assets/player.js", JS, "player.js"),
-    // 歌曲之间的过渡（AutoMix / 交叉淡化）的规划，按 amp-api 的音频分析
-    asset!("/assets/automix.js", JS, "automix.js"),
-    asset!("/assets/i18n.js", JS, "i18n.js"),
-    // 专辑动态封面播放（editorialVideo 的 HLS，MSE 播放）
-    asset!("/assets/motion-art.mjs", JS, "motion-art.mjs"),
-    // 部署环境（serverless 部署由函数生成，见 serverless/core.mjs）与 wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite
-    asset!("/assets/host.js", JS, "host.js"),
-    asset!("/assets/wrapper.js", JS, "wrapper.js"),
-    // 浏览器端解密：主线程入口、Worker 与核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
-    asset!("/assets/decrypt.js", JS, "decrypt.js"),
-    asset!("/assets/hook-worker.js", JS, "hook-worker.js"),
-    asset!("/assets/hook.wasm", WASM, "hook.wasm"),
-    // MV 与歌曲下载共用的媒体 Worker：PlayReady、CENC/CBCS 解密、合并与 defrag（crates/am-media-wasm 编译产物）
-    asset!("/assets/media-worker.js", JS, "media-worker.js"),
-    asset!("/assets/media.wasm", WASM, "media.wasm"),
-    // 批量下载（专辑 / 歌单 / 单曲）：下载管理器与下载中心、设置存储、MP4 标签、ZIP、文件名模板与 TTML 转 LRC
-    asset!("/assets/downloads.mjs", JS, "downloads.mjs"),
-    asset!("/assets/download-center.mjs", JS, "download-center.mjs"),
-    asset!("/assets/downloads.css", CSS, "downloads.css"),
-    asset!("/assets/prefs.mjs", JS, "prefs.mjs"),
-    asset!("/assets/mp4-tags.mjs", JS, "mp4-tags.mjs"),
-    asset!("/assets/zip.mjs", JS, "zip.mjs"),
-    asset!("/assets/naming.mjs", JS, "naming.mjs"),
-    asset!("/assets/lrc.mjs", JS, "lrc.mjs"),
-    // 专辑页的 ALAC 检测：原样帧末尾缺陷（只读 moof 与帧尾，不请求 /key）、打包日期，以及第一个分段的实际位深与频宽
-    asset!("/assets/alac-check.mjs", JS, "alac-check.mjs"),
-    // FLAC 转码与 EC-3 解码
-    asset!("/assets/flac-transcode-worker.js", JS, "flac-transcode-worker.js"),
-    asset!("/assets/flac.wasm", WASM, "flac.wasm"),
-    asset!("/assets/flac-init.bin", BIN, "flac-init.bin"),
-    asset!("/assets/ec3-decode-worker.js", JS, "ec3-decode-worker.js"),
-    asset!("/assets/ec3-runtime.mjs", JS, "ec3-runtime.mjs"),
-    asset!("/assets/ec3.wasm", WASM, "ec3.wasm"),
-    // JOC 对象渲染（E-AC-3 Dolby Atmos -> Speaker 2.0 / 双耳）：Worker 与渲染器（crates/joc-wasm 编译产物），
-    // 以及双耳用的 HRTF 场（约克大学 SADIE II 数据库，Apache-2.0，见 JOC-NOTICE.md）
-    asset!("/assets/joc-decode-worker.js", JS, "joc-decode-worker.js"),
-    asset!("/assets/joc.wasm", WASM, "joc.wasm"),
-    asset!("/assets/joc-hrtf-D1.jochrtf", BIN, "joc-hrtf-D1.jochrtf"),
-    asset!("/assets/joc-hrtf-D2.jochrtf", BIN, "joc-hrtf-D2.jochrtf"),
-    asset!("/assets/joc-hrtf-H3.jochrtf", BIN, "joc-hrtf-H3.jochrtf"),
-    asset!("/assets/joc-hrtf-H4.jochrtf", BIN, "joc-hrtf-H4.jochrtf"),
-    asset!("/assets/joc-hrtf-H5.jochrtf", BIN, "joc-hrtf-H5.jochrtf"),
-    asset!("/assets/joc-hrtf-H6.jochrtf", BIN, "joc-hrtf-H6.jochrtf"),
-    asset!("/assets/joc-hrtf-H7.jochrtf", BIN, "joc-hrtf-H7.jochrtf"),
-    asset!("/assets/joc-hrtf-H8.jochrtf", BIN, "joc-hrtf-H8.jochrtf"),
-    asset!("/assets/joc-hrtf-H9.jochrtf", BIN, "joc-hrtf-H9.jochrtf"),
-    asset!("/assets/joc-hrtf-H10.jochrtf", BIN, "joc-hrtf-H10.jochrtf"),
-    asset!("/assets/joc-hrtf-H11.jochrtf", BIN, "joc-hrtf-H11.jochrtf"),
-    asset!("/assets/joc-hrtf-H12.jochrtf", BIN, "joc-hrtf-H12.jochrtf"),
-    asset!("/assets/joc-hrtf-H13.jochrtf", BIN, "joc-hrtf-H13.jochrtf"),
-    asset!("/assets/joc-hrtf-H14.jochrtf", BIN, "joc-hrtf-H14.jochrtf"),
-    asset!("/assets/joc-hrtf-H15.jochrtf", BIN, "joc-hrtf-H15.jochrtf"),
-    asset!("/assets/joc-hrtf-H16.jochrtf", BIN, "joc-hrtf-H16.jochrtf"),
-    asset!("/assets/joc-hrtf-H17.jochrtf", BIN, "joc-hrtf-H17.jochrtf"),
-    asset!("/assets/joc-hrtf-H18.jochrtf", BIN, "joc-hrtf-H18.jochrtf"),
-    asset!("/assets/joc-hrtf-H19.jochrtf", BIN, "joc-hrtf-H19.jochrtf"),
-    asset!("/assets/joc-hrtf-H20.jochrtf", BIN, "joc-hrtf-H20.jochrtf"),
-    // JOC 的低延迟播放输出端（AudioWorklet），与双耳的声场界面（虚拟头部、对象可视化与交互控制，按需加载）
-    asset!("/assets/joc-output-worklet.js", JS, "joc-output-worklet.js"),
-    asset!("/assets/joc-scene.mjs", JS, "joc-scene.mjs"),
-    // MV 播放器
-    asset!("/assets/mv/hls.mjs", JS, "mv-hls.mjs"),
-    asset!("/assets/mv/engine.mjs", JS, "mv-engine.mjs"),
-    asset!("/assets/mv/captions.mjs", JS, "mv-captions.mjs"),
-    asset!("/assets/mv/cea608.mjs", JS, "mv-cea608.mjs"),
-    asset!("/assets/mv/style.css", CSS, "mv.css"),
-    // 电台：直播电台与广播单集的 HLS 播放与下载（与 MV 共用媒体 Worker），以及需要 media-user-token 的接口
-    asset!("/assets/mv/radio.mjs", JS, "mv-radio.mjs"),
-    asset!("/assets/station.mjs", JS, "station.mjs"),
-    // 歌词界面：TTML 解析、接入播放器的 panel.mjs、打包好的 AMLL（见 browser/amll）与封面动态背景（backdrop*.mjs，移植自 YouLyPlus）
-    asset!("/assets/lyrics/panel.mjs", JS, "lyrics/panel.mjs"),
-    asset!("/assets/lyrics/ttml.mjs", JS, "lyrics/ttml.mjs"),
-    asset!("/assets/lyrics/amll-core.mjs", JS, "lyrics/amll-core.mjs"),
-    asset!("/assets/lyrics/amll.css", CSS, "lyrics/amll.css"),
-    asset!("/assets/lyrics/backdrop.mjs", JS, "lyrics/backdrop.mjs"),
-    asset!("/assets/lyrics/backdrop-render.mjs", JS, "lyrics/backdrop-render.mjs"),
-    asset!("/assets/lyrics/backdrop-worker.mjs", JS, "lyrics/backdrop-worker.mjs"),
-    asset!("/assets/lyrics/pulse.mjs", JS, "lyrics/pulse.mjs"),
-    // 歌词字体：字体库（上传 / 网址 / 本机 / 中文网字计划，数据只存在浏览器的 IndexedDB）与中文网字计划的字体目录
-    asset!("/assets/lyrics/fonts.mjs", JS, "lyrics/fonts.mjs"),
-    asset!("/assets/lyrics/font-catalog.mjs", JS, "lyrics/font-catalog.mjs"),
-    // 页面视图：`<name>.html` 为页面内容，`<name>.mjs` 为页面脚本（导出 mount，见 app.mjs）
-    asset!("/assets/views/home.html", HTML, "views/home.html"),
-    asset!("/assets/views/home.mjs", JS, "views/home.mjs"),
-    asset!("/assets/views/song.html", HTML, "views/song.html"),
-    asset!("/assets/views/song.mjs", JS, "views/song.mjs"),
-    asset!("/assets/views/song.css", CSS, "views/song.css"),
-    asset!("/assets/views/mv.html", HTML, "views/mv.html"),
-    asset!("/assets/views/mv.mjs", JS, "views/mv.mjs"),
-    asset!("/assets/views/album.html", HTML, "views/album.html"),
-    asset!("/assets/views/album.mjs", JS, "views/album.mjs"),
-    asset!("/assets/views/playlist.html", HTML, "views/playlist.html"),
-    asset!("/assets/views/playlist.mjs", JS, "views/playlist.mjs"),
-    asset!("/assets/views/artist.html", HTML, "views/artist.html"),
-    asset!("/assets/views/artist.mjs", JS, "views/artist.mjs"),
-    // 编辑页：新发现、room、multi-room、grouping 与 curator 共用（与官网一样由 editorial-elements 区块组成）
-    asset!("/assets/views/browse.html", HTML, "views/browse.html"),
-    asset!("/assets/views/browse.mjs", JS, "views/browse.mjs"),
-    asset!("/assets/views/browse.css", CSS, "views/browse.css"),
+    // 外壳与全局服务：前端路由、导航底部的选择面板（主地区 / 曲库语言 / wrapper-lite）、界面文字、设置存储、
+    // 资料库存储（浏览器 IndexedDB，服务端不保存任何资料库数据）、部署环境（serverless 部署由函数生成，见
+    // serverless/core.mjs）、wrapper-lite 客户端（服务端转发或浏览器直连）、需要 media-user-token 的电台接口、
+    // 专辑动态封面（editorialVideo 的 HLS）与 ALAC 检测（原样帧末尾缺陷、打包日期、实际位深与频宽，不请求 /key）
+    asset!("app.css"),
+    asset!("app.mjs"),
+    asset!("pickers.mjs"),
+    asset!("i18n.js"),
+    asset!("prefs.mjs"),
+    asset!("library.mjs"),
+    asset!("host.js"),
+    asset!("wrapper.js"),
+    asset!("station.mjs"),
+    asset!("motion-art.mjs"),
+    asset!("alac-check.mjs"),
+    // 播放器（MSE / PCM / JOC 引擎、混音与队列）与歌曲之间的过渡（AutoMix / 交叉淡化）的规划
+    asset!("player/player.js"),
+    asset!("player/automix.js"),
+    // 歌曲的浏览器端解密：主线程入口、Worker 与核心（crates/am-wasm 编译产物，见 scripts/build-wasm.sh）
+    asset!("decrypt/decrypt.js"),
+    asset!("decrypt/hook-worker.js"),
+    asset!("decrypt/hook.wasm"),
+    // MV、电台与歌曲下载共用的媒体 Worker：PlayReady / Widevine、CENC/CBCS 解密、合并与 defrag（crates/am-media-wasm 编译产物）
+    asset!("media/media-worker.js"),
+    asset!("media/media.wasm"),
+    // ALAC 转 FLAC 播放（crates/am-flac-wasm），也为 ALAC 检测解码
+    asset!("flac/transcode-worker.js"),
+    asset!("flac/flac.wasm"),
+    asset!("flac/init.bin"),
+    // EC-3 解码为 PCM（@mediabunny/ac3，见 ec3/SOURCE.md）
+    asset!("ec3/decode-worker.js"),
+    asset!("ec3/runtime.mjs"),
+    asset!("ec3/ec3.wasm"),
+    // JOC 对象渲染（E-AC-3 Dolby Atmos -> Speaker 2.0 / 双耳）：Worker、渲染器（crates/joc-wasm 编译产物）、
+    // 低延迟输出端（AudioWorklet）、双耳的声场界面（按需加载），以及双耳用的 HRTF 场
+    // （约克大学 SADIE II 数据库，Apache-2.0，见 joc/NOTICE.md）
+    asset!("joc/decode-worker.js"),
+    asset!("joc/joc.wasm"),
+    asset!("joc/output-worklet.js"),
+    asset!("joc/scene.mjs"),
+    asset!("joc/hrtf/D1.jochrtf"),
+    asset!("joc/hrtf/D2.jochrtf"),
+    asset!("joc/hrtf/H3.jochrtf"),
+    asset!("joc/hrtf/H4.jochrtf"),
+    asset!("joc/hrtf/H5.jochrtf"),
+    asset!("joc/hrtf/H6.jochrtf"),
+    asset!("joc/hrtf/H7.jochrtf"),
+    asset!("joc/hrtf/H8.jochrtf"),
+    asset!("joc/hrtf/H9.jochrtf"),
+    asset!("joc/hrtf/H10.jochrtf"),
+    asset!("joc/hrtf/H11.jochrtf"),
+    asset!("joc/hrtf/H12.jochrtf"),
+    asset!("joc/hrtf/H13.jochrtf"),
+    asset!("joc/hrtf/H14.jochrtf"),
+    asset!("joc/hrtf/H15.jochrtf"),
+    asset!("joc/hrtf/H16.jochrtf"),
+    asset!("joc/hrtf/H17.jochrtf"),
+    asset!("joc/hrtf/H18.jochrtf"),
+    asset!("joc/hrtf/H19.jochrtf"),
+    asset!("joc/hrtf/H20.jochrtf"),
+    // MV 播放器（播放列表与选轨、播放与下载、CEA-608 字幕），以及电台：直播电台与广播单集的 HLS 播放与下载
+    asset!("mv/hls.mjs"),
+    asset!("mv/engine.mjs"),
+    asset!("mv/captions.mjs"),
+    asset!("mv/cea608.mjs"),
+    asset!("mv/style.css"),
+    asset!("mv/radio.mjs"),
+    // 批量下载（专辑 / 歌单 / 单曲）：下载管理器与下载中心、MP4 标签、ZIP 与文件名模板
+    asset!("download/downloads.mjs"),
+    asset!("download/center.mjs"),
+    asset!("download/downloads.css"),
+    asset!("download/mp4-tags.mjs"),
+    asset!("download/zip.mjs"),
+    asset!("download/naming.mjs"),
+    // 歌词界面：TTML 解析与转 LRC、接入播放器的 panel.mjs、打包好的 AMLL（见 vendor/amll）、封面动态背景
+    // （backdrop*.mjs，移植自 YouLyPlus）、节拍律动，以及歌词字体库（数据只存在浏览器的 IndexedDB）与中文网字计划的字体目录
+    asset!("lyrics/panel.mjs"),
+    asset!("lyrics/ttml.mjs"),
+    asset!("lyrics/lrc.mjs"),
+    asset!("lyrics/amll-core.mjs"),
+    asset!("lyrics/amll.css"),
+    asset!("lyrics/backdrop.mjs"),
+    asset!("lyrics/backdrop-render.mjs"),
+    asset!("lyrics/backdrop-worker.mjs"),
+    asset!("lyrics/pulse.mjs"),
+    asset!("lyrics/fonts.mjs"),
+    asset!("lyrics/font-catalog.mjs"),
+    // 页面视图：`<name>.html` 为页面内容，`<name>.mjs` 为页面脚本（导出 mount，见 app.mjs），`<name>.css` 为页面样式
+    asset!("views/home.html"),
+    asset!("views/home.mjs"),
+    asset!("views/song.html"),
+    asset!("views/song.mjs"),
+    asset!("views/song.css"),
+    asset!("views/mv.html"),
+    asset!("views/mv.mjs"),
+    asset!("views/album.html"),
+    asset!("views/album.mjs"),
+    asset!("views/playlist.html"),
+    asset!("views/playlist.mjs"),
+    asset!("views/artist.html"),
+    asset!("views/artist.mjs"),
+    // 编辑页：新发现、广播、room、multi-room、grouping 与 curator 共用（与官网一样由 editorial-elements 区块组成）
+    asset!("views/browse.html"),
+    asset!("views/browse.mjs"),
+    asset!("views/browse.css"),
     // 电台页：个人 / 编辑电台（接下来的几首）与直播电台、广播单集（MV 页的布局）
-    asset!("/assets/views/station.html", HTML, "views/station.html"),
-    asset!("/assets/views/station.mjs", JS, "views/station.mjs"),
-    asset!("/assets/views/station.css", CSS, "views/station.css"),
-    // 各页面共用的条目操作（封面悬停按钮、「更多」菜单）与专辑 / 歌单页共用的头部（主题色、动态封面）
-    asset!("/assets/views/actions.mjs", JS, "views/actions.mjs"),
-    asset!("/assets/views/detail-header.mjs", JS, "views/detail-header.mjs"),
+    asset!("views/station.html"),
+    asset!("views/station.mjs"),
+    asset!("views/station.css"),
     // 资料库（最近添加、艺人、专辑、歌曲、音乐视频、全部歌单）与本地歌单页
-    asset!("/assets/views/library.html", HTML, "views/library.html"),
-    asset!("/assets/views/library.mjs", JS, "views/library.mjs"),
-    asset!("/assets/views/library.css", CSS, "views/library.css"),
-    asset!("/assets/views/library-playlist.html", HTML, "views/library-playlist.html"),
-    asset!("/assets/views/library-playlist.mjs", JS, "views/library-playlist.mjs"),
-    // 资料库的对话框、歌单封面拼图、导入与导出（导航与各页面共用）
-    asset!("/assets/views/library-ui.mjs", JS, "views/library-ui.mjs"),
-    // 设置中心（下载设置等）与专辑 / 歌单页的下载对话框
-    asset!("/assets/views/settings.html", HTML, "views/settings.html"),
-    asset!("/assets/views/settings.mjs", JS, "views/settings.mjs"),
-    asset!("/assets/views/settings.css", CSS, "views/settings.css"),
-    asset!("/assets/views/settings-fonts.mjs", JS, "views/settings-fonts.mjs"),
-    asset!("/assets/views/download-dialog.mjs", JS, "views/download-dialog.mjs"),
-    // 专辑页的 ALAC 检测对话框（检测逻辑见 /assets/alac-check.mjs）
-    asset!("/assets/views/alac-check-dialog.mjs", JS, "views/alac-check-dialog.mjs"),
+    asset!("views/library.html"),
+    asset!("views/library.mjs"),
+    asset!("views/library.css"),
+    asset!("views/library-playlist.html"),
+    asset!("views/library-playlist.mjs"),
+    // 设置中心
+    asset!("views/settings.html"),
+    asset!("views/settings.mjs"),
+    asset!("views/settings.css"),
+    asset!("views/settings-fonts.mjs"),
+    // 各页面共用的部件：条目操作（封面悬停按钮、「更多」菜单）、专辑 / 歌单页的头部（主题色、动态封面）、
+    // 资料库的对话框与导入导出、专辑 / 歌单的下载对话框、ALAC 检测对话框
+    asset!("views/actions.mjs"),
+    asset!("views/detail-header.mjs"),
+    asset!("views/library-ui.mjs"),
+    asset!("views/download-dialog.mjs"),
+    asset!("views/alac-check-dialog.mjs"),
 ];
 
-/// 由部署环境生成的资源（二进制见 ui::host_js_handler，serverless 部署见 serverless/core.mjs）：不加哈希，也不改写
+/// 由部署环境生成的资源（二进制见 handlers::host_js_handler，serverless 部署见 serverless/core.mjs）：不加哈希，也不改写
 pub const HOST_JS: &str = "/assets/host.js";
 /// 内容哈希地址的前缀；其下的资源内容永不改变，可长期缓存（serverless 部署由 vercel.json / dist/_headers 设置）
 pub const HASHED_PREFIX: &str = "/assets/h/";
@@ -362,7 +394,7 @@ mod tests {
     fn hashed_urls() {
         assert_eq!(hashed_url("/assets/views/home.mjs", 0xab), "/assets/h/views/home.00000000000000ab.mjs");
         assert_eq!(hashed_url("/assets/app.css", 1), "/assets/h/app.0000000000000001.css");
-        assert_eq!(resolve("/assets/views/album.mjs", "../downloads.mjs"), "/assets/downloads.mjs");
+        assert_eq!(resolve("/assets/views/album.mjs", "../download/downloads.mjs"), "/assets/download/downloads.mjs");
         assert_eq!(resolve("/assets/mv/engine.mjs", "./hls.mjs"), "/assets/mv/hls.mjs");
 
         let mut seen = HashSet::new();
@@ -375,6 +407,61 @@ mod tests {
         // host.js 由部署环境生成，只有原地址；其余资源两个地址
         assert_eq!(SITE.assets.len(), ASSETS.len() * 2 - 1);
         assert!(!seen.iter().any(|url| url.starts_with(HASHED_PREFIX) && url.contains("/host.")));
+    }
+
+    #[test]
+    fn mime_by_extension() {
+        assert_eq!(mime_of("views/home.html"), HTML);
+        assert_eq!(mime_of("player/player.js"), JS);
+        assert_eq!(mime_of("mv/engine.mjs"), JS);
+        assert_eq!(mime_of("mv/style.css"), CSS);
+        assert_eq!(mime_of("decrypt/hook.wasm"), WASM);
+        assert_eq!(mime_of("joc/hrtf/D1.jochrtf"), BIN);
+        assert_eq!(mime_of("flac/init.bin"), BIN);
+    }
+
+    /// web/ 下的文件都要登记在 ASSETS 里（说明文档与许可证除外）：漏登记的文件在二进制与 serverless 部署里都是 404
+    #[test]
+    fn every_web_file_is_registered() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.push(path.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        let web = concat!(env!("CARGO_MANIFEST_DIR"), "/web");
+        let mut files = Vec::new();
+        walk(std::path::Path::new(web), &mut files);
+        let urls: HashSet<&str> = ASSETS.iter().map(|a| a.url).collect();
+        for file in files {
+            let rel = &file[web.len() + 1..];
+            if rel == "app.html" || rel.ends_with(".md") || rel.ends_with(".txt") {
+                continue;
+            }
+            assert!(urls.contains(format!("/assets/{rel}").as_str()), "web/{rel} is not registered in ASSETS");
+        }
+    }
+
+    /// 文本资源里的相对引用（`'./x.mjs'`、`"../y.css"`）都要指向登记过的资源：移动文件后漏改的 import 在这里失败，
+    /// 而不是在浏览器里才 404
+    #[test]
+    fn relative_references_resolve() {
+        let urls: HashSet<&str> = ASSETS.iter().map(|a| a.url).collect();
+        let relative = Regex::new(r#"['"](\.\.?/[A-Za-z0-9_./-]+\.(?:mjs|js|css|html|wasm|bin|jochrtf))['"]"#).unwrap();
+        for asset in std::iter::once(&APP_HTML).chain(ASSETS) {
+            if ![HTML, JS, CSS].contains(&asset.mime) {
+                continue;
+            }
+            let base = if asset.url == "/" { "/assets/app.html" } else { asset.url };
+            for c in relative.captures_iter(std::str::from_utf8(asset.body).unwrap()) {
+                let url = resolve(base, &c[1]);
+                assert!(urls.contains(url.as_str()), "{}: {} -> {url} is not an asset", asset.url, &c[1]);
+            }
+        }
     }
 
     /// 页面加载的文本资源里不能留下未换成哈希地址的引用：同一模块经两个地址加载会得到两个实例

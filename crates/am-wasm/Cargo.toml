@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Browser (wasm32-unknown-unknown) build of am-hook's fMP4 decryption"
 
-# 构建：scripts/build-wasm.sh -> src/ui/hook.wasm
+# 构建：scripts/build-wasm.sh -> web/decrypt/hook.wasm
 [lib]
 crate-type = ["cdylib", "rlib"]
 

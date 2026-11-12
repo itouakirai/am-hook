@@ -3,9 +3,9 @@ name = "joc-wasm"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only OR MIT"
-description = "Browser (wasm32-unknown-unknown) build of joc-core, used by joc-decode-worker.js"
+description = "Browser (wasm32-unknown-unknown) build of joc-core, used by joc/decode-worker.js"
 
-# 构建：scripts/build-wasm.sh -> src/ui/joc.wasm
+# 构建：scripts/build-wasm.sh -> web/joc/joc.wasm
 [lib]
 crate-type = ["cdylib", "rlib"]
 

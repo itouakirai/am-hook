@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 生成 serverless 部署（Vercel / Cloudflare）用的静态目录 dist/：
-// 按 src/assets.rs 的资源表把 src/ui/ 下的文件复制到各自的对外地址，单页应用外壳为 dist/index.html。
+// 按 src/assets.rs 的资源表把 web/ 下的文件复制到各自的对外地址（web/<path> → /assets/<path>），
+// 单页应用外壳 web/app.html 为 dist/index.html。
 // 资源表只有 src/assets.rs 一份，二进制与 serverless 部署提供的文件因此保持一致。
 //
 // 与二进制（src/assets.rs 的 Served）相同：文本资源里对其他资源的引用换成内容哈希地址
@@ -13,22 +14,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ui = path.join(root, 'src/ui');
+const web = path.join(root, 'web');
 const args = process.argv.slice(2);
 const cloudflare = args.includes('--cloudflare');
 const out = path.resolve(root, args.find((arg) => !arg.startsWith('--')) || 'dist');
 // 由函数按环境变量生成（serverless/core.mjs），不能有同名静态文件，也不加哈希
 const HOST_JS = '/assets/host.js';
 const HASHED_PREFIX = '/assets/h/';
-const TEXT = new Set(['HTML', 'JS', 'CSS']);
+// 与 src/assets.rs 的 mime_of 一致：只有这些文本资源里的引用会换成哈希地址
+const TEXT = /\.(html|m?js|css)$/;
 
 const table = fs.readFileSync(path.join(root, 'src/assets.rs'), 'utf8');
-const assets = [...table.matchAll(/asset!\(\s*"(\/[\w./-]*)"\s*,\s*(\w+)\s*,\s*"([\w./-]+)"\s*\)/g)]
-  .map(([, url, mime, file]) => ({ url, text: TEXT.has(mime) && url !== HOST_JS, source: fs.readFileSync(path.join(ui, file)) }));
-const shell = assets.findIndex((asset) => asset.url === '/');
-if (shell < 0) throw new Error('app shell not found in src/assets.rs');
+const files = [...table.matchAll(/^\s*asset!\(\s*"([\w./-]+)"\s*\)/gm)].map(([, file]) => file);
+if (!files.length) throw new Error('no asset!("...") entries found in src/assets.rs');
 // 外壳排第一，与 src/assets.rs 的 build() 一致
-assets.unshift(...assets.splice(shell, 1));
+const assets = [['/', 'app.html'], ...files.map((file) => [`/assets/${file}`, file])]
+  .map(([url, file]) => ({ url, text: TEXT.test(file) && url !== HOST_JS, source: fs.readFileSync(path.join(web, file)) }));
 const index = new Map(assets.map((asset, i) => [asset.url, i]));
 
 /** FNV-1a 64，16 位十六进制 */

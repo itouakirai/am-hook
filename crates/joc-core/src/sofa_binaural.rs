@@ -1542,8 +1542,8 @@ mod hrtf_regression {
     use super::*;
     use crate::jochrtf::{builtin_kernels, load_jochrtf};
 
-    const D2: &[u8] = include_bytes!("../../../src/ui/joc-hrtf-D2.jochrtf");
-    const H3: &[u8] = include_bytes!("../../../src/ui/joc-hrtf-H3.jochrtf");
+    const D2: &[u8] = include_bytes!("../../../web/joc/hrtf/D2.jochrtf");
+    const H3: &[u8] = include_bytes!("../../../web/joc/hrtf/H3.jochrtf");
 
     fn render_impulse(field: &crate::jochrtf::Field, position: [f64; 3]) -> (f64, f64) {
         render_posed(field, position, None)

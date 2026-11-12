@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(e.detail, "US \"a b\" offset 25");
         assert!(describe("/amp/v1/catalog/us/search/suggestions", "term=a").quiet);
         assert_eq!(describe("/amp/v1/catalog/cn/albums/1", "").kind, "catalog");
-        assert!(describe("/assets/player.js", "").quiet);
+        assert!(describe("/assets/player/player.js", "").quiet);
         assert_eq!(describe("/lyrics/123", "").kind, "lyrics");
     }
 

@@ -13,7 +13,7 @@ use joc_core::FRAME_SAMPLES;
 use sha2::{Digest, Sha256};
 
 const EAC3: &[u8] = include_bytes!("fixtures/joc_fixture.eac3");
-const D2: &[u8] = include_bytes!("../../../src/ui/joc-hrtf-D2.jochrtf");
+const D2: &[u8] = include_bytes!("../../../web/joc/hrtf/D2.jochrtf");
 const CHANNELS: usize = 6;
 const TONES_HZ: [f64; 6] = [440.0, 554.0, 659.0, 880.0, 110.0, 55.0];
 const AMPLITUDE: f64 = 0.08;
@@ -44,7 +44,7 @@ fn bed(frames: usize) -> Vec<f32> {
     bed
 }
 
-/// Feeds the fixture the way joc-decode-worker.js does: one syncframe and its
+/// Feeds the fixture the way joc/decode-worker.js does: one syncframe and its
 /// core PCM at a time, with `flush_pending` at every sample boundary when asked.
 fn render(mode: Mode, hrtf: Option<&[u8]>, flush_each: bool, finish: bool) -> Vec<f32> {
     let frames = frames();
@@ -243,10 +243,10 @@ fn controls_change_the_render() {
 #[test]
 fn every_shipped_field_renders() {
     let names = ["D1", "D2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12", "H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20"];
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/ui");
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/joc/hrtf");
     on_big_stack(move || {
         for name in names {
-            let bytes = std::fs::read(format!("{root}/joc-hrtf-{name}.jochrtf")).expect(name);
+            let bytes = std::fs::read(format!("{root}/{name}.jochrtf")).expect(name);
             let config = StreamConfig { mode: Mode::Binaural, hrtf: Some(bytes), ..StreamConfig::default() };
             let mut stream = Stream::new(config).expect(name);
             let frames = frames();

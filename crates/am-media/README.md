@@ -1,7 +1,7 @@
 # am-media
 
-Browser media core, compiled by `crates/am-media-wasm` to `src/ui/media.wasm`
-(`scripts/build-wasm.sh`) and run only in a Web Worker (`src/ui/media-worker.js`).
+Browser media core, compiled by `crates/am-media-wasm` to `web/media/media.wasm`
+(`scripts/build-wasm.sh`) and run only in a Web Worker (`web/media/media-worker.js`).
 The Rust server does not link it.
 
 - `playready`: builds PlayReady license challenges and extracts the content key

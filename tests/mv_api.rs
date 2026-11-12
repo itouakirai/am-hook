@@ -1,5 +1,5 @@
 //! Offline checks for MV control-plane relays and server-side master fetching.
-use am_hook::{state::AppState, ui};
+use am_hook::{handlers, state::AppState};
 use axum::{
     body::to_bytes,
     extract::{Path, State},
@@ -30,7 +30,7 @@ async fn forwards_mv_requests_without_fetching_media() {
     });
     let state = Arc::new(AppState::new(format!("http://{addr}")));
     let response =
-        ui::mv_webplayback_handler(State(state.clone()), Path("1794822079".into())).await;
+        handlers::mv_webplayback_handler(State(state.clone()), Path("1794822079".into())).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["cache-control"], "no-store");
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
@@ -39,19 +39,19 @@ async fn forwards_mv_requests_without_fetching_media() {
         json!({"adamId":"1794822079","challenge":"YQ==","uri":"data:;base64,Yg==","drm-type":"pr"}),
     )
     .unwrap();
-    let response = ui::mv_license_handler(State(state.clone()), Json(request)).await;
+    let response = handlers::mv_license_handler(State(state.clone()), Json(request)).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let request = serde_json::from_value(json!({"adamId":"1569279827","challenge":"Yw==","uri":"data:;base64,Yg=="})).unwrap();
-    let response = ui::mv_license_handler(State(state.clone()), Json(request)).await;
+    let response = handlers::mv_license_handler(State(state.clone()), Json(request)).await;
     assert_eq!(response.status(), StatusCode::OK);
-    let response = ui::mv_webplayback_handler(State(state.clone()), Path("not-an-id".into())).await;
+    let response = handlers::mv_webplayback_handler(State(state.clone()), Path("not-an-id".into())).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let request = serde_json::from_value(
         json!({"adamId":"1","challenge":"YQ==","uri":"data:;base64,Yg==","drm-type":"wv"}),
     )
     .unwrap();
     assert_eq!(
-        ui::mv_license_handler(State(state.clone()), Json(request))
+        handlers::mv_license_handler(State(state.clone()), Json(request))
             .await
             .status(),
         StatusCode::BAD_REQUEST
@@ -63,7 +63,7 @@ async fn forwards_mv_requests_without_fetching_media() {
     ] {
         let uri: Uri = path.parse().unwrap();
         assert_eq!(
-            ui::fallback_handler(uri, HeaderMap::new()).await.status(),
+            handlers::fallback_handler(uri, HeaderMap::new()).await.status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -87,15 +87,15 @@ async fn song_master_returns_only_the_wrapper_url() {
     );
     let task = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
     let state = Arc::new(AppState::new(format!("http://{addr}")));
-    let response = ui::master_handler(State(state.clone()), Path("1".into())).await;
+    let response = handlers::master_handler(State(state.clone()), Path("1".into())).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(body, json!({"code":0,"data":{"masterUrl":"https://unreachable.invalid/P1_default.m3u8"}}));
     for id in ["2", "3"] {
-        let response = ui::master_handler(State(state.clone()), Path(id.into())).await;
+        let response = handlers::master_handler(State(state.clone()), Path(id.into())).await;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
-    assert_eq!(ui::master_handler(State(state), Path("abc".into())).await.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(handlers::master_handler(State(state), Path("abc".into())).await.status(), StatusCode::BAD_REQUEST);
     task.abort();
 }
 
@@ -110,14 +110,14 @@ async fn wrapper_rate_limit_reaches_the_browser_as_429_with_retry_after() {
     let task = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
     let state = Arc::new(AppState::new(format!("http://{addr}")));
 
-    let response = ui::master_handler(State(state.clone()), Path("1".into())).await;
+    let response = handlers::master_handler(State(state.clone()), Path("1".into())).await;
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.headers()["retry-after"], "17");
     let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(body["code"], 1);
     assert!(body["msg"].as_str().unwrap().contains("429"));
 
-    let response = ui::mv_webplayback_handler(State(state), Path("1794822079".into())).await;
+    let response = handlers::mv_webplayback_handler(State(state), Path("1794822079".into())).await;
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.headers()["retry-after"], "17");
     task.abort();
