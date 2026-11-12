@@ -1,5 +1,7 @@
 # 发布和更新指南
 
+维护者文档：如何发布新版本，以及二进制的自动更新如何工作。
+
 ## 自动编译和发布
 
 本项目使用 GitHub Actions 自动编译多平台二进制文件。
@@ -85,19 +87,20 @@ Unix 系统会自动完成更新：
 
 ## 发布新版本流程
 
-1. 更新 `Cargo.toml` 中的版本号
-2. 更新 `CHANGELOG.md` 和 `CHANGELOG.en.md`
-3. 提交更改
-4. 创建并推送 tag
-5. 等待 GitHub Actions 完成编译
-6. 检查 Release 页面确认所有文件已上传
+功能提交不改更新日志；发布时用一个提交 `chore: release vX.Y.Z` 收齐：
+
+1. 在 `CHANGELOG.md` 与 `CHANGELOG.en.md` 顶部各加一节 `## vX.Y.Z (YYYY-MM-DD)`，按 `### 新功能` / `### 修复` / `### 变更`（英文为 `### New` / `### Fixes` / `### Changed`）整理自上次发布以来的提交
+2. 更新 `Cargo.toml` 的 `version`，以及 `Cargo.lock` 里 `am-hook` 的版本（`cargo check` 会自动改）
+3. 提交 `chore: release vX.Y.Z`，打轻量 tag `vX.Y.Z`
+4. 先推送 `main`，再推送 tag
+5. `release.yml` 编译 4 个平台的二进制，并从两份更新日志中按 `## vX.Y.Z` 取出对应小节作为 Release 说明（附上 `.github/RELEASE_TEMPLATE.md` 的「下载」部分）
+6. 用 `gh run list` 确认 **Build Test** 与 Release 都通过：CI 用最新的 stable Rust 跑 `clippy -D warnings`，可能有本地版本还没有的 lint
 
 ## 测试
 
-每次推送到 `main` 分支或创建 PR 时，`build-test.yml` 会自动运行测试：
+每次推送到 `main` 分支或创建 PR 时，`build-test.yml` 会自动运行：
 
-- 在 Ubuntu、Windows、macOS 上运行 `cargo check`
-- 运行 `cargo build`
-- 运行 `cargo test --workspace`（含 `crates/` 下各 crate 的单元测试）
+- 在 Ubuntu、Windows、macOS 上运行 `cargo check`、`cargo build` 与 `cargo test --workspace`
+- 在 Ubuntu 上运行 `cargo clippy --workspace --all-targets -- -D warnings` 与 `node tests/run.mjs unit`
 
-需要真实 Apple CDN 或 wrapper-lite 的端到端测试默认忽略，不在 CI 中运行，发布前请在本地执行 `cargo test --test e2e_test -- --ignored`。
+浏览器界面测试（`node tests/run.mjs ui`）与需要 Apple CDN / wrapper-lite 的在线测试（`node tests/run.mjs live`、`cargo test --test e2e_test -- --ignored`）不在 CI 中运行，发布前请在本地执行，见 [development.zh-CN.md](development.zh-CN.md#测试)。

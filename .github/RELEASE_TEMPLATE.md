@@ -36,4 +36,4 @@ am-hook --auto-update
 am-hook --listen 0.0.0.0:8888 --wrapper-url http://127.0.0.1:12340
 ```
 
-完整文档请查看 [README.md](../README.md) / [README.zh-CN.md](../README.zh-CN.md)
+完整文档请查看 [README](https://github.com/itouakirai/am-hook#readme) / [中文 README](https://github.com/itouakirai/am-hook/blob/main/README.zh-CN.md)
