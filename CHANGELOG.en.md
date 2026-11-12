@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v0.7.0 (2026-11-12)
+
+### Changed
+- ♻️ The front end moves from `src/ui/` to `web/`, grouped by area (`player/`, `decrypt/`, `media/`, `flac/`, `ec3/`, `joc/`, `mv/`, `download/`, `lyrics/`, `views/`), and `/assets/<path>` is always `web/<path>`, so a URL in a stack trace or the network panel names its file. Page URLs and API endpoints are unchanged; asset URLs change with it (pages load content-hashed URLs, so an upgrade picks them up by itself)
+- ♻️ The asset table (`src/assets.rs`) lists one path per file and derives the content type from the extension; tests fail when a file under `web/` is not registered or a relative import points at no file. `src/ui.rs` is renamed `src/handlers.rs` and `browser/` is renamed `vendor/`
+- ✅ The Node tests are grouped by what they need into `tests/unit`, `tests/ui` and `tests/live`, run with `node tests/run.mjs unit|ui|live`; CI runs every unit test. Stale assertions in the library UI and single-page app tests are fixed
+- 📝 The README is trimmed to an overview, quick start and the deploy buttons; the user guide, deployment, reference, architecture (now with a feature-to-file map and the source layout) and development docs move to `docs/`, in English and Chinese
+
 ## v0.6.9 (2026-11-10)
 
 ### New
