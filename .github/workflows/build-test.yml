@@ -57,32 +57,9 @@ jobs:
       - name: Run offline tests
         run: cargo test --workspace --verbose
 
-      - name: Run serverless tests
-        # serverless 后端（Vercel / Cloudflare）与 dist/ 的生成，只需要 runner 自带的 Node
+      - name: Run Node unit tests
+        # tests/unit/ 全部：serverless 后端与 dist/ 的生成、ALAC 检测、JOC 渲染（web/joc/joc.wasm 与参考摘要逐位一致）、
+        # AutoMix 规划、歌词对唱、下载核心（ZIP / 标签 / 文件名模板）、限流退避、播放器与 MV 播放列表 / 字幕。
+        # 离线，只需要 runner 自带的 Node；结果与平台无关，只在 Linux 跑
         if: runner.os == 'Linux'
-        run: node --test tests/serverless.mjs
-
-      - name: Run ALAC check tests
-        # 专辑页 ALAC 检测的解析与判定（src/ui/alac-check.mjs），离线
-        if: runner.os == 'Linux'
-        run: node --test tests/alac_check.mjs
-
-      - name: Run JOC renderer tests
-        # src/ui/joc.wasm 与 crates/joc-core 的参考摘要逐位一致、20 组 HRTF 都能加载，离线
-        if: runner.os == 'Linux'
-        run: node --test tests/joc_wasm.mjs
-
-      - name: Run AutoMix planner tests
-        # 歌曲之间过渡的规划（src/ui/automix.js：响度曲线、拍点与人声 → 重叠区间、增益与变速），离线
-        if: runner.os == 'Linux'
-        run: node --test tests/automix.cjs
-
-      - name: Run lyric duet tests
-        # 歌词的对唱侧（src/ui/lyrics/ttml.mjs 的 duetSides 照 AMLL 逐行决定 isDuet），离线
-        if: runner.os == 'Linux'
-        run: node --test tests/agent_duet.mjs
-
-      - name: Run download core tests
-        # 批量下载的纯函数部分（ZIP / ZIP64、iTunes 标签、文件名模板与专辑名后缀、音质选择），离线
-        if: runner.os == 'Linux'
-        run: node --test tests/download_core.mjs
+        run: node tests/run.mjs unit
