@@ -394,7 +394,10 @@ function menuEl() {
     else if (e.key === 'Tab') closeMenu(false);
   });
   document.addEventListener('pointerdown', (e) => {
-    if (menu.trigger && e.target !== menu.scrim && !menu.el.contains(e.target) && !menu.trigger.contains(e.target)) closeMenu(false);
+    if (!menu.trigger || e.target === menu.scrim || menu.el.contains(e.target) || menu.trigger.contains(e.target)) return;
+    // 全屏播放界面里没有遮罩时（宽屏）同歌词选项菜单：点别处只收起菜单，这次点按不落到下面（如歌词行跳转）
+    if (menu.trigger.closest('#lyrics-overlay')) swallowClick();
+    closeMenu(false);
   });
   addEventListener('resize', () => closeMenu(false));
   addEventListener('scroll', (e) => {
@@ -403,6 +406,19 @@ function menuEl() {
     else closeMenu(false);
   }, { capture: true });
   return menu.el;
+}
+
+/** 吞掉这次按下之后的 click（同 player.js 的 swallowClick）；按下后拖动滚动或下一次按下时撤销 */
+function swallowClick() {
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); done(); };
+  const done = () => {
+    removeEventListener('click', stop, true);
+    removeEventListener('pointercancel', done, true);
+    removeEventListener('pointerdown', done, true);
+  };
+  addEventListener('click', stop, true);
+  addEventListener('pointercancel', done, true);
+  addEventListener('pointerdown', done, true);
 }
 
 function closeMenu(focusTrigger) {

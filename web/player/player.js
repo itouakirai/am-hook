@@ -153,6 +153,22 @@
   }
 
   /**
+   * 吞掉这次按下之后的 click（在 pointerdown 里调用）：捕获阶段拦下，不再派发给页面。
+   * 按下后拖动滚动（pointercancel）或下一次按下时撤销，以免拦到以后的点击
+   */
+  function swallowClick(win) {
+    const stop = (e) => { e.preventDefault(); e.stopPropagation(); done(); };
+    const done = () => {
+      win.removeEventListener('click', stop, true);
+      win.removeEventListener('pointercancel', done, true);
+      win.removeEventListener('pointerdown', done, true);
+    };
+    win.addEventListener('click', stop, true);
+    win.addEventListener('pointercancel', done, true);
+    win.addEventListener('pointerdown', done, true);
+  }
+
+  /**
    * 播放音质的设置（设置中心「播放」，prefs.mjs 的 playbackFor）：{ quality: efficient / high / lossless / hires, spatial: auto / always / off,
    * transition: off / automix / crossfade（歌曲之间的过渡，见 Mixer）, crossfade（交叉淡化的秒数）}，quality 已按当前网络（Wi-Fi / 移动数据）取好。
    * app.mjs 用 usePlaybackSettings 接上（{ get, set }，set 供待播清单里的 AutoMix 开关修改 transition）；
@@ -2839,7 +2855,11 @@
     bindKeys(doc) {
       // 待播清单面板：按 Esc 或点击面板与播放条以外的地方时收起；音质详情、音量滑块同样点别处收起
       doc.addEventListener('pointerdown', (e) => {
-        if (!this.qualityPanel.hidden && !e.target.closest('.player-mode, .quality-panel')) this.closeQualityPanel();
+        if (!this.qualityPanel.hidden && !e.target.closest('.player-mode, .quality-panel')) {
+          this.closeQualityPanel();
+          // 同歌词选项菜单的遮罩：点别处只收起详情，这次点按不落到下面（如歌词行跳转）
+          swallowClick(doc.defaultView);
+        }
         if (!this.$('.player-volume').contains(e.target)) this.$('.player-volume').classList.remove('expanded');
         // data-queue-keep：全屏播放界面底部的开关（待播清单开关移到了那里，见 lyrics/panel.mjs），点击时不先收起清单
         if (this.queuePanel.hidden || this.queuePanel.contains(e.target) || this.root.contains(e.target)
