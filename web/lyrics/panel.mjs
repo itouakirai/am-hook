@@ -1076,6 +1076,12 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       menuItem(menuButton({ label: t('lyrics.download'), icon: 'download', action: 'download', disabled: !lyricsText })),
     ];
     menu.replaceChildren(...items);
+    // 打开时重新渲染（换来源出现说明、换语言等）高度会变，重新定位；保留滚动位置
+    if (!menu.hidden) {
+      const scroll = menu.scrollTop;
+      placeMenu();
+      menu.scrollTop = scroll;
+    }
   }
 
   /**
@@ -1149,24 +1155,45 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
    * 在点击处弹出菜单（键盘打开时在按钮中心），同 amp-contextual-menu-button：
    * 右侧放不下时改到左侧，下方放不下（留 40px）时改为向上展开。
    */
+  let menuAnchor = [0, 0];
   function openMenu(event) {
+    const rect = translationButton.getBoundingClientRect();
+    menuAnchor = [event.clientX || rect.left + rect.width / 2, event.clientY || rect.top + rect.height / 2];
     renderMenu();
     menu.hidden = false;
     scrim.hidden = false;
     translationButton.setAttribute('aria-expanded', 'true');
-    const rect = translationButton.getBoundingClientRect();
-    const x = event.clientX || rect.left + rect.width / 2;
-    const y = event.clientY || rect.top + rect.height / 2;
-    menu.style.cssText = '';
-    if (!matchMedia('(max-width: 483px)').matches) {
-      const rtl = document.dir === 'rtl';
-      const fitsRight = innerWidth - x > menu.offsetWidth;
-      const left = (rtl && (x > menu.offsetWidth || !fitsRight)) || (!rtl && !fitsRight) ? x - menu.offsetWidth - 1 : x + 1;
-      menu.style.left = `${left}px`;
-      if (innerHeight - y > menu.offsetHeight + 40) menu.style.top = `${y}px`;
-      else menu.style.bottom = `${innerHeight - y}px`;
-    }
+    placeMenu();
     if (!event.detail) menu.querySelector('button:not(:disabled)')?.focus();
+  }
+
+  /**
+   * 定位并限高（字体等项多时菜单在里面滚动，同「更多」菜单的 positionMenu）：
+   * 手机上贴底居中（CSS），最高为视口高度减去上下各 25px；
+   * 否则两个方向都放不下时朝空间大的一侧展开，水平方向留 8px 边距。
+   */
+  function placeMenu() {
+    menu.style.cssText = '';
+    if (matchMedia('(max-width: 483px)').matches) {
+      const height = window.visualViewport ? visualViewport.height : innerHeight;
+      menu.style.maxHeight = `${Math.max(80, height - 50)}px`;
+      return;
+    }
+    const [x, y] = menuAnchor;
+    const { offsetWidth: width, offsetHeight: height } = menu;
+    const rtl = document.dir === 'rtl';
+    const fitsRight = innerWidth - x > width;
+    const left = (rtl && (x > width || !fitsRight)) || (!rtl && !fitsRight) ? x - width - 1 : x + 1;
+    menu.style.left = `${Math.max(8, Math.min(left, innerWidth - width - 8))}px`;
+    const below = innerHeight - y - 40;
+    const above = y - 8;
+    if (below >= height || below >= above) {
+      menu.style.top = `${y}px`;
+      if (height > below) menu.style.maxHeight = `${Math.max(80, below)}px`;
+    } else {
+      menu.style.bottom = `${innerHeight - y}px`;
+      if (height > above) menu.style.maxHeight = `${above}px`;
+    }
   }
 
   function closeMenu(focusButton) {

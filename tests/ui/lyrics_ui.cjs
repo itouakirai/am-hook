@@ -185,6 +185,20 @@ const duetTtml = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3
         await page.keyboard.press('Escape');
         await page.locator('.lyrics-menu').waitFor({ state: 'hidden' });
         assert(await page.locator('#lyrics-overlay').isVisible(), 'Escape closes only the menu');
+        // 视口放不下整个菜单（字体多时）：菜单限高、留在视口内，在里面滚动
+        await page.setViewportSize({ width, height: 420 });
+        await openMenu();
+        const fit = await page.evaluate(() => {
+          const m = document.querySelector('.lyrics-menu');
+          const r = m.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, scrolls: m.scrollHeight > m.clientHeight };
+        });
+        assert(fit.top >= 0 && fit.bottom <= 420 && fit.left >= 0 && fit.right <= width, `the menu stays inside a short viewport: ${JSON.stringify(fit)}`);
+        assert(fit.scrolls, 'a menu taller than the viewport scrolls');
+        await page.screenshot({ path: `target/ui-lyrics-menu-short-${width}.png` });
+        await page.keyboard.press('Escape');
+        await page.locator('.lyrics-menu').waitFor({ state: 'hidden' });
+        await page.setViewportSize({ width, height: 844 });
 
         await page.evaluate(() => { fakeTransport.currentTime = 5.5; });
         await page.waitForTimeout(300);
