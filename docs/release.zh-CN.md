@@ -90,7 +90,7 @@ Unix 系统会自动完成更新：
 功能提交不改更新日志；发布时用一个提交 `chore: release vX.Y.Z` 收齐：
 
 1. 在 `CHANGELOG.md` 与 `CHANGELOG.en.md` 顶部各加一节 `## vX.Y.Z (YYYY-MM-DD)`，按 `### 新功能` / `### 修复` / `### 变更`（英文为 `### New` / `### Fixes` / `### Changed`）整理自上次发布以来的提交
-2. 更新 `Cargo.toml` 的 `version`，以及 `Cargo.lock` 里 `am-hook` 的版本（`cargo check` 会自动改）
+2. 更新 `Cargo.toml` 的 `version`，以及 `Cargo.lock` 里 `am-hook` 的版本（`cargo check` 会自动改）；`serverless/core.mjs` 的 `VERSION` 改成同一版本（首页页脚显示，`tests/local_wrapper.rs` 会比对）
 3. 提交 `chore: release vX.Y.Z`，打轻量 tag `vX.Y.Z`
 4. 先推送 `main`，再推送 tag
 5. `release.yml` 编译 4 个平台的二进制，并从两份更新日志中按 `## vX.Y.Z` 取出对应小节作为 Release 说明（附上 `.github/RELEASE_TEMPLATE.md` 的「下载」部分）

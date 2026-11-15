@@ -1,5 +1,5 @@
 // 首页（/，搜索结果为 /?q=），由 app.mjs 挂载。与 music.apple.com/{cc}/search 相同的布局：
-// 顶部是搜索框（也可粘贴链接直接打开）；没有搜索时显示最近搜索与「类别浏览」砖块（categories.mjs），
+// 顶部是搜索框（也可粘贴链接直接打开）；没有搜索时显示最近搜索与「类别浏览」砖块（categories.mjs，默认折叠为一行），
 // 搜索时换成结果区（search-results.mjs）。地区为主地区（AmI18n.storefront），切换后类别与结果一起刷新。
 import { createActions } from './actions.mjs';
 import { amp, artUrl } from '../amp.mjs';
@@ -306,14 +306,63 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
   /* ---------- 类别浏览（categories.mjs） ---------- */
   const grid = $('brick-grid');
   const categoriesEl = $('categories');
+  const toggle = $('categories-toggle');
   let categoriesToken = 0;
+
+  // 默认折叠：只显示第一行（手机两列时两行），按钮展开全部；展开状态按浏览器记住
+  const EXPANDED_KEY = 'am-hook:categories-expanded';
+  let expanded = false;
+  try { expanded = localStorage.getItem(EXPANDED_KEY) === '1'; } catch {}
+
+  /** 折叠时可见的砖块数；网格不可见（搜索中）时为 0，等 ResizeObserver 在重新显示时再算 */
+  function collapsedCount() {
+    const columns = getComputedStyle(grid).gridTemplateColumns;
+    if (!columns || columns === 'none') return 0;
+    const n = columns.split(' ').filter(Boolean).length;
+    return n * (n <= 2 ? 2 : 1);
+  }
+
+  /** 按折叠状态隐藏多余的砖块（含加载占位），reveal 时给新露出的砖块加淡入动画 */
+  function applyCollapse(reveal = false) {
+    const limit = collapsedCount();
+    if (!limit) return;
+    const bricks = grid.querySelectorAll('a.brick').length;
+    [...grid.children].forEach((node, i) => {
+      const hide = !expanded && i >= limit;
+      if (reveal && node.hidden && !hide) {
+        node.style.setProperty('--i', String(i - limit));
+        node.classList.add('reveal');
+        node.addEventListener('animationend', () => node.classList.remove('reveal'), { once: true });
+      }
+      node.hidden = hide;
+    });
+    toggle.hidden = bricks <= limit;
+    toggle.setAttribute('aria-expanded', String(expanded));
+    $('categories-toggle-label').textContent = expanded ? t('home.showLess') : t('home.showAll', { n: bricks });
+  }
+
+  toggle.addEventListener('click', () => {
+    expanded = !expanded;
+    try { localStorage.setItem(EXPANDED_KEY, expanded ? '1' : '0'); } catch {}
+    applyCollapse(expanded);
+    // 收起时若标题已滚出视口，回到类别开头
+    if (!expanded && categoriesEl.getBoundingClientRect().top < 0) categoriesEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+
+  // 列数随宽度变化（auto-fill），宽度改变或从隐藏恢复时重新计算
+  const gridObserver = new ResizeObserver(() => applyCollapse());
+  gridObserver.observe(grid);
+  signal.addEventListener('abort', () => gridObserver.disconnect(), { once: true });
 
   async function renderCategories() {
     const token = ++categoriesToken;
     categoriesEl.hidden = false;
     categoriesEl.setAttribute('aria-busy', 'true');
     // 已有砖块（切换语言 / 地区）时保留到新数据返回，避免整块闪烁
-    if (!grid.querySelector('a.brick')) grid.replaceChildren(...brickSkeletons());
+    if (!grid.querySelector('a.brick')) {
+      grid.replaceChildren(...brickSkeletons());
+      applyCollapse();
+    }
     $('categories-error').hidden = true;
     try {
       await statusReady;
@@ -323,9 +372,11 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
       $('categories-title').textContent = title || t('home.categories');
       if (!bricks.length) { categoriesEl.hidden = true; return; }
       grid.replaceChildren(...bricks.map(brickNode));
+      applyCollapse();
     } catch (error) {
       if (token !== categoriesToken || signal.aborted) return;
       grid.replaceChildren();
+      toggle.hidden = true;
       const failed = $('categories-error');
       failed.hidden = false;
       failed.querySelector('span').textContent = t('home.categoriesFailed', { msg: error.message });
@@ -343,7 +394,20 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
     if (results.term) results.run(results.term);
   }), { once: true });
 
+  /* ---------- 页脚版本：部署环境（host.js）给出，链到该版本的发布说明；直接打开静态文件时没有 ---------- */
+  function renderVersion() {
+    const version = String((window.AM_HOOK_HOST && window.AM_HOOK_HOST.version) || '');
+    const link = $('footer-version');
+    link.hidden = !/^\d+\.\d+\.\d+/.test(version);
+    if (link.hidden) return;
+    link.textContent = `v${version}`;
+    link.href = `https://github.com/itouakirai/am-hook/releases/tag/v${encodeURIComponent(version)}`;
+    link.title = t('footer.release', { v: version });
+  }
+
   onLangChange(() => {
+    renderVersion();
+    applyCollapse();
     renderDetect();
     closeSuggest();
     if (!errorEl.hidden && errorKey) errorEl.textContent = t(errorKey);
@@ -352,6 +416,7 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
     renderCategories();
   });
 
+  renderVersion();
   renderDetect();
   renderRecent();
   syncFromUrl();

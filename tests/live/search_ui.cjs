@@ -1,6 +1,6 @@
 // Run with: node tests/live/search_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
-// Covers the home page: Browse Categories bricks, search suggestions, results, pagination, ?q= state and the mobile layout.
+// Covers the home page: Browse Categories bricks (collapsed to one row by default), the footer, search suggestions, results, pagination, ?q= state and the mobile layout.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
@@ -32,7 +32,30 @@ const shots = process.env.SEARCH_UI_SHOTS;
     for (const href of hrefs) assert.ok(href.startsWith('/') || /^https:\/\//.test(href), `brick link ${href}`);
     assert.ok(await frame.locator('#brick-grid a.brick[href^="/"]:not([target])').count() === hrefs.filter((h) => h.startsWith('/')).length, 'local bricks stay in the tab');
     await bricks.first().locator('img').evaluate((img) => img.decode());
+
+    // Collapsed by default: only the first row shows, the toggle expands the rest and is remembered
+    const toggle = frame.locator('#categories-toggle');
+    const rowOf = () => bricks.evaluateAll((list) => list.filter((a) => !a.hidden).map((a) => a.getBoundingClientRect().top));
+    const columns = await frame.evaluate(() => getComputedStyle(document.querySelector('#brick-grid')).gridTemplateColumns.split(' ').length);
+    let tops = await rowOf();
+    assert.equal(tops.length, columns, 'collapsed grid shows one row');
+    assert.ok(tops.every((top) => Math.abs(top - tops[0]) < 1), 'visible bricks share a row');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    assert.match(await toggle.textContent(), new RegExp(`Show all ${await bricks.count()} categories`));
     if (shots) await page.screenshot({ path: path.join(shots, 'home-categories.png') });
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal((await rowOf()).length, await bricks.count(), 'expanded grid shows every brick');
+    assert.equal(await frame.evaluate(() => localStorage.getItem('am-hook:categories-expanded')), '1');
+    if (shots) await page.screenshot({ path: path.join(shots, 'home-expanded.png'), fullPage: true });
+
+    // Footer: version from host.js linking to its release, Telegram group and GitHub
+    const version = frame.locator('#footer-version');
+    assert.match(await version.textContent(), /^v\d+\.\d+\.\d+/);
+    assert.match(await version.getAttribute('href'), /\/am-hook\/releases\/tag\/v\d+\.\d+\.\d+/);
+    assert.ok(await frame.locator('.home-footer a[href="https://t.me/apple_music_alac"]').isVisible(), 'Telegram link');
+    assert.ok(await frame.locator('.home-footer a[href="https://github.com/itouakirai/am-hook"]').isVisible(), 'GitHub link');
+    if (shots) await frame.locator('.home-footer').screenshot({ path: path.join(shots, 'home-footer.png') });
 
     // Opening a curator brick lands on the curator page; Back returns to the grid
     const curatorBrick = frame.locator('#brick-grid a.brick[href*="/curator/"]').first();
@@ -145,6 +168,8 @@ const shots = process.env.SEARCH_UI_SHOTS;
     // Mobile landing: two brick columns, still no horizontal scroll (the example chips scroll inside their own row)
     await mobileFrame.locator('#close-results').click();
     await mobileFrame.locator('#brick-grid a.brick').nth(1).waitFor({ timeout: 20000 });
+    // Collapsed on a fresh profile: two columns × two rows
+    assert.equal(await mobileFrame.locator('#brick-grid a.brick:not([hidden])').count(), 4, 'mobile collapsed grid shows two rows');
     const [b0, b1] = await Promise.all([0, 1].map((i) => mobileFrame.locator('#brick-grid a.brick').nth(i).boundingBox()));
     assert.ok(Math.abs(b0.y - b1.y) < 1 && b1.x > b0.x, 'two bricks per row on mobile');
     assert.ok(await mobileFrame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll on the mobile landing');

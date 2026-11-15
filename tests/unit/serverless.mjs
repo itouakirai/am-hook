@@ -13,7 +13,7 @@ import vercel from '../../api/handler.mjs';
 import worker from '../../serverless/cloudflare.mjs';
 import {
   extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, SECURITY_HEADERS, validCatalogPath,
-  validLicenseUrl, validStationId, withSecurityHeaders, wrapperConfig,
+  validLicenseUrl, validStationId, VERSION, withSecurityHeaders, wrapperConfig,
 } from '../../serverless/core.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -273,9 +273,9 @@ test('without AM_HOOK_WRAPPER_URL the page is told to use a local wrapper-lite',
   const calls = stub(() => null);
   const host = await get('/assets/host.js');
   assert.match(host.headers.get('content-type'), /^text\/javascript/);
-  assert.equal(await host.text(), 'window.AM_HOOK_HOST = {"serverWrapper":false};\n');
+  assert.equal(await host.text(), `window.AM_HOOK_HOST = {"serverWrapper":false,"version":"${VERSION}"};\n`);
   const hinted = await get('/assets/host.js', { AM_HOOK_WRAPPER_HINT: ' Get a token at https://token.test \n' });
-  assert.equal(await hinted.text(), 'window.AM_HOOK_HOST = {"serverWrapper":false,"hint":"Get a token at https://token.test"};\n');
+  assert.equal(await hinted.text(), `window.AM_HOOK_HOST = {"serverWrapper":false,"version":"${VERSION}","hint":"Get a token at https://token.test"};\n`);
   for (const p of ['/status', '/key?adamId=1&uri=skd://x', '/lyrics/1', '/parse/song/1', '/parse/mv/1', '/mv/webplayback/1']) {
     const response = await get(p);
     assert.equal(response.status, 501, p);
@@ -311,7 +311,7 @@ test('with AM_HOOK_WRAPPER_URL the wrapper-lite endpoints are relayed', async ()
     }
   });
 
-  assert.equal(await (await get('/assets/host.js', env)).text(), 'window.AM_HOOK_HOST = {"serverWrapper":true};\n');
+  assert.equal(await (await get('/assets/host.js', env)).text(), `window.AM_HOOK_HOST = {"serverWrapper":true,"version":"${VERSION}"};\n`);
   const status = await get('/status', env);
   assert.deepEqual(await status.json(), { code: 0, msg: 'SUCCESS', regions: ['jp', 'us'] });
   assert.equal(calls.at(-1).headers.authorization, 'Basic dXNlcjpwYXNz');

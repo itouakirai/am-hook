@@ -55,7 +55,7 @@ pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
 /// 以及本地设置上方的提示。`--wrapper-auth` 只用于服务端转发，从不交给页面
 pub async fn host_js_handler(State(state): State<Arc<AppState>>) -> Response<Body> {
     let config = &state.config;
-    let mut host = json!({ "serverWrapper": config.wrapper_relay });
+    let mut host = json!({ "serverWrapper": config.wrapper_relay, "version": env!("CARGO_PKG_VERSION") });
     if !config.wrapper_relay {
         host["wrapper"] = json!({
             "url": config.wrapper_url,

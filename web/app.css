@@ -80,7 +80,7 @@ button { cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .page { width: min(1200px, 100%); margin: 0 auto; padding: 28px max(28px, env(safe-area-inset-left)) 64px; }
-/* logo：官网 Apple Music 字标（手机顶栏 15px 高，侧边栏 20px），苹果图标倒置 */
+/* logo：官网 Apple Music 字标（小写 music，手机顶栏 15px 高，侧边栏 20px），苹果图标倒置 */
 .brand { min-height: 36px; display: inline-flex; align-items: center; color: var(--text); text-decoration: none; }
 .brand-logo { width: auto; height: 15px; display: block; fill: currentColor; }
 
@@ -492,6 +492,20 @@ body.home-page {
 .brick.skeleton { border-radius: 12px; }
 .categories-error { margin: 0; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
 .categories-error[hidden] { display: none; }
+/* 折叠时多出的砖块带 hidden；展开时新露出的砖块依次淡入（--i 为序号） */
+.brick[hidden] { display: none; }
+.brick.reveal { animation: brick-in .35s ease both; animation-delay: calc(min(var(--i, 0), 16) * 18ms); }
+@keyframes brick-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .brick.reveal { animation: none; } }
+.categories-toggle {
+  min-height: 40px; margin: 16px auto 0; padding: 0 16px 0 18px; display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: border-color .2s ease, background .2s ease;
+}
+.categories-toggle[hidden] { display: none; }
+.categories-toggle:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.categories-toggle svg { width: 16px; height: 16px; color: var(--muted); transition: transform .25s ease; }
+.categories-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .categories-error .link-btn { margin: 0; color: var(--accent); }
 
 /* 支持的格式：页面底部的紧凑说明卡 */
@@ -510,14 +524,40 @@ body.home-page {
 }
 
 .footer { display: flex; justify-content: space-between; gap: 16px; color: var(--faint); font-size: 12px; }
-/* 首页底部：说明与 GitHub 链接一行，致谢一行 */
-.home-footer { flex-direction: column; gap: 10px; padding-top: 20px; border-top: 1px solid var(--line); }
-.footer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
-.footer-github { margin-left: auto; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-weight: 600; }
-.footer-github svg { width: 16px; height: 16px; }
-.footer-github:hover, .footer-credits a:hover { color: var(--accent); }
-.footer-credits { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; line-height: 1.8; }
+/* 首页页脚：上半为品牌（图标、名称、版本胶囊、介绍）与项目链接，下半为致谢与说明 */
+.home-footer { padding: 28px 0 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.home-footer p { margin: 0; }
+.footer-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px 32px; }
+.footer-brand { min-width: 0; flex: 1 1 320px; display: flex; align-items: center; gap: 14px; }
+/* 与站点图标同一个文件（白底黑色倒置音符） */
+.footer-icon { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 10px; background: url("/assets/icons/icon.svg") center / contain no-repeat; box-shadow: 0 4px 14px -8px rgb(0 0 0 / .45); }
+.footer-about { min-width: 0; display: grid; gap: 3px; }
+.footer-name { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 16px; font-weight: 750; letter-spacing: -.01em; }
+.footer-version {
+  height: 20px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font: 650 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-decoration: none; transition: background .2s ease;
+}
+.footer-version[hidden] { display: none; }
+.footer-version:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.footer-desc { line-height: 1.5; text-wrap: pretty; }
+.footer-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.footer-link {
+  min-height: 36px; padding: 0 14px 0 12px; display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none;
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+.footer-link svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.footer-link:hover { border-color: var(--line-strong); background: var(--surface-3); }
+/* Telegram 品牌蓝 */
+.footer-telegram svg { color: #229ed9; }
+.footer-telegram:hover { border-color: color-mix(in srgb, #229ed9 45%, var(--line)); }
+.footer-bottom { margin-top: 22px; padding-top: 16px; display: grid; gap: 8px; border-top: 1px dashed var(--line); color: var(--faint); font-size: 12px; }
+.footer-credits { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; line-height: 1.8; }
+.footer-label { color: var(--faint); font-weight: 650; }
 .footer-credits a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+.footer-credits a:hover { color: var(--accent); }
+.footer-note { line-height: 1.6; }
 
 /* ---------- 歌曲页：样式在 views/song.css；.song-meta 也用于 MV 页 ---------- */
 .song-meta { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1153,9 +1193,12 @@ html[dir="rtl"] .volume-pop { transform-origin: left center; }
   .format { padding: 12px 14px; font-size: 12px; }
   .format strong { font-size: 15px; }
   .footer { flex-direction: column; gap: 4px; }
-  .home-footer { gap: 10px; }
-  .footer-github { margin-left: 0; }
-  .footer-credits > span { flex-basis: 100%; }
+  .home-footer { padding-top: 24px; }
+  .footer-brand { flex-basis: 100%; }
+  .footer-icon { width: 40px; height: 40px; border-radius: 10px; }
+  .footer-links { width: 100%; }
+  .footer-link { flex: 1 1 auto; justify-content: center; }
+  .footer-label { flex-basis: 100%; }
   .track { grid-template-columns: 32px minmax(0, 1fr) auto 36px; gap: 8px; padding-left: 4px; min-height: 52px; }
   .track + .track::before { left: 44px; }
   .track-play { opacity: 1; }
