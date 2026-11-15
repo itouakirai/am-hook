@@ -90,6 +90,7 @@ These serve `web/` through `tests/support/web.cjs` (the same `/assets/<path>` = 
 | `search_ui.cjs`, `album_ui.cjs`, `playlist_ui.cjs`, `artist_ui.cjs`, `browse_ui.cjs` | Search, album, playlist, artist and browse pages (need access to music.apple.com) |
 | `app_ui.cjs` | Single-page app: playback across navigation, queue, Back / Forward, lyrics |
 | `download_ui.cjs` | Batch downloads: settings, album ZIP tags / cover / lyrics, folder mode, playlists and .m3u8, music videos, cancel / retry; needs wrapper-lite with the cn region |
+| `csp_live.cjs` | The only live test that keeps the page's CSP in force (the others run with `bypassCSP` through `tests/support/playwright-bypass-csp.cjs`, because Playwright's `waitForFunction` evaluates strings): no violations on the main pages, the lyrics view, ALAC and E-AC-3 playback (Workers + WASM); security headers and compression; the manifest; the media-user-token cookie round trip |
 | `radio_live.cjs` | Stations: needs a media-user-token from its third argument, `AM_HOOK_MEDIA_USER_TOKEN` or `target/my-media-user-token.txt`; genre and personal stations, Widevine license / playback / seeking / M4A download of an episode, and live radio simulated over its segments |
 
 </details>

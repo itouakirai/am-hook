@@ -62,6 +62,8 @@ async function toggleLang(page) {
         localStorage.setItem('am-hook:storefront', 'cn');
       }, lang);
       const seen = { token: [], license: 0 };
+      // 模拟服务端的 HttpOnly cookie（POST /station/token 设置、DELETE 清除）：页面不再自己带 token
+      let cookieToken = null;
       await context.route('**/*', (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -78,8 +80,14 @@ async function toggleLang(page) {
           return route.fulfill(found ? { json: { data: [found] } } : { status: 404, json: { errors: [{ detail: 'Not found' }] } });
         }
         if (url.pathname.startsWith('/amp/')) return route.fulfill({ status: 404, json: { errors: [] } });
+        if (url.pathname === '/station/token') {
+          if (request.method() === 'DELETE') cookieToken = null;
+          else cookieToken = JSON.parse(request.postData()).token;
+          return route.fulfill({ status: 204, body: '' });
+        }
         if (url.pathname.startsWith('/station/')) {
-          const token = request.headers()['x-media-user-token'];
+          assert.equal(request.headers()['x-media-user-token'], undefined, 'the page never sends the token itself');
+          const token = cookieToken;
           seen.token.push(token);
           if (token !== 'good-token') return route.fulfill({ status: 401, json: { errors: [{ detail: 'Unauthorized' }] } });
           if (url.pathname === '/station/storefront') return route.fulfill({ json: { data: [{ id: 'cn', attributes: { name: '中国大陆' } }] } });
@@ -137,7 +145,9 @@ async function toggleLang(page) {
       await dialog.locator('textarea').fill('itspod=1; media-user-token=good-token; other=x');
       await dialog.locator('.lib-dialog-btn.primary').click();
       await page.locator('#tracks .pl-track').nth(1).waitFor();
-      assert.equal(await page.evaluate(() => localStorage.getItem('am-hook:media-user-token')), 'good-token');
+      assert.equal(cookieToken, 'good-token');
+      // localStorage 只记末尾几位，不存 token 本身
+      assert.deepEqual(await page.evaluate(() => [localStorage.getItem('am-hook:station-token'), localStorage.getItem('am-hook:media-user-token')]), ['-token', null]);
       assert.equal((await page.locator('#title').textContent()).trim(), 'Pop Station');
       assert.equal((await page.locator('#eyebrow').textContent()).trim(), zh ? '电台' : 'Station');
       assert.equal(await page.locator('[data-nav="radio"]').getAttribute('aria-current'), 'page');
@@ -192,7 +202,8 @@ async function toggleLang(page) {
       if (width === 1440) await page.screenshot({ path: `target/station-ui-live-${lang}.png`, fullPage: true });
 
       // A rejected token on a station page offers to enter it again
-      await page.evaluate(() => localStorage.setItem('am-hook:media-user-token', 'expired'));
+      cookieToken = 'expired';
+      await page.evaluate(() => localStorage.setItem('am-hook:station-token', 'xpired'));
       await page.goto('http://am.test/https://music.apple.com/cn/station/an-episode/ra.200');
       await dialog.waitFor();
       assert.match(await dialog.locator('.lib-dialog-message').textContent(), /Unauthorized/);
@@ -201,13 +212,15 @@ async function toggleLang(page) {
       assert(await page.locator('#play').isDisabled());
 
       // Settings shows whether a token is set and can clear it
-      await page.evaluate(() => localStorage.setItem('am-hook:media-user-token', 'good-token'));
+      cookieToken = 'good-token';
+      await page.evaluate(() => localStorage.setItem('am-hook:station-token', '-token'));
       await page.goto('http://am.test/settings');
       await page.locator('#user-token-value').waitFor();
       assert.match(await page.locator('#user-token-value').textContent(), /…-token$/);
       await page.locator('#user-token').click();
       await dialog.locator('.lib-dialog-btn.danger').click();
-      await page.waitForFunction(() => !localStorage.getItem('am-hook:media-user-token'));
+      await page.waitForFunction(() => !localStorage.getItem('am-hook:station-token'));
+      assert.equal(cookieToken, null, 'clearing deletes the cookie');
       assert.equal(await page.locator('#user-token-value').textContent(), zh ? '未填写' : 'Not set');
 
       assert.deepEqual(errors, []);

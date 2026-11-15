@@ -27,7 +27,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, ORIGIN, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::Response;
 use base64::Engine;
@@ -46,8 +46,14 @@ const WEB_ORIGIN: &str = "https://music.apple.com";
 const API_ORIGIN: &str = "https://amp-api-edge.music.apple.com";
 /// 带用户 token 的接口（`/v1/me/...`、`/v1/play/assets`）与网页版 MusicKit 一样走 amp-api，不走 edge
 const USER_API_ORIGIN: &str = "https://amp-api.music.apple.com";
-/// 页面带来 media-user-token 的请求头
+/// 直接调用接口（脚本、测试）时带 media-user-token 的请求头；页面用 cookie（见 [`station_token_handler`]）
 pub const USER_TOKEN_HEADER: &str = "x-media-user-token";
+/// 保存 media-user-token 的 HttpOnly cookie：HTTPS 下用 `__Host-` 前缀（要求 Secure、Path=/、不带 Domain），
+/// HTTP（局域网直接访问）下用普通名称。与 serverless/core.mjs 相同
+pub const USER_TOKEN_COOKIE: &str = "am-mut";
+pub const USER_TOKEN_COOKIE_SECURE: &str = "__Host-am-mut";
+/// cookie 保存半年（media-user-token 本身的有效期也在这个量级，失效后页面会请用户重填）
+const USER_TOKEN_MAX_AGE: u64 = 180 * 24 * 3600;
 /// license 请求体（JSON，challenge 为 base64）的上限
 const MAX_LICENSE_BODY: usize = 256 * 1024;
 /// 网页版每次发布都会换 token，至少按此周期重新抓取；JWT 带 `exp` 时在过期前提前刷新
@@ -540,10 +546,81 @@ pub async fn storefronts_handler(State(state): State<Arc<AppState>>, uri: Uri) -
 
 /* ---------- 电台：需要 media-user-token 的接口 ---------- */
 
-/// 页面带来的 media-user-token；缺失或含非法字符时为 None
+/// 可见 ASCII，且不含 cookie 值里不允许的 `" , ; \\`
+fn valid_user_token(token: &str) -> bool {
+    !token.is_empty() && token.len() <= 4096 && token.bytes().all(|b| b.is_ascii_graphic() && !b"\",;\\".contains(&b))
+}
+
+/// 请求带来的 media-user-token：先取 cookie，没有时取 `X-Media-User-Token` 请求头；缺失或含非法字符时为 None
 fn user_token(headers: &HeaderMap) -> Option<&str> {
-    let token = headers.get(USER_TOKEN_HEADER)?.to_str().ok()?.trim();
-    (!token.is_empty() && token.len() <= 4096 && token.bytes().all(|b| b.is_ascii_graphic())).then_some(token)
+    let cookie = headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .find_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            (name == USER_TOKEN_COOKIE_SECURE || name == USER_TOKEN_COOKIE).then_some(value.trim())
+        });
+    let token = match cookie {
+        Some(token) => token,
+        None => headers.get(USER_TOKEN_HEADER)?.to_str().ok()?.trim(),
+    };
+    valid_user_token(token).then_some(token)
+}
+
+/// 带 `Sec-Fetch-Site` 时必须是本站页面发起的（其他网站不能替用户换掉或清除 token）
+fn same_origin(headers: &HeaderMap) -> bool {
+    headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()).is_none_or(|v| v == "same-origin")
+}
+
+/// 页面经 HTTPS 打开（直接或经反向代理）：cookie 加 Secure 与 `__Host-` 前缀
+fn https_request(headers: &HeaderMap) -> bool {
+    let header = |name| headers.get(name).and_then(|v: &axum::http::HeaderValue| v.to_str().ok()).unwrap_or_default();
+    header(ORIGIN.as_str()).starts_with("https://") || header("x-forwarded-proto").eq_ignore_ascii_case("https")
+}
+
+fn token_cookie(value: &str, max_age: u64, secure: bool) -> String {
+    let name = if secure { USER_TOKEN_COOKIE_SECURE } else { USER_TOKEN_COOKIE };
+    let secure = if secure { "; Secure" } else { "" };
+    format!("{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict{secure}")
+}
+
+fn token_response(cookies: &[String]) -> Response<Body> {
+    let mut builder = Response::builder().status(StatusCode::NO_CONTENT).header(CACHE_CONTROL, "no-store");
+    for cookie in cookies {
+        builder = builder.header(SET_COOKIE, cookie);
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
+#[derive(serde::Deserialize)]
+pub struct StationToken {
+    token: String,
+}
+
+/// `POST /station/token`（`{ "token": "…" }`）：把 media-user-token 存进 HttpOnly cookie，之后的电台请求由浏览器自动带上。
+/// token 不再保存在页面脚本能读到的地方；服务端仍然不保存、不记录
+pub async fn station_token_handler(headers: HeaderMap, body: Bytes) -> Response<Body> {
+    if !same_origin(&headers) {
+        return error(StatusCode::FORBIDDEN, "Cross-site request");
+    }
+    let Ok(request) = serde_json::from_slice::<StationToken>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "Invalid token request");
+    };
+    let token = request.token.trim();
+    if !valid_user_token(token) {
+        return error(StatusCode::BAD_REQUEST, "Invalid media-user-token");
+    }
+    token_response(&[token_cookie(token, USER_TOKEN_MAX_AGE, https_request(&headers))])
+}
+
+/// `DELETE /station/token`：清除 cookie（两种名称都清；HTTP 下浏览器会忽略带 Secure 的那条，本来也不存在）
+pub async fn station_token_clear_handler(headers: HeaderMap) -> Response<Body> {
+    if !same_origin(&headers) {
+        return error(StatusCode::FORBIDDEN, "Cross-site request");
+    }
+    token_response(&[token_cookie("", 0, false), token_cookie("", 0, true)])
 }
 
 /// 电台 ID：编辑 / 直播电台为 `ra.<数字>`，个人电台为 `ra.u-<…>` 等
@@ -754,6 +831,48 @@ fn error(status: StatusCode, msg: &str) -> Response<Body> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.append(*name, value.parse().unwrap());
+        }
+        map
+    }
+
+    #[test]
+    fn user_token_from_cookie_or_header() {
+        assert_eq!(user_token(&headers(&[("cookie", "theme=dark; __Host-am-mut=0.Abc+/=")])), Some("0.Abc+/="));
+        assert_eq!(user_token(&headers(&[("cookie", "am-mut=0.Abc")])), Some("0.Abc"));
+        // cookie 优先于请求头
+        assert_eq!(user_token(&headers(&[("cookie", "am-mut=0.C"), (USER_TOKEN_HEADER, "0.H")])), Some("0.C"));
+        assert_eq!(user_token(&headers(&[(USER_TOKEN_HEADER, "0.H")])), Some("0.H"));
+        assert_eq!(user_token(&headers(&[("cookie", "other=1")])), None);
+        assert!(!valid_user_token("a;b") && !valid_user_token("a\"b") && !valid_user_token(""));
+    }
+
+    #[tokio::test]
+    async fn station_token_cookie() {
+        let body = Bytes::from_static(br#"{"token":" 0.Abc+/= "}"#);
+        let secure = station_token_handler(headers(&[("origin", "https://site.test"), ("sec-fetch-site", "same-origin")]), body.clone()).await;
+        assert_eq!(secure.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            secure.headers()[SET_COOKIE],
+            format!("__Host-am-mut=0.Abc+/=; Path=/; Max-Age={USER_TOKEN_MAX_AGE}; HttpOnly; SameSite=Strict; Secure")
+        );
+        let plain = station_token_handler(headers(&[("origin", "http://192.168.1.2:8080")]), body.clone()).await;
+        assert!(plain.headers()[SET_COOKIE].to_str().unwrap().starts_with("am-mut=0.Abc+/=; "));
+        assert!(!plain.headers()[SET_COOKIE].to_str().unwrap().contains("Secure"));
+        let proxied = station_token_handler(headers(&[("x-forwarded-proto", "https")]), body.clone()).await;
+        assert!(proxied.headers()[SET_COOKIE].to_str().unwrap().starts_with("__Host-am-mut="));
+        let cross = station_token_handler(headers(&[("sec-fetch-site", "cross-site")]), body).await;
+        assert_eq!(cross.status(), StatusCode::FORBIDDEN);
+        let bad = station_token_handler(HeaderMap::new(), Bytes::from_static(br#"{"token":"a;b"}"#)).await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+        let cleared = station_token_clear_handler(HeaderMap::new()).await;
+        let cookies: Vec<_> = cleared.headers().get_all(SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
+        assert_eq!(cookies, ["am-mut=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict", "__Host-am-mut=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict; Secure"]);
+    }
 
     #[test]
     fn test_extract_script_and_token() {

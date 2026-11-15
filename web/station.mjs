@@ -1,6 +1,7 @@
 // 电台（官网 /{cc}/station/{slug}/ra.{id}）用到的、需要用户 media-user-token 的接口。wrapper-lite 没有这些接口，
 // 由服务端（src/amp.rs 的 station_*_handler，serverless/core.mjs 的同名路由）带上 developer token 转发给 Apple，
-// media-user-token 只保存在本浏览器（localStorage），每次请求经 X-Media-User-Token 带给服务端，服务端不保存。
+// media-user-token 保存在本站的 HttpOnly cookie 里（POST /station/token 设置），页面脚本读不到，电台请求由浏览器自动带上；
+// 服务端只转发，不保存。页面只在 localStorage 里记下「已填写」与末尾几位（设置中心显示用）。
 //
 // 电台按 playParams 分三类（与 MusicKit 的判断相同）：
 //   tracks   format=tracks：个人电台与编辑电台（风格电台、艺人电台等），播放时取「接下来的几首」（/v1/me/stations/next-tracks）
@@ -12,21 +13,38 @@ import { openDialog } from './views/library-ui.mjs';
 const { AmI18n } = window;
 const { t } = AmI18n;
 
-const STORAGE_KEY = 'am-hook:media-user-token';
+/** 已填写 token 的标记：token 末尾 6 位（不是 token 本身） */
+const MARK_KEY = 'am-hook:station-token';
 const listeners = new Set();
+// 旧版本把 token 本身存在 localStorage 里：删掉
+try { localStorage.removeItem('am-hook:media-user-token'); } catch {}
 
-/** 保存的 media-user-token，没有时为 '' */
-export function userToken() {
-  try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
+/** 已填写的 token 的末尾几位，没有填写时为 ''（token 本身在 HttpOnly cookie 里，脚本读不到） */
+export function tokenTail() {
+  try { return localStorage.getItem(MARK_KEY) || ''; } catch { return ''; }
 }
 
-/** 保存（空值为清除）并通知 onTokenChange */
-export function setUserToken(value) {
-  const token = String(value || '').trim();
+function mark(tail) {
   try {
-    if (token) localStorage.setItem(STORAGE_KEY, token); else localStorage.removeItem(STORAGE_KEY);
+    if (tail) localStorage.setItem(MARK_KEY, tail); else localStorage.removeItem(MARK_KEY);
   } catch {}
-  for (const fn of listeners) fn(token);
+  for (const fn of listeners) fn(tail);
+}
+
+/** 交给服务端存进 cookie，并通知 onTokenChange（参数为末尾几位） */
+async function saveToken(token) {
+  const res = await fetch('/station/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error((data && data.msg) || `HTTP ${res.status}`);
+  }
+  mark(token.slice(-6));
+}
+
+/** 清除 cookie 与标记 */
+export async function clearToken() {
+  await fetch('/station/token', { method: 'DELETE' }).catch(() => {});
+  mark('');
 }
 
 /** token 变化后回调；返回取消函数 */
@@ -52,10 +70,10 @@ export class TokenError extends Error {
   }
 }
 
-/** 带 token 请求本站的 /station/...；401 / 403 抛出 TokenError，其余错误抛出 Error（含 amp-api 的说明） */
-async function call(path, { method = 'GET', body, token = userToken(), signal } = {}) {
-  if (!token) throw new TokenError(t('station.tokenMissing'), 401);
-  const headers = { 'X-Media-User-Token': token };
+/** 请求本站的 /station/...（token 在 cookie 里，由浏览器带上）；401 / 403 抛出 TokenError，其余错误抛出 Error（含 amp-api 的说明） */
+async function call(path, { method = 'GET', body, signal } = {}) {
+  if (!tokenTail()) throw new TokenError(t('station.tokenMissing'), 401);
+  const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal });
   const data = await res.json().catch(() => null);
@@ -65,9 +83,9 @@ async function call(path, { method = 'GET', body, token = userToken(), signal } 
   return data;
 }
 
-/** 检验 token：返回账号所在地区 { id, name } */
-export async function tokenStorefront(token, signal) {
-  const data = await call('/station/storefront', { token, signal });
+/** 检验已保存的 token：返回账号所在地区 { id, name } */
+export async function tokenStorefront(signal) {
+  const data = await call('/station/storefront', { signal });
   const sf = (data.data || [])[0];
   if (!sf) throw new Error('empty response');
   return { id: sf.id, name: (sf.attributes && sf.attributes.name) || sf.id };
@@ -82,23 +100,25 @@ let asking = null;
 export function askToken({ reason = '' } = {}) {
   asking ||= (async () => {
     let error = reason;
-    let value = userToken();
+    let value = '';
     for (;;) {
       const message = [t('station.tokenHelp'), error].filter(Boolean).join('\n\n');
       const result = await openDialog({
         title: t('station.tokenTitle'), message,
         fields: [{ name: 'token', label: 'media-user-token', value, placeholder: t('station.tokenPlaceholder'), multiline: true, maxLength: 8192 }],
-        buttons: [{ value: 'save', label: t('station.tokenSave') }, ...(userToken() ? [{ value: 'clear', label: t('station.tokenClear'), danger: true }] : [])],
+        buttons: [{ value: 'save', label: t('station.tokenSave') }, ...(tokenTail() ? [{ value: 'clear', label: t('station.tokenClear'), danger: true }] : [])],
       });
       if (!result) return '';
-      if (result.action === 'clear') { setUserToken(''); return ''; }
+      if (result.action === 'clear') { await clearToken(); return ''; }
       value = cleanToken(result.values.token);
       if (!value) { error = t('station.tokenEmpty'); continue; }
+      // 先存进 cookie 再检验；检验失败时清除，不留下无效的 token
       try {
-        const sf = await tokenStorefront(value);
-        setUserToken(value);
-        return { token: value, storefront: sf };
+        await saveToken(value);
+        const sf = await tokenStorefront();
+        return { token: tokenTail(), storefront: sf };
       } catch (err) {
+        await clearToken();
         error = err instanceof TokenError ? t('station.tokenInvalid', { msg: err.message }) : t('station.tokenCheckFailed', { msg: err.message });
       }
     }
@@ -106,24 +126,22 @@ export function askToken({ reason = '' } = {}) {
   return asking.then((result) => (result ? result.token : ''));
 }
 
-/** 已有 token 时直接返回，否则请用户填写（取消时为 ''） */
+/** 已有 token 时直接返回（末尾几位），否则请用户填写（取消时为 ''） */
 export async function ensureToken() {
-  return userToken() || askToken();
+  return tokenTail() || askToken();
 }
 
 /**
- * 执行 fn(token)；token 缺失或被拒绝时请用户重新填写后再试一次。用户取消时抛出 TokenError
+ * 执行 fn()；token 缺失或被拒绝时请用户重新填写后再试一次。用户取消时抛出 TokenError
  */
 export async function withToken(fn) {
-  let token = await ensureToken();
-  if (!token) throw new TokenError(t('station.tokenMissing'), 401);
+  if (!(await ensureToken())) throw new TokenError(t('station.tokenMissing'), 401);
   try {
-    return await fn(token);
+    return await fn();
   } catch (err) {
     if (!(err instanceof TokenError)) throw err;
-    token = await askToken({ reason: t('station.tokenInvalid', { msg: err.message }) });
-    if (!token) throw err;
-    return fn(token);
+    if (!(await askToken({ reason: t('station.tokenInvalid', { msg: err.message }) }))) throw err;
+    return fn();
   }
 }
 
@@ -144,34 +162,34 @@ export function stationKind(res) {
 /* ---------- 接口 ---------- */
 
 /** 个人 / 编辑电台接下来要播放的几首（songs 资源，带完整属性） */
-export async function nextTracks(id, { limit, token, signal } = {}) {
+export async function nextTracks(id, { limit, signal } = {}) {
   const query = limit ? `?limit=${limit}` : '';
-  const data = await call(`/station/next-tracks/${encodeURIComponent(id)}${query}`, { method: 'POST', token, signal });
+  const data = await call(`/station/next-tracks/${encodeURIComponent(id)}${query}`, { method: 'POST', signal });
   return (data.data || []).filter((r) => r && r.attributes);
 }
 
 /** 个人电台（官网 /station/me：stations?filter[identity]=personal）；没有时为 null */
-export async function personalStation(cc, { l, token, signal } = {}) {
+export async function personalStation(cc, { l, signal } = {}) {
   const query = new URLSearchParams({ 'filter[identity]': 'personal', extend: 'editorialArtwork', 'art[url]': 'c,f' });
   if (l) query.set('l', l);
-  const data = await call(`/station/catalog/${encodeURIComponent(cc)}/stations?${query}`, { token, signal });
+  const data = await call(`/station/catalog/${encodeURIComponent(cc)}/stations?${query}`, { signal });
   return (data.data || []).find((r) => r && r.attributes) || null;
 }
 
 /** 最近播放的电台（官网 recently-played-radio-shelf 的请求） */
-export async function recentStations({ l, limit = 30, token, signal } = {}) {
+export async function recentStations({ l, limit = 30, signal } = {}) {
   const query = new URLSearchParams({ limit: String(limit), 'include[stations]': 'radio-show', 'omit[resource]': 'autos', 'art[url]': 'c,f' });
   if (l) query.set('l', l);
-  const data = await call(`/station/recent?${query}`, { token, signal });
+  const data = await call(`/station/recent?${query}`, { signal });
   return (data.data || []).filter((r) => r && r.type === 'stations' && r.attributes);
 }
 
 /** 直播电台与广播单集的播放资源：{ url, keyServerUrl, widevineKeyCertificateUrl, … }（/v1/play/assets，参数为 playParams 加 keyFormat=web） */
-export async function playAssets(playParams, { token, signal } = {}) {
+export async function playAssets(playParams, { signal } = {}) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(playParams || {})) if (value !== undefined && value !== null) query.set(key, String(value));
   query.set('keyFormat', 'web');
-  const data = await call(`/station/assets?${query}`, { token, signal });
+  const data = await call(`/station/assets?${query}`, { signal });
   const assets = (data.results && data.results.assets) || [];
   if (!assets.length || !assets[0].url) throw new Error(t('station.noAssets'));
   return assets[0];

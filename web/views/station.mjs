@@ -261,7 +261,7 @@ function mountTracks({ signal, player, navigate, toast }, $) {
     $('refresh').disabled = $('more').disabled = true;
     if (!tracks.length) showAlert('info', () => t('station.tracksLoading'));
     try {
-      const list = await withToken((token) => nextTracks(id, { token, limit: BATCH }));
+      const list = await withToken(() => nextTracks(id, { limit: BATCH }));
       if (signal.aborted) return;
       if (!list.length && !tracks.length) showAlert('info', () => t('station.empty'));
       else showAlert('', '');
@@ -525,7 +525,7 @@ function mountStream({ signal, player: music }, $) {
     $('error').hidden = true;
     status('station.loadingStream');
     try {
-      asset = await withToken((token) => playAssets(station.attributes.playParams, { token, signal }));
+      asset = await withToken(() => playAssets(station.attributes.playParams, { signal }));
       const { openRadio } = await loadEngine();
       radio = await openRadio(asset, { video: kind.video, signal });
       if (signal.aborted) return;

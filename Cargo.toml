@@ -27,6 +27,9 @@ regex = "1"
 bytes = "1"
 futures = "0.3"
 lru = "0.12"
+# 静态资源的预压缩（src/assets.rs）；与 reqwest 解压用的是同一版本
+flate2 = "1"
+brotli = "9"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
@@ -36,6 +39,10 @@ members = [".", "crates/temari", "crates/am-alac", "crates/am-mp4", "crates/am-w
 
 # 解密是热点，debug 构建下也优化 temari，否则测试与本地调试会很慢
 [profile.dev.package.temari]
+opt-level = 3
+
+# 静态资源的 brotli 11 级压缩（src/assets.rs 的 warm）在启动后进行，debug 构建下也要快
+[profile.dev.package.brotli]
 opt-level = 3
 
 # JOC 对象渲染（crates/joc-core）的 DSP 同样是热点，测试要跑完整的双耳渲染

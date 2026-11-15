@@ -22,7 +22,7 @@ const out = path.resolve(root, args.find((arg) => !arg.startsWith('--')) || 'dis
 const HOST_JS = '/assets/host.js';
 const HASHED_PREFIX = '/assets/h/';
 // 与 src/assets.rs 的 mime_of 一致：只有这些文本资源里的引用会换成哈希地址
-const TEXT = /\.(html|m?js|css)$/;
+const TEXT = /\.(html|m?js|css|webmanifest)$/;
 
 const table = fs.readFileSync(path.join(root, 'src/assets.rs'), 'utf8');
 const files = [...table.matchAll(/^\s*asset!\(\s*"([\w./-]+)"\s*\)/gm)].map(([, file]) => file);
@@ -116,5 +116,10 @@ assets.forEach(({ url }, i) => {
 });
 // Cloudflare Workers 静态资源的响应头，只作用于命中的静态文件（Worker 给出的 404 不受影响）。
 // Vercel 用 vercel.json 的 headers，并会把 _headers 当作普通文件公开，因此不生成
-if (cloudflare) fs.writeFileSync(path.join(out, '_headers'), `${HASHED_PREFIX}*\n  Cache-Control: public, max-age=31536000, immutable\n`);
+// 所有文件都带安全响应头（与 serverless/core.mjs 的 SECURITY_HEADERS 相同）
+if (cloudflare) {
+  const { SECURITY_HEADERS } = await import('../serverless/core.mjs');
+  const security = Object.entries(SECURITY_HEADERS).map(([name, value]) => `  ${name}: ${value}\n`).join('');
+  fs.writeFileSync(path.join(out, '_headers'), `/*\n${security}${HASHED_PREFIX}*\n  Cache-Control: public, max-age=31536000, immutable\n`);
+}
 console.log(`${count} files -> ${path.relative(root, out) || out}`);

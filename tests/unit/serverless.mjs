@@ -12,8 +12,8 @@ import { fileURLToPath } from 'node:url';
 import vercel from '../../api/handler.mjs';
 import worker from '../../serverless/cloudflare.mjs';
 import {
-  extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, validCatalogPath, validLicenseUrl,
-  validStationId, wrapperConfig,
+  extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, SECURITY_HEADERS, validCatalogPath,
+  validLicenseUrl, validStationId, withSecurityHeaders, wrapperConfig,
 } from '../../serverless/core.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -144,6 +144,49 @@ test('station endpoints relay the media-user-token without caching', async () =>
   const bad = await send('/station/license', { method: 'POST', body: JSON.stringify({ url: 'https://example.com/x', body }) });
   assert.equal(bad.status, 400);
   assert.equal(calls.length, count, 'no request for an invalid license server');
+});
+
+test('media-user-token is stored in an HttpOnly cookie and read back from it', async () => {
+  const token = jwt({ exp: Math.floor(Date.now() / 1000) + 86400 });
+  const base = apple({ token });
+  const calls = stub((url, init) => (url.startsWith('https://amp-api.music.apple.com/') ? reply({ data: [] }) : base(url, init)));
+  const post = (origin, body, extra = {}) => handle(new Request(`${origin}/station/token`, {
+    method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin, 'sec-fetch-site': 'same-origin', ...extra },
+  }));
+
+  const secure = await post('https://site.test', { token: ' 0.Abc+/= ' });
+  assert.equal(secure.status, 204);
+  assert.equal(secure.headers.get('cache-control'), 'no-store');
+  assert.equal(secure.headers.get('set-cookie'), `__Host-am-mut=0.Abc+/=; Path=/; Max-Age=${180 * 24 * 3600}; HttpOnly; SameSite=Strict; Secure`);
+  const plain = await post('http://192.168.1.2:8080', { token: '0.Abc' });
+  assert.match(plain.headers.get('set-cookie'), /^am-mut=0\.Abc; Path=\/; Max-Age=\d+; HttpOnly; SameSite=Strict$/);
+  assert.equal((await post('https://site.test', { token: 'a;b' })).status, 400);
+  assert.equal((await post('https://site.test', { token: '' })).status, 400);
+  assert.equal((await post('https://site.test', { token: '0.Abc' }, { 'sec-fetch-site': 'cross-site' })).status, 403);
+
+  const cleared = await handle(new Request('https://site.test/station/token', { method: 'DELETE', headers: { 'sec-fetch-site': 'same-origin' } }));
+  assert.equal(cleared.status, 204);
+  assert.deepEqual(cleared.headers.getSetCookie(), [
+    'am-mut=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict',
+    '__Host-am-mut=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict; Secure',
+  ]);
+
+  // 之后的电台请求从 cookie 取 token（两种名称都认）
+  for (const cookie of ['theme=dark; __Host-am-mut=0.Cookie+/=', 'am-mut=0.Cookie+/=']) {
+    const res = await handle(new Request('https://site.test/station/storefront', { headers: { cookie } }));
+    assert.equal(res.status, 200, cookie);
+    assert.equal(calls.at(-1).headers['media-user-token'], '0.Cookie+/=');
+  }
+});
+
+test('security headers match vercel.json and are added to Worker responses', async () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+  const rule = config.headers.find((h) => h.source === '/(.*)');
+  assert.deepEqual(Object.fromEntries(rule.headers.map(({ key, value }) => [key.toLowerCase(), value])), SECURITY_HEADERS);
+  const response = withSecurityHeaders(new Response('x', { headers: { 'x-frame-options': 'SAMEORIGIN' } }));
+  assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN', 'existing headers are kept');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('content-security-policy'), SECURITY_HEADERS['content-security-policy']);
 });
 
 test('amp proxy sends the scraped developer token and reuses it', async () => {
@@ -418,7 +461,9 @@ test('build-static lays out web the way src/assets.rs serves it', () => {
     assert(!fs.existsSync(path.join(out, '_headers')), 'no _headers without --cloudflare');
     assert(fs.readFileSync(path.join(root, 'wrangler.toml'), 'utf8').includes('build-static.mjs dist --cloudflare'));
     execFileSync(process.execPath, [path.join(root, 'scripts/build-static.mjs'), out, '--cloudflare'], { stdio: 'pipe' });
-    assert(read('_headers').toString().startsWith('/assets/h/*\n'), 'Cloudflare cache headers for hashed files');
+    const rules = read('_headers').toString();
+    assert(rules.includes('/assets/h/*\n  Cache-Control: public, max-age=31536000, immutable\n'), 'Cloudflare cache headers for hashed files');
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) assert(rules.startsWith('/*\n') && rules.includes(`  ${name}: ${value}\n`), name);
     const headers = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).headers;
     assert(headers.some(({ source, headers }) => source === '/assets/h/(.*)' && headers.some((h) => /immutable/.test(h.value))));
   } finally {

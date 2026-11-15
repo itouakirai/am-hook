@@ -10,6 +10,7 @@
   - 曲库语言（amp-api 的 `l`，与界面语言相互独立）：默认为各地区的默认语言，可选项只有 `/amp/v1/storefronts` 中该地区的 `supportedLanguageTags`。按地区分别记住，歌词也使用它。
 - 首页与 music.apple.com/{cc}/search 的布局相同：顶部是搜索框，下方是最近搜索的关键词（点击可再次搜索，也可逐条删除）与**类别浏览**——与官网搜索页相同的类别砖块（风格、心情与活动、排行榜、音乐视频、专题等；amp-api `recommendations/{cc}?name=search-landing`），使用主地区，标题旁的按钮可切换地区。砖块在站内打开策展人、分组、multi-room 与排行榜页，本站无法打开的链接到 Apple Music。搜索时这块换成搜索结果，关闭结果后恢复。页面底部有本项目的 GitHub 链接和对所用开源项目的致谢。
 - 搜索：首页输入框既能粘贴链接，也能按关键词搜索（与 music.apple.com 相同的 amp-api 请求）。输入时显示补全词与直达结果；结果按最佳结果、艺人、专辑、歌曲、歌单、MV 分组，可「加载更多」。搜索使用主地区，也可在结果旁的按钮里修改。按 `/` 聚焦输入框；搜索词记在地址栏 `?q=` 中，可前进 / 后退与分享。搜索只在首页；其他页面顶部是「返回」按钮，回到上一页（直接打开链接进入时回到首页）。
+- 可以安装为应用（Chrome / Edge：地址栏或浏览器菜单中的安装按钮；Android：添加到主屏幕），在独立窗口中打开；使用 `web/manifest.webmanifest`。
 - 地址栏、页面标题和浏览器前进 / 后退跟随当前页面，链接可以直接分享，刷新后仍停留在当前页。
 - 实现方式：与 music.apple.com 相同，整站是单页应用。服务端对所有页面地址都返回 `app.html`，播放条、音频、解密 Worker 和歌词界面常驻其中；站内链接由前端路由（`app.mjs`）接管，用 `history.pushState` 改地址并切换页面视图（`web/views/`），文档不重新加载。不依赖任何请求头，通过 `http://<局域网 IP>` 访问时同样有效。
 
@@ -81,7 +82,7 @@
 ## 广播与电台
 
 - **广播**（`/radio`，侧边栏与手机菜单中「排行榜」与「设置」之间）：与 music.apple.com/{cc}/radio 相同的编辑区块（amp-api `editorial/{cc}/groupings?name=radio`），使用主地区；直播电台货架显示品牌图标、「直播」标记与正在播出的节目。填过 media-user-token 时最上面另有「你的电台」：个人电台（`stations?filter[identity]=personal`）与最近播放的电台（`me/recent/radio-stations`）。新发现、编辑页与广播中的电台链接都在站内打开电台页。
-- **media-user-token**：wrapper-lite 还没有电台接口，电台用你 Apple Music 账号的 media-user-token 直接请求 Apple。第一次打开电台页时会请你填写（登录 music.apple.com 后在开发者工具 → Application → Cookies 里复制 `media-user-token`，粘贴整段 Cookie 也可以），先经 `/v1/me/storefront` 检验再保存。token 只保存在本浏览器的 localStorage，请求时经 `X-Media-User-Token` 交给服务端转发，服务端不保存、不缓存、不记录。被 Apple 拒绝时会再次提示；设置中心可以修改或清除。
+- **media-user-token**：wrapper-lite 还没有电台接口，电台用你 Apple Music 账号的 media-user-token 直接请求 Apple。第一次打开电台页时会请你填写（登录 music.apple.com 后在开发者工具 → Application → Cookies 里复制 `media-user-token`，粘贴整段 Cookie 也可以），经 `POST /station/token` 存进本站的 HttpOnly cookie（页面脚本读不到），再经 `/v1/me/storefront` 检验，检验不通过时清除。之后浏览器在电台请求中自动带上 cookie，服务端只把 token 转发给 Apple，不保存、不缓存、不记录。页面本身只记下「已填写」与 token 的末尾 6 位。被 Apple 拒绝时会再次提示；设置中心可以修改或清除。
 - **电台页**（`/https://music.apple.com/<cc>/station/<slug>/ra.<id>`）按电台的 `playParams` 分三类（与 MusicKit 的判断相同）：
   - 个人电台与编辑电台（`format: tracks`，如风格电台、个人电台 `ra.u-…`）：与歌单页相同的头部与曲目列表，内容是电台「接下来的几首」（`POST /v1/me/stations/next-tracks/<id>`，每次 10 首），可以换一批或加载更多；播放到队尾前自动续取下一批，像电台一样一直播下去。曲目的「更多」菜单与歌曲相同（含下载），头部的「更多」可以下载列出的歌曲。
   - 广播单集（`format: stream`，`streamingRadioSubType: Episode`，音频或视频）：与 MV 页相同的布局，列出 HLS 的各码率与轨道，可以播放、跳转和下载（音频为 `.m4a`，视频为 `.mp4`，带标题、节目、播出日期与封面标签）。

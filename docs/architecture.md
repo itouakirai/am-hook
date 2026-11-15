@@ -92,7 +92,8 @@ src/                   Rust server (the binary)
   cli.rs               Command-line options
   lib.rs               Router: asset routes, wrapper-lite relays behind the limits, amp-api and station endpoints, page fallback
   state.rs             Configuration and shared clients (AppState)
-  assets.rs            Embedded front end: the asset table (web/<path> = /assets/<path>), content-hashed URLs, ETags
+  assets.rs            Embedded front end: the asset table (web/<path> = /assets/<path>), content-hashed URLs, ETags, br / gzip
+  security.rs          Security response headers (CSP, nosniff, framing) on every response
   handlers.rs          Page shell and fallback for Apple Music page paths, host.js, wrapper-lite relays
                        (status, song master, key, lyrics, MV master / webplayback / license)
   wrapper.rs           wrapper-lite client: rate and concurrency limits, Authorization, queue stats

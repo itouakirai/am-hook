@@ -5,7 +5,7 @@ use tracing::info;
 
 use am_hook::cli::Cli;
 use am_hook::state::AppState;
-use am_hook::{amp, log, router, updater};
+use am_hook::{amp, assets, log, router, updater};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(AppState::with_config(config.clone()));
     // 启动即获取 developer token 并建立 amp-api 连接，页面的首个目录 / 搜索请求无需等待
     tokio::spawn(amp::run_warmer(state.amp.clone(), config.amp_keepalive));
+
+    // 静态资源的 brotli / gzip 压缩在后台线程预先算好
+    assets::warm();
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     log::print_banner(listen_addr, &config);

@@ -92,7 +92,8 @@ src/                   Rust 服务端（二进制）
   cli.rs               命令行参数
   lib.rs               路由：资源路由、经限流的 wrapper-lite 转发、amp-api 与电台接口、页面 fallback
   state.rs             配置与共享客户端（AppState）
-  assets.rs            内嵌前端：资源表（web/<路径> = /assets/<路径>）、内容哈希地址、ETag
+  assets.rs            内嵌前端：资源表（web/<路径> = /assets/<路径>）、内容哈希地址、ETag、br / gzip 压缩
+  security.rs          所有响应的安全响应头（CSP、nosniff、禁止嵌入）
   handlers.rs          页面外壳与 Apple Music 页面路径的 fallback、host.js、wrapper-lite 转发
                        （状态、歌曲 master、密钥、歌词、MV master / webplayback / license）
   wrapper.rs           wrapper-lite 客户端：限速限并发、Authorization、排队统计

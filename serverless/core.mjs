@@ -46,6 +46,25 @@ const LOCAL_PAGE_RE = new RegExp(
 );
 
 /** 是否为单页应用的页面地址（首页、新发现、排行榜、资料库与拼接了官网地址的各类页面），这些地址都返回同一个外壳 */
+/**
+ * 所有响应带的安全响应头（同 src/security.rs）：CSP 只限制脚本来源，另有 nosniff、禁止嵌入 iframe 等。
+ * Vercel 由 vercel.json 设置，Cloudflare 由 dist/_headers（静态文件）与 cloudflare.mjs（Worker 的响应）设置
+ */
+export const SECURITY_HEADERS = {
+  'content-security-policy': "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'cross-origin-opener-policy': 'same-origin-allow-popups',
+};
+
+/** 补上 SECURITY_HEADERS（已有的同名响应头不覆盖）；响应头不可改时复制一份 */
+export function withSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) if (!headers.has(name)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export function isPagePath(pathname) {
   const path = pathname.replace(/^\//, '');
   return path === '' || LOCAL_PAGE_RE.test(path) || SITE_PAGE_RE.test(path);
@@ -222,10 +241,48 @@ function ampRoute(path, search, platform) {
 
 /* ---------- 电台：需要 media-user-token 的接口（同 src/amp.rs 的 station_*_handler） ---------- */
 
-/** 页面带来的 media-user-token（X-Media-User-Token）；缺失或含非法字符时为 null */
+/** 保存 media-user-token 的 HttpOnly cookie（同 src/amp.rs）：HTTPS 下为 __Host- 前缀加 Secure，HTTP 下为普通名称 */
+const USER_TOKEN_COOKIE = 'am-mut';
+const USER_TOKEN_COOKIE_SECURE = '__Host-am-mut';
+const USER_TOKEN_MAX_AGE = 180 * 24 * 3600;
+
+/** 可见 ASCII，且不含 cookie 值里不允许的 " , ; \ */
+function validUserToken(token) {
+  return !!token && token.length <= 4096 && /^[\x21-\x7e]+$/.test(token) && !/[",;\\]/.test(token);
+}
+
+/** 请求带来的 media-user-token：先取 cookie，没有时取 X-Media-User-Token 请求头；缺失或含非法字符时为 null */
 function userToken(request) {
-  const token = (request.headers.get('x-media-user-token') ?? '').trim();
-  return token && token.length <= 4096 && /^[\x21-\x7e]+$/.test(token) ? token : null;
+  let token = null;
+  for (const pair of (request.headers.get('cookie') ?? '').split(';')) {
+    const at = pair.indexOf('=');
+    const name = pair.slice(0, at).trim();
+    if (at > 0 && (name === USER_TOKEN_COOKIE_SECURE || name === USER_TOKEN_COOKIE)) { token = pair.slice(at + 1).trim(); break; }
+  }
+  if (token === null) token = (request.headers.get('x-media-user-token') ?? '').trim();
+  return validUserToken(token) ? token : null;
+}
+
+function tokenCookie(value, maxAge, secure) {
+  return `${secure ? USER_TOKEN_COOKIE_SECURE : USER_TOKEN_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
+}
+
+/** POST /station/token 存入 cookie、DELETE 清除；带 Sec-Fetch-Site 时必须是本站页面发起的 */
+async function stationToken(method, request, url) {
+  const site = request.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin') return fail(403, 'Cross-site request');
+  const headers = new Headers(NO_STORE);
+  if (method === 'DELETE') {
+    headers.append('set-cookie', tokenCookie('', 0, false));
+    headers.append('set-cookie', tokenCookie('', 0, true));
+    return new Response(null, { status: 204, headers });
+  }
+  let token;
+  try { token = String((await request.json()).token ?? '').trim(); } catch { return fail(400, 'Invalid token request'); }
+  if (!validUserToken(token)) return fail(400, 'Invalid media-user-token');
+  const secure = url.protocol === 'https:' || (request.headers.get('origin') ?? '').startsWith('https://');
+  headers.append('set-cookie', tokenCookie(token, USER_TOKEN_MAX_AGE, secure));
+  return new Response(null, { status: 204, headers });
 }
 
 /** 电台 ID：编辑 / 直播电台为 `ra.<数字>`，个人电台为 `ra.u-<…>` 等 */
@@ -295,6 +352,7 @@ async function stationLicense(platform, request, user) {
 
 /** /station/...：不是电台接口时返回 null */
 function stationRoute(method, path, url, request, platform) {
+  if (path === '/station/token' && (method === 'POST' || method === 'DELETE')) return stationToken(method, request, url);
   let match;
   let handler = null;
   const query = url.search.replace(/^\?/, '');

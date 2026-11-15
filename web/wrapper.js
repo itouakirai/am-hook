@@ -206,6 +206,46 @@
     return { base: url.href.replace(/\/+$/, ''), basic };
   }
 
+  /* ---------- 本地网络访问（Chrome 的 Local Network Access） ----------
+     公网页面请求局域网（local）或本机（loopback）上的 wrapper-lite 时，浏览器要求用户授权（local-network / loopback-network）。
+     请求里声明 targetAddressSpace，HTTPS 页面才能请求 http:// 的本地地址（授权后免于混合内容拦截）；
+     权限还是「询问」时页面加载不自动请求（不在打开页面时就弹出授权），等用户在面板里点「保存并检测」 */
+
+  /** 主机名所在的地址空间：'loopback' | 'local'；公网地址或无法判断（自定义域名）时为 null */
+  function addressSpace(hostname) {
+    const host = String(hostname).replace(/^\[|\]$/g, '').toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || /^127\./.test(host) || host === '::1') return 'loopback';
+    if (host.endsWith('.local') || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+      || /^169\.254\./.test(host) || /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host)) return 'local';
+    return null;
+  }
+
+  /** 本地 wrapper-lite 地址的地址空间（见 addressSpace） */
+  function targetSpace() {
+    try { return addressSpace(new URL(localTarget().base).hostname); } catch { return null; }
+  }
+
+  const SPACE_RANK = { public: 0, local: 1, loopback: 2 };
+  /** 需要的权限名：页面所在的地址空间比目标更公开时为 'local-network' / 'loopback-network'，否则为 null */
+  function lnaPermission() {
+    const target = targetSpace();
+    if (!target) return null;
+    const page = addressSpace(location.hostname) || 'public';
+    return SPACE_RANK[page] < SPACE_RANK[target] ? `${target}-network` : null;
+  }
+
+  /**
+   * 权限状态：'granted' | 'prompt' | 'denied'；不需要权限时为 'granted'。
+   * 不认识这个权限名的浏览器（Firefox、Safari、旧版 Chrome）按 'prompt' 处理；
+   * 不能查询旧的合并名称 'local-network-access'（旧版 Chrome 会因此崩溃）
+   */
+  async function lnaState() {
+    const name = lnaPermission();
+    if (!name) return 'granted';
+    if (!navigator.permissions || !navigator.permissions.query) return 'prompt';
+    try { return (await navigator.permissions.query({ name })).state; } catch { return 'prompt'; }
+  }
+
   /** 直接请求本地 wrapper-lite，读完响应体后才释放并发名额。返回 { res, text } */
   async function localRequest(path, { method = 'GET', body, signal } = {}) {
     if (!settings.url) throw new Error(t('wrapper.noUrl'));
@@ -222,12 +262,16 @@
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       let res;
       try {
+        const space = targetSpace();
         res = await fetch(base + path, {
           method, headers, signal, cache: 'no-store', credentials: 'omit',
           body: body === undefined ? undefined : JSON.stringify(body),
+          // 声明目标在局域网 / 本机（见上）；不认识这个选项的浏览器忽略它
+          ...(space ? { targetAddressSpace: space } : {}),
         });
       } catch (error) {
         if (error && error.name === 'AbortError') throw error;
+        if (await lnaState() === 'denied') throw new Error(t('wrapper.lnaDenied'));
         // 跨源被拒绝与连不上在页面里无法区分，一并提示
         throw new Error(t('wrapper.unreachable', { url: base }));
       }
@@ -349,11 +393,18 @@
     },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
-    async status() {
+    /**
+     * interactive：由用户操作发起（面板里的「保存并检测」）。不是时，本地网络权限还是「询问」就不请求，
+     * 抛出 lna 为 'prompt' 的错误（页面加载时不弹出授权）
+     */
+    async status({ interactive = false } = {}) {
       if (!settings.local) {
         const data = await serverJson('/status');
         return { regions: (data.regions || []).map(String) };
       }
+      const state = await lnaState();
+      if (state === 'denied') throw Object.assign(new Error(t('wrapper.lnaDenied')), { lna: state });
+      if (state === 'prompt' && !interactive) throw Object.assign(new Error(t('wrapper.lnaPrompt')), { lna: state });
       const data = await localJson('/status');
       return { regions: ((data && data.regions) || []).map(String) };
     },

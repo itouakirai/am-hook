@@ -11,7 +11,7 @@
 // 专辑 / 歌单为方形封面，电台为横向卡片，视频为 16:9）、385 砖块、391 / 405 链接、404 段落；其余跳过。
 // 货架的列数与官网 shelf-grid 的 grid-type 相同（见 app.css .ed-shelf）。
 import { createActions, setPlayButton, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
-import { userToken, personalStation, recentStations } from '/assets/station.mjs';
+import { tokenTail, personalStation, recentStations } from '/assets/station.mjs';
 import { amp, artUrl } from '../amp.mjs';
 import { CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
 
@@ -791,7 +791,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       }
       case 'radio': {
         // 填过 media-user-token 时同时取个人电台与最近播放（取不到时照常显示编辑内容，不弹出填写 token 的对话框）
-        const mine = userToken() ? Promise.all([
+        const mine = tokenTail() ? Promise.all([
           personalStation(cc, { l }).catch(() => null),
           recentStations({ l }).catch(() => []),
         ]) : Promise.resolve([null, []]);

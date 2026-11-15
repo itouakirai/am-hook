@@ -6,7 +6,7 @@ import { prefs, OPTIONS, CODEC_GROUPS, TAG_FIELDS, TAG_NAME, DEFAULTS, DEFAULT_F
 import { formatPath, fitFolder, fitFile, templateIssues, TEMPLATE_VAR_GROUPS, TEMPLATE_SCOPES } from '../download/naming.mjs';
 import { downloads, coverUrl } from '../download/downloads.mjs';
 import { ttmlToLrc } from '../lyrics/lrc.mjs';
-import { userToken, askToken, onTokenChange } from '../station.mjs';
+import { tokenTail, askToken, onTokenChange } from '../station.mjs';
 import { fontSection } from './settings-fonts.mjs';
 
 const { AmI18n, AmDecrypt } = window;
@@ -104,8 +104,8 @@ export function mount({ root, signal, onLangChange, toast }) {
   // 电台的 media-user-token：显示是否已填写（只露出末尾几位），点击修改或清除
   const tokenValue = root.querySelector('#user-token-value');
   const renderToken = () => {
-    const token = userToken();
-    tokenValue.textContent = token ? t('set.tokenSet', { tail: token.slice(-6) }) : t('set.tokenUnset');
+    const tail = tokenTail();
+    tokenValue.textContent = tail ? t('set.tokenSet', { tail }) : t('set.tokenUnset');
   };
   root.querySelector('#user-token').addEventListener('click', () => askToken());
   signal.addEventListener('abort', onTokenChange(renderToken), { once: true });

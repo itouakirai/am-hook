@@ -5,6 +5,7 @@ pub mod handlers;
 pub mod limit;
 pub mod log;
 pub mod links;
+pub mod security;
 pub mod state;
 pub mod updater;
 pub mod wrapper;
@@ -49,6 +50,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/amp/v1/recommendations/:cc", get(amp::recommendations_handler))
         .route("/amp/v1/storefronts", get(amp::storefronts_handler))
         // 电台（wrapper-lite 没有这些接口）：带页面传来的 media-user-token 请求 amp-api 与 Apple 的 license 服务器
+        // 页面把 media-user-token 存进 HttpOnly cookie（POST）或清除（DELETE）
+        .route("/station/token", post(amp::station_token_handler).delete(amp::station_token_clear_handler))
         .route("/station/assets", get(amp::station_assets_handler))
         .route("/station/next-tracks/:id", post(amp::station_next_tracks_handler))
         .route("/station/storefront", get(amp::station_storefront_handler))
@@ -56,6 +59,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/station/recent", get(amp::station_recent_handler))
         .route("/station/license", post(amp::station_license_handler))
         .fallback(handlers::fallback_handler)
+        // CSP、nosniff 等安全响应头（见 security.rs），所有响应都带
+        .layer(axum::middleware::from_fn(security::headers))
         .layer(axum::middleware::from_fn(log::access_log))
         .with_state(state)
 }

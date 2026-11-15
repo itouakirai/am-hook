@@ -90,6 +90,7 @@ Rust 单元测试覆盖浏览器媒体核心（PlayReady 与 Widevine license �
 | `search_ui.cjs`、`album_ui.cjs`、`playlist_ui.cjs`、`artist_ui.cjs`、`browse_ui.cjs` | 搜索、专辑、歌单、艺人与浏览页（需能访问 music.apple.com） |
 | `app_ui.cjs` | 单页应用：跳转后继续播放、队列、前进 / 后退、歌词 |
 | `download_ui.cjs` | 批量下载：设置中心、专辑 ZIP 的标签 / 封面 / 歌词、文件夹模式、歌单与 .m3u8、MV、取消 / 重试；需要 cn 地区的 wrapper-lite |
+| `csp_live.cjs` | 唯一保留页面 CSP 的 live 测试（其余经 `tests/support/playwright-bypass-csp.cjs` 以 `bypassCSP` 运行，因为 Playwright 的 `waitForFunction` 要在页面里求值字符串）：主要页面、歌词界面、ALAC 与 E-AC-3 播放（Worker 与 WASM）没有违规；安全响应头与压缩；manifest；media-user-token cookie 的保存与清除 |
 | `radio_live.cjs` | 电台：需要 media-user-token，取自第三个参数、`AM_HOOK_MEDIA_USER_TOKEN` 或 `target/my-media-user-token.txt`；风格电台与个人电台、广播单集的 Widevine license / 播放 / 跳转 / M4A 下载，以及用单集分片模拟的直播 |
 
 </details>

@@ -4,13 +4,15 @@
 //! 新增页面资源只需要在 [`ASSETS`] 里加一行 `asset!("<path>")`：路由由 [`router`](crate::router) 按表注册，
 //! `Content-Type` 按扩展名决定，不需要再写 handler。`web/` 下没登记的文件（除说明文档外）会让测试失败。
 //! 页面加载的是带内容哈希的地址（长期缓存），原地址以 `no-cache` + 内容 ETag 提供（见 [`Served`]）。
+//! 文本与 wasm 按 `Accept-Encoding` 以 brotli / gzip 压缩提供，压缩结果每个资源只算一次（启动后在后台预先算好，见 [`warm`]）。
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::ops::Range;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use axum::body::Body;
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
+use axum::http::header::{ACCEPT_ENCODING, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_TYPE, ETAG, IF_NONE_MATCH, VARY};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bytes::Bytes;
@@ -20,6 +22,9 @@ const HTML: &str = "text/html; charset=utf-8";
 const JS: &str = "text/javascript; charset=utf-8";
 const CSS: &str = "text/css; charset=utf-8";
 const WASM: &str = "application/wasm";
+const MANIFEST: &str = "application/manifest+json";
+const PNG: &str = "image/png";
+const SVG: &str = "image/svg+xml";
 const BIN: &str = "application/octet-stream";
 
 /// 一个内嵌资源：对外地址、`Content-Type` 与编译进二进制的内容
@@ -54,6 +59,12 @@ const fn mime_of(file: &str) -> &'static str {
         CSS
     } else if ends_with(file, ".wasm") {
         WASM
+    } else if ends_with(file, ".webmanifest") {
+        MANIFEST
+    } else if ends_with(file, ".png") {
+        PNG
+    } else if ends_with(file, ".svg") {
+        SVG
     } else {
         BIN
     }
@@ -77,6 +88,12 @@ pub static ASSETS: &[Asset] = &[
     // serverless/core.mjs）、wrapper-lite 客户端（服务端转发或浏览器直连）、需要 media-user-token 的电台接口、
     // 专辑动态封面（editorialVideo 的 HLS）与 ALAC 检测（原样帧末尾缺陷、打包日期、实际位深与频宽，不请求 /key）
     asset!("app.css"),
+    // 安装为应用（PWA）：manifest 与图标（由 favicon 的图形生成，maskable 为满版底色）
+    asset!("manifest.webmanifest"),
+    asset!("icons/icon.svg"),
+    asset!("icons/icon-192.png"),
+    asset!("icons/icon-512.png"),
+    asset!("icons/icon-maskable-512.png"),
     asset!("app.mjs"),
     asset!("pickers.mjs"),
     asset!("i18n.js"),
@@ -226,6 +243,110 @@ pub struct Served {
     body: Bytes,
     etag: String,
     immutable: bool,
+    /// 压缩后的内容（同一内容的原地址与哈希地址共用）；不值得压缩的类型为 None
+    encoded: Option<Arc<Encoded>>,
+}
+
+/// 按需计算、算一次的压缩结果；压缩后没有明显变小时为 None（照原样提供）
+#[derive(Default)]
+struct Encoded {
+    br: OnceLock<Option<Bytes>>,
+    gzip: OnceLock<Option<Bytes>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Coding {
+    Br,
+    Gzip,
+}
+
+impl Coding {
+    fn name(self) -> &'static str {
+        match self {
+            Coding::Br => "br",
+            Coding::Gzip => "gzip",
+        }
+    }
+}
+
+/// 值得压缩的类型：文本与 wasm（图片、HRTF 等二进制数据压缩收益很小）
+fn compressible(mime: &str) -> bool {
+    matches!(mime, HTML | JS | CSS | WASM | MANIFEST | SVG)
+}
+
+/// 至少省下 1/16 才用压缩版本
+fn worth(original: usize, compressed: Vec<u8>) -> Option<Bytes> {
+    (compressed.len() + original / 16 < original).then(|| Bytes::from(compressed))
+}
+
+fn compress(coding: Coding, body: &[u8]) -> Option<Bytes> {
+    match coding {
+        Coding::Br => {
+            let mut out = Vec::with_capacity(body.len() / 3);
+            {
+                let mut writer = brotli::CompressorWriter::new(&mut out, 64 * 1024, 11, 22);
+                writer.write_all(body).ok()?;
+            }
+            worth(body.len(), out)
+        }
+        Coding::Gzip => {
+            let mut writer = flate2::write::GzEncoder::new(Vec::with_capacity(body.len() / 3), flate2::Compression::best());
+            writer.write_all(body).ok()?;
+            worth(body.len(), writer.finish().ok()?)
+        }
+    }
+}
+
+impl Served {
+    /// 压缩后的内容（第一次调用时计算）；不压缩时为 None
+    fn encoded(&self, coding: Coding) -> Option<&Bytes> {
+        let encoded = self.encoded.as_ref()?;
+        let cell = match coding {
+            Coding::Br => &encoded.br,
+            Coding::Gzip => &encoded.gzip,
+        };
+        cell.get_or_init(|| compress(coding, &self.body)).as_ref()
+    }
+}
+
+/// 请求接受的压缩方式：优先 brotli，其次 gzip（`q=0` 视为不接受）
+fn accepted(headers: &HeaderMap) -> Vec<Coding> {
+    let mut codings = Vec::new();
+    for value in headers.get_all(ACCEPT_ENCODING).iter().filter_map(|v| v.to_str().ok()) {
+        for part in value.split(',') {
+            let mut params = part.split(';');
+            let name = params.next().unwrap_or_default().trim();
+            let refused = params.any(|p| {
+                let p = p.trim();
+                p.strip_prefix("q=").is_some_and(|q| q.trim().parse::<f32>().is_ok_and(|q| q <= 0.0))
+            });
+            if refused {
+                continue;
+            }
+            if name.eq_ignore_ascii_case("br") {
+                codings.push(Coding::Br);
+            } else if name.eq_ignore_ascii_case("gzip") {
+                codings.push(Coding::Gzip);
+            }
+        }
+    }
+    codings.sort_by_key(|c| *c != Coding::Br);
+    codings.dedup();
+    codings
+}
+
+/// 启动后在后台线程把全部资源的压缩结果算好，第一次请求不必等待（brotli 11 级较慢）
+pub fn warm() {
+    std::thread::Builder::new()
+        .name("asset-compress".into())
+        .spawn(|| {
+            // 原地址与哈希地址共用压缩结果，只算原地址的
+            for asset in std::iter::once(&SITE.shell).chain(SITE.assets.iter().filter(|a| !a.immutable)) {
+                asset.encoded(Coding::Br);
+                asset.encoded(Coding::Gzip);
+            }
+        })
+        .ok();
 }
 
 /// 页面外壳（引用已换成哈希地址，本身 `no-cache`）与全部资源路由
@@ -274,7 +395,7 @@ fn references(all: &[&Asset], index: &HashMap<&str, usize>, i: usize) -> Vec<(Ra
     });
     let asset = all[i];
     let text = match asset.mime {
-        HTML | JS | CSS if asset.url != HOST_JS => std::str::from_utf8(asset.body).unwrap_or(""),
+        HTML | JS | CSS | MANIFEST if asset.url != HOST_JS => std::str::from_utf8(asset.body).unwrap_or(""),
         _ => "",
     };
     RE.captures_iter(text)
@@ -289,9 +410,13 @@ fn references(all: &[&Asset], index: &HashMap<&str, usize>, i: usize) -> Vec<(Ra
         .collect()
 }
 
-fn served(url: String, mime: &'static str, body: Bytes, immutable: bool) -> Served {
-    let etag = format!("\"{:016x}\"", fnv(&body));
-    Served { url, mime, body, etag, immutable }
+fn served(url: String, mime: &'static str, body: Bytes, immutable: bool, encoded: Option<Arc<Encoded>>) -> Served {
+    let etag = format!("{:016x}", fnv(&body));
+    Served { url, mime, body, etag, immutable, encoded }
+}
+
+fn encoded_for(mime: &str) -> Option<Arc<Encoded>> {
+    compressible(mime).then(|| Arc::new(Encoded::default()))
 }
 
 fn build() -> Site {
@@ -344,28 +469,41 @@ fn build() -> Site {
 
     let mut assets = Vec::with_capacity(all.len() * 2);
     for (i, asset) in all.iter().enumerate().skip(1) {
-        assets.push(served(asset.url.to_string(), asset.mime, bodies[i].clone(), false));
+        let encoded = encoded_for(asset.mime);
+        assets.push(served(asset.url.to_string(), asset.mime, bodies[i].clone(), false, encoded.clone()));
         if asset.url != HOST_JS {
-            assets.push(served(std::mem::take(&mut hashed[i]), asset.mime, bodies[i].clone(), true));
+            assets.push(served(std::mem::take(&mut hashed[i]), asset.mime, bodies[i].clone(), true, encoded));
         }
     }
-    let shell = served(APP_HTML.url.to_string(), APP_HTML.mime, bodies[0].clone(), false);
+    let shell = served(APP_HTML.url.to_string(), APP_HTML.mime, bodies[0].clone(), false, encoded_for(APP_HTML.mime));
     Site { shell, assets }
 }
 
 /// 内容哈希地址长期缓存（`immutable`）；其余以 `no-cache` + ETag 提供：每次使用前都向服务器确认（未变化时 304），
 /// 升级后页面外壳立即指向新的哈希地址，页面、decrypt.js、Worker 与 wasm 不会因缓存而版本错配。
+/// 压缩版本的 ETag 带上编码名（不同编码是不同的字节，不能共用一个强 ETag）。
 pub fn serve(headers: &HeaderMap, asset: &Served) -> Response<Body> {
+    let chosen = accepted(headers).into_iter().find_map(|coding| asset.encoded(coding).map(|body| (coding, body)));
+    let (etag, body) = match chosen {
+        Some((coding, body)) => (format!("\"{}-{}\"", asset.etag, coding.name()), body),
+        None => (format!("\"{}\"", asset.etag), &asset.body),
+    };
     let fresh = headers
         .get(IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.split(',').any(|t| t.trim() == asset.etag));
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag));
     let cache = if asset.immutable { IMMUTABLE } else { "no-cache" };
-    let builder = Response::builder().header(CACHE_CONTROL, cache).header(ETAG, &asset.etag);
+    let mut builder = Response::builder().header(CACHE_CONTROL, cache).header(ETAG, &etag);
+    if asset.encoded.is_some() {
+        builder = builder.header(VARY, "accept-encoding");
+    }
     let response = if fresh {
         builder.status(StatusCode::NOT_MODIFIED).body(Body::empty())
     } else {
-        builder.status(StatusCode::OK).header(CONTENT_TYPE, asset.mime).body(Body::from(asset.body.clone()))
+        if let Some((coding, _)) = chosen {
+            builder = builder.header(CONTENT_ENCODING, coding.name());
+        }
+        builder.status(StatusCode::OK).header(CONTENT_TYPE, asset.mime).body(Body::from(body.clone()))
     };
     response.expect("static response headers are valid")
 }
@@ -394,6 +532,38 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(IF_NONE_MATCH, etag);
         assert_eq!(serve(&headers, &SITE.shell).status(), StatusCode::NOT_MODIFIED);
+    }
+
+    #[test]
+    fn compressed_variants() {
+        use std::io::Read;
+        let asset = SITE.assets.iter().find(|a| a.url == "/assets/app.css").unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT_ENCODING, "gzip, deflate, br, zstd".parse().unwrap());
+        let response = serve(&headers, asset);
+        assert_eq!(response.headers()[CONTENT_ENCODING], "br");
+        assert_eq!(response.headers()[VARY], "accept-encoding");
+        assert!(response.headers()[ETAG].to_str().unwrap().ends_with("-br\""));
+        let br = asset.encoded(Coding::Br).unwrap();
+        let mut plain = Vec::new();
+        brotli::Decompressor::new(&br[..], 4096).read_to_end(&mut plain).unwrap();
+        assert_eq!(plain, asset.body);
+        let gz = asset.encoded(Coding::Gzip).unwrap();
+        let mut plain = Vec::new();
+        flate2::read::GzDecoder::new(&gz[..]).read_to_end(&mut plain).unwrap();
+        assert_eq!(plain, asset.body);
+
+        headers.insert(ACCEPT_ENCODING, "br;q=0, gzip".parse().unwrap());
+        assert_eq!(serve(&headers, asset).headers()[CONTENT_ENCODING], "gzip");
+        // 304 用的是对应编码的 ETag
+        let etag = serve(&headers, asset).headers()[ETAG].clone();
+        headers.insert(IF_NONE_MATCH, etag);
+        assert_eq!(serve(&headers, asset).status(), StatusCode::NOT_MODIFIED);
+        // 不接受压缩、或不压缩的类型（png）：原样
+        let plain = serve(&HeaderMap::new(), asset);
+        assert!(plain.headers().get(CONTENT_ENCODING).is_none());
+        assert_eq!(accepted(&HeaderMap::new()), vec![]);
+        assert!(!compressible(BIN) && !compressible(PNG));
     }
 
     #[test]

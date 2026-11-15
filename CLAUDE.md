@@ -58,6 +58,9 @@ Apple Music 网页播放器与下载器：Rust 小服务端（或一个 serverle
 - 改了 `crates/` 中 wasm 相关 crate：运行 `scripts/build-wasm.sh`（需要 `wasm-opt`），提交 `web/` 下更新的 `.wasm`。
 - `crates/joc-core` 与 `tests/unit/joc_wasm.mjs` 按参考实现**逐位**比对 SHA-256：不要改变浮点运算顺序。
 - 服务端接口改动要同时改 `src/`（`handlers.rs`/`amp.rs`）与 `serverless/core.mjs`，`tests/unit/serverless.mjs` 覆盖后者。
+- 所有响应带 CSP（`src/security.rs`：`script-src 'self' 'wasm-unsafe-eval'`）：不能用内联脚本、`on*=` 属性、`eval`/`new Function`
+  或外站脚本。改响应头要同时改 `security.rs`、`serverless/core.mjs` 的 `SECURITY_HEADERS` 与 `vercel.json`（测试比对三处）。
+  live 测试经 `tests/support/playwright-bypass-csp.cjs` 绕过 CSP，只有 `csp_live.cjs` 在 CSP 下检查。
 - 界面文字中英文都要有；README 与 `docs/` 中英文两份同步更新（`release.zh-CN.md` 只有中文）。
 - 代码注释用中文；提交信息用英文 conventional 格式（`feat(lyrics): …`、`fix(player): …`），功能提交不改 CHANGELOG，
   发布时统一写（见 [docs/release.zh-CN.md](docs/release.zh-CN.md)）。

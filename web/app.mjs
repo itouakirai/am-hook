@@ -384,7 +384,8 @@ const downloadCenter = mountDownloadCenter({ root: $('downloads'), navigate: (hr
 window.AmApp.downloads = downloadCenter;
 
 /* ---------- 设置：主地区与曲库语言的选择面板 ---------- */
-const settings = mountSettings({ picker: $('picker'), scrim: $('picker-scrim'), checkStatus: () => loadStatus() });
+// 面板里的「保存并检测」是用户操作：可以请求本地网络权限（见 wrapper.js 的 status）
+const settings = mountSettings({ picker: $('picker'), scrim: $('picker-scrim'), checkStatus: () => loadStatus(true) });
 
 /* ---------- wrapper-lite 状态：导航底部的状态块；账号所在地区为推荐的主地区（没有选择过时即为主地区） ----------
    上行为状态点、名称、地区数（或状态文字）与展开箭头；下行为地区代码，当前主地区排在最前并高亮。
@@ -419,7 +420,8 @@ function renderStatus() {
 
   // 有地区时上行显示地区数（在线由绿点表示），否则显示状态文字
   const count = t(regions.length === 1 ? 'status.region' : 'status.regions', { count: regions.length });
-  statusState.textContent = !wrapperStatus ? t('status.checking') : !ok ? t('status.down') : regions.length ? count : t('status.online');
+  const down = wrapperStatus && wrapperStatus.lna === 'prompt' ? t('status.permission') : t('status.down');
+  statusState.textContent = !wrapperStatus ? t('status.checking') : !ok ? down : regions.length ? count : t('status.online');
   const name = AmWrapper.settings.local ? `wrapper-lite (${t('wrapper.local')})` : 'wrapper-lite';
   statusBox.querySelector('.wrapper-status-name').textContent = name;
   statusHead.title = regions.length ? `${name} · ${t('status.online')} · ${count}` : `${name} · ${statusState.textContent}`;
@@ -495,17 +497,19 @@ AmI18n.onSettingsChange(({ kind }) => { if (kind === 'storefront') renderStatus(
 
 /** 重新检查状态（进行中的检查直接复用；切换 wrapper-lite 后作废旧的检查），返回 { ok, regions } */
 let statusSeq = 0;
-function loadStatus() {
+function loadStatus(interactive = false) {
   const seq = statusSeq;
+  // 用户发起的检查不复用自动检查的结果（后者可能因为还没有本地网络权限而没有请求）
+  if (interactive) statusPending = null;
   statusPending ||= (async () => {
     let result;
     try {
-      result = { ok: true, regions: (await AmWrapper.status()).regions };
+      result = { ok: true, regions: (await AmWrapper.status({ interactive })).regions };
     } catch (error) {
-      // 暂时连不上时保留上次的地区
-      result = { ok: false, regions: [], error: error.message };
+      // 暂时连不上时保留上次的地区；lna：本地网络权限的状态（见 wrapper.js）
+      result = { ok: false, regions: [], error: error.message, lna: error.lna };
     }
-    if (seq !== statusSeq) return loadStatus();
+    if (seq !== statusSeq) return loadStatus(interactive);
     wrapperStatus = result;
     if (result.ok) AmI18n.setRegions(result.regions);
     statusPending = null;
