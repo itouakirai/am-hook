@@ -87,15 +87,22 @@ export function openDialog({ title, message = '', fields = [], buttons }) {
     cancel.addEventListener('click', () => finish(null));
     dialog.addEventListener('cancel', (event) => { event.preventDefault(); finish(null); });
     dialog.addEventListener('close', () => finish(null));
-    // 点击遮罩（对话框外）取消
-    dialog.addEventListener('click', (event) => {
-      if (event.target !== dialog) return;
-      const r = dialog.getBoundingClientRect();
-      if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) finish(null);
-    });
+    // 点击遮罩（对话框外）取消：支持 closedby 的浏览器交给它（触发 cancel，见上）；否则自己判断，
+    // 并要求按下也在遮罩上——在输入框里拖选文字、松开在对话框外时不算点击遮罩，输入的内容不丢
+    if ('closedBy' in HTMLDialogElement.prototype) dialog.setAttribute('closedby', 'any');
+    else {
+      let downOnBackdrop = false;
+      const outside = (event) => {
+        const r = dialog.getBoundingClientRect();
+        return event.target === dialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom);
+      };
+      dialog.addEventListener('pointerdown', (event) => { downOnBackdrop = outside(event); });
+      dialog.addEventListener('click', (event) => { if (downOnBackdrop && outside(event)) finish(null); });
+    }
     document.body.append(dialog);
     dialog.showModal();
-    const first = inputs[0] || actions.querySelector('.primary');
+    // 删除、清空这类确认框把焦点放在「取消」上，免得一按回车就执行
+    const first = inputs[0] || (buttons[0].danger ? cancel : actions.querySelector('.primary'));
     if (first) {
       first.focus();
       if (first.select) first.select();
@@ -128,6 +135,19 @@ export function playlistCover(list, size = 300, className = 'lib-cover') {
 /* ---------- 曲目行（与歌单页的 pl-track 相同：封面与播放按钮、歌名 / 艺人两行、专辑列、时长、更多） ---------- */
 const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+/**
+ * 曲目行的播放按钮：正在播放时显示暂停图标、名称改为「暂停 …」；状态没变不重写
+ * （播放器每次状态变化都会同步所有行，长列表里反复解析 SVG 没有必要）。名称取自 data-name
+ */
+export function setPlayButton(btn, playing, playIcon = PLAY_ICON, pauseIcon = PAUSE_ICON) {
+  const state = playing ? 'pause' : 'play';
+  if (btn.dataset.state === state) return;
+  btn.dataset.state = state;
+  btn.innerHTML = playing ? pauseIcon : playIcon;
+  const name = btn.dataset.name;
+  if (name !== undefined) btn.setAttribute('aria-label', t(playing ? 'album.pauseTrack' : 'album.playTrack', { name }));
+}
+
 const VIDEO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>';
 
 /** 艺人行：在 artist 中依次找到各位艺人的名字并链接到艺人页，其余保留为文字 */
@@ -161,6 +181,7 @@ export function trackRow(track, { actions, onPlay, extraItems, playlistId, lead 
   if (!video && onPlay) {
     playBtn = el('button', { className: 'track-play', type: 'button', innerHTML: PLAY_ICON });
     playBtn.setAttribute('aria-label', t('album.playTrack', { name: track.name }));
+    playBtn.dataset.name = track.name;
     playBtn.addEventListener('click', onPlay);
     cover.append(playBtn);
   }
@@ -194,7 +215,7 @@ export function syncTrackRows(rows, player) {
     row.classList.toggle('playing', active);
     row.classList.toggle('paused', active && !playing);
     row.classList.toggle('loading', track.kind === 'song' && player.pendingTrack === track.id);
-    if (playBtn) playBtn.innerHTML = active && playing ? PAUSE_ICON : PLAY_ICON;
+    if (playBtn) setPlayButton(playBtn, active && playing);
   }
 }
 

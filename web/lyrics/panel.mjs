@@ -324,7 +324,13 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
 
   let canvas = $('.lyrics-backdrop');
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
-  motion.addEventListener('change', () => backdrop?.setStaticMode(motion.matches));
+  // 减少动态效果：背景静止，歌词滚动不用弹簧、当前行不缩放（AMLL 用 JS 做动画，CSS 的媒体查询管不到）
+  const applyMotion = () => {
+    view.setEnableSpring(!motion.matches);
+    view.setEnableScale(!motion.matches);
+  };
+  applyMotion();
+  motion.addEventListener('change', () => { backdrop?.setStaticMode(motion.matches); applyMotion(); });
   let backdrop = createBackdrop();
   const pulse = new BeatPulse();
 
@@ -914,6 +920,17 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
     root.classList.remove('leaving');
   }
 
+  /**
+   * 全屏界面盖住导航与页面：打开时把它们设为 inert，Tab 不会跑到看不见的链接上。
+   * 不用 showModal()：待播清单、菜单与音质面板在界面之外，会一起变得不可用
+   */
+  function setBehindInert(on) {
+    for (const id of ['nav', 'view']) {
+      const node = document.getElementById(id);
+      if (node) node.inert = on;
+    }
+  }
+
   function show() {
     if (open || !adamId) return;
     open = true;
@@ -931,6 +948,7 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       root.classList.remove('entering');
     }
     document.body.classList.add('lyrics-open');
+    setBehindInert(true);
     renderHeader();
     loadArtwork();
     lyricsVisible = false;
@@ -966,6 +984,7 @@ export function mountLyrics({ root, toggle, bar, player, getMeta, t, notify, onL
       undockBar();
       root.hidden = true;
       document.body.classList.remove('lyrics-open');
+      setBehindInert(false);
       if (refocus) toggle.focus({ preventScroll: true });
     };
     if (motion.matches) { finish(); return; }

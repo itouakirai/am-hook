@@ -237,6 +237,7 @@
       'album.hours': '{h} 小时 {m} 分钟',
       'album.popular': '热门',
       'album.playTrack': '播放 {name}',
+      'album.pauseTrack': '暂停 {name}',
       'album.quality': '音质与下载',
       'album.video': '音乐视频',
       'album.trackFailed': '无法播放《{name}》：{msg}',
@@ -1392,6 +1393,7 @@
       'album.hours': '{h} hr {m} min',
       'album.popular': 'Popular',
       'album.playTrack': 'Play {name}',
+      'album.pauseTrack': 'Pause {name}',
       'album.quality': 'Qualities & download',
       'album.video': 'Music video',
       'album.trackFailed': 'Cannot play “{name}”: {msg}',
@@ -2388,11 +2390,11 @@
   const STOREFRONTS_TTL = 30 * 24 * 3600 * 1000;
   let storefrontsPromise = null;
 
-  async function fetchStorefronts() {
+  async function fetchStorefronts(priority) {
     const map = {};
     // 跟随分页 next（如 /v1/storefronts?offset=25），经 /amp 代理
     for (let path = '/v1/storefronts', page = 0; path && page < 20; page++) {
-      const res = await fetch('/amp' + path);
+      const res = await fetch('/amp' + path, priority ? { priority } : undefined);
       if (!res.ok) throw new Error(`storefronts ${res.status}`);
       const data = await res.json();
       for (const item of (data && data.data) || []) {
@@ -2411,8 +2413,9 @@
     return map;
   }
 
-  function refreshStorefronts() {
-    return fetchStorefronts().then((map) => {
+  /** priority：缓存过期的后台刷新为 low，不与首屏请求竞争 */
+  function refreshStorefronts(priority) {
+    return fetchStorefronts(priority).then((map) => {
       try { localStorage.setItem(STOREFRONTS_KEY, JSON.stringify({ at: Date.now(), map })); } catch {}
       return map;
     });
@@ -2424,7 +2427,7 @@
       if (cached && cached.map && Object.keys(cached.map).length) {
         storefrontsPromise = Promise.resolve(cached.map);
         if (!(Date.now() - cached.at < STOREFRONTS_TTL)) {
-          refreshStorefronts().then((map) => { storefrontsPromise = Promise.resolve(map); }, () => {});
+          refreshStorefronts('low').then((map) => { storefrontsPromise = Promise.resolve(map); }, () => {});
         }
       } else {
         // 失败不缓存，下次调用重试

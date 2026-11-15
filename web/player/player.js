@@ -1883,6 +1883,8 @@
   const RATE_GLIDE = 4000;
 
   let volumeControllable = null;
+  /** updatePcm 用来区分不同的 PCM 引擎实例 */
+  let pcmSerial = 0;
   /** 能否单独调节 <audio> 的音量：iOS Safari 的 volume 只读（始终为 1），这时不做过渡，按无缝衔接播放 */
   function canControlVolume() {
     if (volumeControllable === null) {
@@ -2691,6 +2693,8 @@
       const volume = this.volume;
       const input = this.$('.volume');
       input.value = volume;
+      // 读屏读百分比，不读 0.57
+      input.setAttribute('aria-valuetext', `${Math.round(volume * 100)}%`);
       input.style.setProperty('--volume', `${volume * 100}%`);
       this.$('.player-volume').dataset.level = volume === 0 ? 0 : Math.min(3, Math.ceil(volume * 3));
       const label = t(volume === 0 ? 'player.unmute' : 'player.mute');
@@ -2710,9 +2714,17 @@
       return isPcmMode(this.current.mode) ? (this.pcm && this.pcm.mix) || null : this.audio;
     }
 
+    /**
+     * PCM 引擎每 200 ms 回调一次：进度条每次都更新；播放按钮、音质面板与 onChange 只在状态变化时重画——
+     * 否则打开的音质面板每秒重建 5 次（焦点丢失、点击落空），各页面的曲目行也跟着重写
+     */
     updatePcm() {
-      this.renderToggle();
       this.renderProgress();
+      const pcm = this.pcm;
+      const key = pcm ? [pcm.serial || (pcm.serial = ++pcmSerial), pcm.paused, pcm.seeking, pcm.failed, pcm.gaveUp, pcm.channels, pcm.dataset, this.jocFallback, this.loading, this.current && this.current.mode].join() : '';
+      if (key === this.pcmKey) return;
+      this.pcmKey = key;
+      this.renderToggle();
       this.renderMode();
       this.emit();
     }
@@ -2813,7 +2825,8 @@
         return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
       };
       seek.addEventListener('pointerdown', (e) => {
-        if (!this.duration()) return;
+        // 只响应主键（右键、中键不开始拖动）
+        if (!this.duration() || e.button !== 0) return;
         seek.setPointerCapture(e.pointerId);
         seek.classList.add('dragging');
         this.dragRatio = ratioAt(e);
@@ -2833,8 +2846,14 @@
       seek.addEventListener('pointerup', release);
       seek.addEventListener('pointercancel', release);
       seek.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowLeft') { this.seekBy(-5); e.preventDefault(); }
-        if (e.key === 'ArrowRight') { this.seekBy(5); e.preventDefault(); }
+        // 与原生滑块相同的按键：方向键 ±5 秒，PageUp / PageDown ±30 秒，Home / End 到头尾
+        const d = this.duration();
+        const step = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5, PageDown: -30, PageUp: 30 }[e.key];
+        if (step) this.seekBy(step);
+        else if (e.key === 'Home' && d) this.transport().currentTime = 0;
+        else if (e.key === 'End' && d) this.transport().currentTime = Math.max(0, d - 1);
+        else return;
+        e.preventDefault();
       });
 
       if ('mediaSession' in navigator) {
@@ -3758,9 +3777,12 @@
       const waiting = this.loading && a.paused || (!a.paused && !isPcmMode(this.current.mode) && a.readyState < 3);
       if (!a.paused) this.loading = false;
       const btn = this.$('.player-toggle');
-      btn.innerHTML = waiting ? ICON_LOADING : (a.paused ? ICON_PLAY : ICON_PAUSE);
-      // 全屏播放界面按它换成 AMLL 的图标（见 app.css）
-      btn.dataset.state = waiting ? 'loading' : (a.paused ? 'play' : 'pause');
+      const state = waiting ? 'loading' : (a.paused ? 'play' : 'pause');
+      // 全屏播放界面按 data-state 换成 AMLL 的图标（见 app.css）；状态没变不重写图标
+      if (btn.dataset.state !== state) {
+        btn.innerHTML = waiting ? ICON_LOADING : (a.paused ? ICON_PLAY : ICON_PAUSE);
+        btn.dataset.state = state;
+      }
       btn.setAttribute('aria-label', t(a.paused ? 'player.play' : 'player.pause'));
     }
 

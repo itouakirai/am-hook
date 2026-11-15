@@ -187,7 +187,8 @@ function openDb() {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('IndexedDB blocked'));
+    // blocked 只是暂时的：其他标签页收到 versionchange 关闭连接后会继续成功，不能就此改用内存
+    req.onblocked = () => console.warn('[library] IndexedDB upgrade blocked by another tab, waiting');
   });
 }
 

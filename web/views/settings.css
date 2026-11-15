@@ -308,8 +308,8 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
 }
 .set-font-add-btn svg { width: 22px; height: 22px; color: var(--muted); }
 .set-font-add-btn:hover { border-color: var(--line-strong); }
-.set-font-add-btn[aria-selected="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-.set-font-add-btn[aria-selected="true"] svg { color: var(--accent); }
+.set-font-add-btn[aria-expanded="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.set-font-add-btn[aria-expanded="true"] svg { color: var(--accent); }
 .set-font-add-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .set-font-panels[hidden] { display: none; }
 .set-font-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }

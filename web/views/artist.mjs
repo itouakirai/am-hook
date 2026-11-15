@@ -1,5 +1,5 @@
 // 艺人页（/https://music.apple.com/{cc}/artist/{slug}/{id}），由 app.mjs 挂载
-import { createActions, targetOf } from './actions.mjs';
+import { createActions, setPlayButton, targetOf } from './actions.mjs';
 import { amp, artUrl } from '../amp.mjs';
 
 const { formatTime } = window.AmHook;
@@ -260,6 +260,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const src = artUrl(a.artwork, 80);
       const playBtn = el('button', { className: 'track-play', type: 'button', innerHTML: ICON.play });
       playBtn.setAttribute('aria-label', t('album.playTrack', { name: a.name }));
+      playBtn.dataset.name = a.name;
       playBtn.addEventListener('click', () => playTrack(track));
       const cover = el('span', { className: 'track-art' },
         src ? el('img', { src, alt: '', loading: 'lazy', decoding: 'async' }) : el('span', { className: 'ph' }),
@@ -443,7 +444,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       row.classList.toggle('playing', active);
       row.classList.toggle('paused', active && !playing);
       row.classList.toggle('loading', player.pendingTrack === id);
-      if (playBtn) playBtn.innerHTML = active && playing ? ICON.pause : ICON.play;
+      if (playBtn) setPlayButton(playBtn, active && playing, ICON.play, ICON.pause);
     }
   }
   player.onChange(syncRows);

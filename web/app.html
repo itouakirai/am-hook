@@ -195,7 +195,7 @@
     否则为竖向布局（显示歌词时顶部为小封面与歌名，隐藏时为大封面）。lyrics-vl / lyrics-vc 是竖向布局的两套网格，
     横向布局时为 display: contents；lyrics-phony-* 只用于测量竖向布局里封面的目标位置（见 lyrics/panel.mjs）。
   -->
-  <section class="lyrics-overlay" id="lyrics-overlay" role="dialog" data-i18n-attr="aria-label=lyrics.title" hidden>
+  <section class="lyrics-overlay" id="lyrics-overlay" role="dialog" aria-modal="true" data-i18n-attr="aria-label=lyrics.title" hidden>
     <canvas class="lyrics-backdrop" aria-hidden="true" hidden></canvas>
     <div class="lyrics-shade" aria-hidden="true"></div>
     <div class="lyrics-stage">

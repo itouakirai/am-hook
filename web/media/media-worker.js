@@ -13,10 +13,13 @@ const imports = { env: {
   file_read: (h, ptr, len, at) => files.get(h).read(new Uint8Array(wasm.memory.buffer, ptr, len), { at }),
   file_write: (h, ptr, len, at) => files.get(h).write(new Uint8Array(wasm.memory.buffer, ptr, len), { at }),
 } };
+// 边下载边编译（compileStreaming，Chrome 会缓存编译结果）；响应不是 application/wasm 时退回整体读取
 const module = fetch('/assets/media/media.wasm').then(res => {
   if (!res.ok) throw new Error(`WASM HTTP ${res.status}`);
-  return res.arrayBuffer();
-}).then(bytes => WebAssembly.compile(bytes));
+  const type = res.headers.get('content-type') || '';
+  if (typeof WebAssembly.compileStreaming === 'function' && /^application\/wasm\b/.test(type)) return WebAssembly.compileStreaming(res);
+  return res.arrayBuffer().then(bytes => WebAssembly.compile(bytes));
+});
 // A trap leaves the instance unusable; the next call starts a fresh one.
 async function instance() {
   if (!wasm) wasm = (await WebAssembly.instantiate(await module, imports)).exports;

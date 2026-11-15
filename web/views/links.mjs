@@ -62,6 +62,8 @@ export function resolveLink(raw, country) {
   if (!raw) return null;
   let link;
   try { link = new URL(raw, 'https://music.apple.com'); } catch { return null; }
+  // 只接受 http(s)：javascript: / data: 之类的地址不会成为页面上的链接
+  if (!/^https?:$/.test(link.protocol)) return null;
   if (!/(^|\.)(music|itunes)\.apple\.com$/i.test(link.hostname)) return { href: link.href, local: false };
   const cc = (link.searchParams.get('cc') || (link.pathname.match(/^\/([a-z]{2})\//i) || [])[1] || country).toLowerCase();
   const id = (key) => (/^\d+$/.test(link.searchParams.get(key) || '') ? link.searchParams.get(key) : '');

@@ -179,11 +179,24 @@ async function loadEc3() {
   ec3 = await ec3Promise;
 }
 
+/**
+ * 边下载边编译（instantiateStreaming），Chrome 还会缓存编译结果，下次不必重新编译；
+ * 响应不是 application/wasm 或不支持时退回整体读取后编译
+ */
+function streamable(res) {
+  const type = res.headers && res.headers.get && res.headers.get('content-type');
+  return typeof WebAssembly.instantiateStreaming === 'function' && /^application\/wasm\b/.test(type || '');
+}
+async function instantiateWasm(res, imports) {
+  if (streamable(res)) return WebAssembly.instantiateStreaming(res, imports);
+  return WebAssembly.instantiate(await res.arrayBuffer(), imports);
+}
+
 async function loadJoc() {
   if (!jocPromise) {
     jocPromise = fetch('/assets/joc/joc.wasm').then(async (response) => {
       if (!response.ok) throw new Error(`JOC WASM HTTP ${response.status}`);
-      const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), {});
+      const { instance } = await instantiateWasm(response, {});
       return instance.exports;
     });
     jocPromise.catch(() => { jocPromise = null; });

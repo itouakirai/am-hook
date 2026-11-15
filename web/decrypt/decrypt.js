@@ -307,7 +307,8 @@
       const length = piece.end - piece.start + 1;
       for (let attempt = 0; ; attempt++) {
         try {
-          const res = await fetch(this.url, { headers: { Range: `bytes=${piece.start}-${piece.end}` }, signal });
+          // priority：下载设为 low（见 downloads.mjs），与同一 CDN 上的播放请求竞争时让位；未设置为浏览器默认
+          const res = await fetch(this.url, { headers: { Range: `bytes=${piece.start}-${piece.end}` }, signal, priority: this.priority });
           if (!res.ok) throw new Error(t('err.segmentHttp', { status: res.status }));
           let buf = await res.arrayBuffer();
           // 上游忽略 Range 时自行截取

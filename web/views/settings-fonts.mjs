@@ -272,22 +272,23 @@ export function fontSection({ section, toast, signal }) {
 
   /* ---------- 添加：四种方式，各一个面板 ---------- */
   const panels = {};
-  const addButtons = el('div', { className: 'set-font-add', role: 'tablist' });
+  // 四个按钮各自展开 / 收起下面的面板（再点一次收起），是展开按钮而不是标签页
+  const addButtons = el('div', { className: 'set-font-add', role: 'group' });
   addButtons.setAttribute('aria-label', t('set.font.add'));
-  const panelHost = el('div', { className: 'set-font-panels' });
+  const panelHost = el('div', { className: 'set-font-panels', id: 'set-font-panels' });
   let openPanel = null;
   for (const kind of ['upload', 'url', 'local', 'catalog']) {
     const button = el('button', { type: 'button', className: 'set-font-add-btn', innerHTML: ICONS[kind] });
     button.append(el('span', { textContent: t(`set.font.add.${kind}`) }));
-    button.setAttribute('role', 'tab');
-    button.setAttribute('aria-selected', 'false');
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', 'set-font-panels');
     button.dataset.kind = kind;
     button.addEventListener('click', () => showPanel(openPanel === kind ? null : kind));
     addButtons.append(button);
   }
   function showPanel(kind) {
     openPanel = kind;
-    for (const button of addButtons.children) button.setAttribute('aria-selected', String(button.dataset.kind === kind));
+    for (const button of addButtons.children) button.setAttribute('aria-expanded', String(button.dataset.kind === kind));
     if (kind && !panels[kind]) panels[kind] = { upload: uploadPanel, url: urlPanel, local: localPanel, catalog: catalogPanel }[kind]();
     panelHost.replaceChildren(...(kind ? [panels[kind]] : []));
     panelHost.hidden = !kind;

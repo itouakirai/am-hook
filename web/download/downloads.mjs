@@ -93,7 +93,7 @@ function sourceFormat(template) {
 function fetchCover(cache, url, signal) {
   if (!url) return Promise.resolve(null);
   if (!cache.has(url)) {
-    const p = fetch(url, { signal }).then(async (res) => {
+    const p = fetch(url, { signal, priority: 'low' }).then(async (res) => {
       if (!res.ok) throw new Error(`cover HTTP ${res.status}`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       return { bytes, type: imageType(bytes) };
@@ -611,6 +611,8 @@ async function downloadSong(job, task, info, signal) {
   await AmWrapper.throttle.wait(signal);
   const track = await AmDecrypt.openTrack(v.url, signal);
   track.repair = o.alacRepair;
+  // 后台下载：网络优先级低于正在播放的歌曲与页面请求
+  track.priority = 'low';
   task.total = track.size;
   task.state = 'downloading';
   notify();
@@ -1013,7 +1015,8 @@ export const downloads = {
 prefs.onChange((section) => { if (section === 'download') pump(); });
 // 下载在当前标签页内进行，关闭或刷新会中断
 addEventListener('beforeunload', (e) => { if (downloads.busy()) e.preventDefault(); });
-// 关闭标签页时删除临时文件（OPFS 中没删掉的，下次由 AmDecrypt.collectGarbage 回收）
-addEventListener('pagehide', () => { for (const job of jobs) dispose(job); });
+// 关闭标签页时删除临时文件（OPFS 中没删掉的，下次由 AmDecrypt.collectGarbage 回收）；
+// 进入往返缓存（persisted，后退可回来）时保留，否则返回后「再次保存」找不到文件
+addEventListener('pagehide', (e) => { if (!e.persisted) for (const job of jobs) dispose(job); });
 
 window.AmDownloads = downloads;

@@ -75,11 +75,24 @@ function box(type, ...parts) {
   return join([be32(payload.length + 8), fourcc(type), payload]);
 }
 
+/**
+ * 边下载边编译（instantiateStreaming），Chrome 还会缓存编译结果，下次不必重新编译；
+ * 响应不是 application/wasm 或不支持时退回整体读取后编译
+ */
+function streamable(res) {
+  const type = res.headers && res.headers.get && res.headers.get('content-type');
+  return typeof WebAssembly.instantiateStreaming === 'function' && /^application\/wasm\b/.test(type || '');
+}
+async function instantiateWasm(res, imports) {
+  if (streamable(res)) return WebAssembly.instantiateStreaming(res, imports);
+  return WebAssembly.instantiate(await res.arrayBuffer(), imports);
+}
+
 async function wasm() {
   if (!wasmPromise) {
     wasmPromise = fetch(FLAC_WASM_URL).then(async (response) => {
       if (!response.ok) throw new Error(`FLAC WASM HTTP ${response.status}`);
-      return (await WebAssembly.instantiate(await response.arrayBuffer())).instance.exports;
+      return (await instantiateWasm(response, {})).instance.exports;
     });
   }
   return wasmPromise;

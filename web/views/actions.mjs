@@ -11,7 +11,9 @@
 //   加入资料库或歌单时不再重新请求；getTracks()：要加入歌单的曲目快照（本地歌单用）；playlistId：「添加到歌单」里不列出的歌单；
 //   extraItems：页面自己的菜单项（如「从歌单中删除」）；noPlay：菜单里不列出「播放」（正在播放的歌曲）
 import * as library from '/assets/library.mjs';
-import { LIB_ICON, playlistMenuItems, moveMenuItems } from './library-ui.mjs';
+import { LIB_ICON, playlistMenuItems, moveMenuItems, setPlayButton } from './library-ui.mjs';
+
+export { setPlayButton };
 import { downloads } from '../download/downloads.mjs';
 import { amp, artUrl } from '../amp.mjs';
 
@@ -412,7 +414,7 @@ function closeMenu(focusTrigger) {
   menu.scrim.hidden = true;
   menu.trigger.setAttribute('aria-expanded', 'false');
   menu.trigger.closest('.card-wrap, .row-wrap')?.classList.remove('menu-open');
-  if (focusTrigger) menu.trigger.focus();
+  if (focusTrigger && menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true });
   menu.trigger = null;
 }
 
@@ -450,7 +452,8 @@ function fillMenu(items) {
         return;
       }
       if (it.back) { it.onSelect(); return; }
-      closeMenu(false);
+      // 先把焦点还给触发按钮再执行：选项打开的对话框关闭时焦点回到这里，而不是落到 <body>
+      closeMenu(true);
       it.onSelect();
     });
     return node;

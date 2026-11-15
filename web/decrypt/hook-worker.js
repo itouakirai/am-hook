@@ -39,12 +39,25 @@ function msg(key, ...args) {
   return (MESSAGES[lang] || MESSAGES.zh)[key].replace(/\{(\d)\}/g, (_, i) => args[i]);
 }
 
+/**
+ * 边下载边编译（instantiateStreaming），Chrome 还会缓存编译结果，下次不必重新编译；
+ * 响应不是 application/wasm 或不支持时退回整体读取后编译
+ */
+function streamable(res) {
+  const type = res.headers && res.headers.get && res.headers.get('content-type');
+  return typeof WebAssembly.instantiateStreaming === 'function' && /^application\/wasm\b/.test(type || '');
+}
+async function instantiateWasm(res, imports) {
+  if (streamable(res)) return WebAssembly.instantiateStreaming(res, imports);
+  return WebAssembly.instantiate(await res.arrayBuffer(), imports);
+}
+
 function loadWasm() {
   if (!wasmPromise) {
     wasmPromise = (async () => {
       const res = await fetch('/assets/decrypt/hook.wasm');
       if (!res.ok) throw new Error(msg('wasm', res.status));
-      const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
+      const { instance } = await instantiateWasm(res, {});
       return instance.exports;
     })();
     wasmPromise.catch(() => { wasmPromise = null; });

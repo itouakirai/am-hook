@@ -96,6 +96,22 @@ export function createResults({ els, actions, storefront, catalogLang, ready }) 
 
   const statusNode = (text, className) => el('p', `results-state${className ? ' ' + className : ''}`, text);
 
+  // 标签的方向键：← → 切换到相邻标签，Home / End 到头尾（与设置页的标签相同）
+  els.tabs.addEventListener('keydown', (event) => {
+    const tabs = [...els.tabs.querySelectorAll('[role="tab"]')];
+    const index = tabs.indexOf(document.activeElement);
+    if (index < 0) return;
+    const rtl = getComputedStyle(els.tabs).direction === 'rtl';
+    const next = { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 }[event.key];
+    let target = null;
+    if (next) target = tabs[(index + next + tabs.length) % tabs.length];
+    else if (event.key === 'Home') target = tabs[0];
+    else if (event.key === 'End') target = tabs[tabs.length - 1];
+    if (!target) return;
+    event.preventDefault();
+    setView(target.dataset.key, true);
+  });
+
   async function run(term) {
     // 同一关键词重新搜索（切换地区、语言）时保留当前分类标签
     const keepView = term === search.term ? search.view : 'all';
@@ -141,28 +157,44 @@ export function createResults({ els, actions, storefront, catalogLang, ready }) 
   }
 
   /** 分类标签（全部 / 歌曲 / 专辑 …）与当前视图 */
-  function render() {
+  function render(focusTab = false) {
     const { groups, view } = search;
     const tabKeys = ['all', ...groups.map((group) => group.key).filter((key) => key !== 'top')];
+    // 重建标签前焦点在标签上（点击或方向键切换）：重建后移到新选中的标签，焦点不丢
+    const refocus = focusTab || els.tabs.contains(document.activeElement);
     els.tabs.hidden = tabKeys.length < 3; // 只有一个分类时标签没有意义
     els.tabs.replaceChildren(...tabKeys.map((key) => {
       const tab = el('button', 'results-tab', t(key === 'all' ? 'search.all' : GROUP_LABELS[key]));
       tab.type = 'button';
+      tab.id = `results-tab-${key}`;
+      tab.dataset.key = key;
       tab.setAttribute('role', 'tab');
       tab.setAttribute('aria-selected', String(key === view));
+      tab.setAttribute('aria-controls', 'results-body');
+      // 只有选中的标签可以 Tab 进入，其余用方向键
+      tab.tabIndex = key === view ? 0 : -1;
       tab.addEventListener('click', () => setView(key));
       return tab;
     }));
+    const selected = els.tabs.querySelector('[aria-selected="true"]');
+    if (selected && !els.tabs.hidden) {
+      els.body.setAttribute('role', 'tabpanel');
+      els.body.setAttribute('aria-labelledby', selected.id);
+      if (refocus) selected.focus({ preventScroll: true });
+    } else {
+      els.body.removeAttribute('role');
+      els.body.removeAttribute('aria-labelledby');
+    }
     if (!groups.length) { els.body.replaceChildren(statusNode(t('search.none'))); return; }
     els.body.replaceChildren(...(view === 'all'
       ? groups.map(previewNode)
       : [fullNode(groups.find((group) => group.key === view))]));
   }
 
-  function setView(key) {
+  function setView(key, focusTab = false) {
     if (key === search.view) return;
     search.view = key;
-    render();
+    render(focusTab);
     // 标签栏吸顶；切换后回到结果开头
     if (els.section.getBoundingClientRect().top < 0) els.section.scrollIntoView({ block: 'start' });
   }
@@ -186,7 +218,8 @@ export function createResults({ els, actions, storefront, catalogLang, ready }) 
     if (key !== 'top' && (items.length > limit || next)) {
       action = el('button', 'see-all', t('search.seeAll'));
       action.type = 'button';
-      action.addEventListener('click', () => setView(key));
+      // 「查看全部」所在的区块会被替换：焦点移到对应的标签
+      action.addEventListener('click', () => setView(key, true));
     }
     section.append(groupHead(GROUP_LABELS[key], action), list);
     return section;

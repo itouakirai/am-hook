@@ -1,5 +1,5 @@
 // 专辑页（/https://music.apple.com/{cc}/album/{slug}/{id}），由 app.mjs 挂载
-import { createActions, ICON as ACTION_ICON, openAlacCheck, playable, targetOf } from './actions.mjs';
+import { createActions, setPlayButton, ICON as ACTION_ICON, openAlacCheck, playable, targetOf } from './actions.mjs';
 import { createDetailHeader } from './detail-header.mjs';
 import { openDownloadDialog } from './download-dialog.mjs';
 import { amp, artUrl } from '../amp.mjs';
@@ -201,6 +201,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       if (!video && !unavailable) {
         playBtn = el('button', { className: 'track-play', type: 'button', innerHTML: ICON.play });
         playBtn.setAttribute('aria-label', t('album.playTrack', { name: a.name }));
+        playBtn.dataset.name = a.name;
         playBtn.addEventListener('click', () => playTrack(track));
         num.append(playBtn);
       }
@@ -367,7 +368,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       row.classList.toggle('playing', active);
       row.classList.toggle('paused', active && !playing);
       row.classList.toggle('loading', player.pendingTrack === id);
-      if (playBtn) playBtn.innerHTML = active && playing ? ICON.pause : ICON.play;
+      if (playBtn) setPlayButton(playBtn, active && playing, ICON.play, ICON.pause);
     }
   }
   player.onChange(syncRows);

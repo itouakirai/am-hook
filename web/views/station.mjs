@@ -4,7 +4,7 @@
 //   直播电台与广播单集（format = stream）：与 MV 页相同的布局，用 mv/radio.mjs 播放；广播单集可以下载（音频为 M4A，视频为 MP4），
 //     直播电台显示当前歌曲（emsg）与节目表。
 // 这些接口需要用户的 media-user-token（见 station.mjs）：第一次打开电台页时请用户填写。
-import { createActions, ICON as ACTION_ICON, playable, targetOf, songEntry, pagePath, artistLinks, albumPathOf, localPath } from './actions.mjs';
+import { createActions, setPlayButton, ICON as ACTION_ICON, playable, targetOf, songEntry, pagePath, artistLinks, albumPathOf, localPath } from './actions.mjs';
 import { createDetailHeader } from './detail-header.mjs';
 import { openDownloadDialog } from './download-dialog.mjs';
 import { stationKind, withToken, askToken, onTokenChange, nextTracks, playAssets } from '/assets/station.mjs';
@@ -201,6 +201,7 @@ function mountTracks({ signal, player, navigate, toast }, $) {
     if (canPlay) {
       playBtn = el('button', { className: 'track-play', type: 'button', innerHTML: ICON.play });
       playBtn.setAttribute('aria-label', t('album.playTrack', { name: a.name }));
+      playBtn.dataset.name = a.name;
       playBtn.addEventListener('click', () => playTrack(track));
       cover.append(playBtn);
     }
@@ -305,7 +306,7 @@ function mountTracks({ signal, player, navigate, toast }, $) {
       row.classList.toggle('playing', active);
       row.classList.toggle('paused', active && !playing);
       row.classList.toggle('loading', player.pendingTrack === trackId);
-      if (playBtn) playBtn.innerHTML = active && playing ? ICON.pause : ICON.play;
+      if (playBtn) setPlayButton(playBtn, active && playing, ICON.play, ICON.pause);
     }
   }
   player.onChange(syncRows);

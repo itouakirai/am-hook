@@ -10,7 +10,7 @@
 // 区块按 editorialElementKind 排版（官网 vV）：316 hero 大卡、326 / 327 / 345 / 387 货架（歌曲为四行曲目列，
 // 专辑 / 歌单为方形封面，电台为横向卡片，视频为 16:9）、385 砖块、391 / 405 链接、404 段落；其余跳过。
 // 货架的列数与官网 shelf-grid 的 grid-type 相同（见 app.css .ed-shelf）。
-import { createActions, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
+import { createActions, setPlayButton, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
 import { userToken, personalStation, recentStations } from '/assets/station.mjs';
 import { amp, artUrl } from '../amp.mjs';
 import { CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
@@ -336,6 +336,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     const playBtn = canPlay ? el('button', { className: 'track-play', type: 'button', innerHTML: ICON.play }) : null;
     if (playBtn) {
       playBtn.setAttribute('aria-label', t('album.playTrack', { name: a.name }));
+      playBtn.dataset.name = a.name;
       playBtn.addEventListener('click', () => playTrack(track, queue));
     }
     const cover = el('span', { className: 'track-art' }, img(artUrl(a.artwork, 80)),
@@ -450,6 +451,9 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const description = shortNotes(c);
       return heroCard({ badge: a.designBadge, title: c.name, subtitle, description: description !== subtitle ? description : '', artwork, link: linkFor(content), res: content });
     }).filter(Boolean);
+    // 第一张大卡在首屏，常是页面的 LCP 图片：不懒加载、提高优先级
+    const lead = cards[0] && cards[0].querySelector('img');
+    if (lead) { lead.loading = 'eager'; lead.fetchPriority = 'high'; }
     return cards.length ? section('ed-hero-section', shelf('A', 1, cards)) : null;
   }
 
@@ -591,6 +595,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     const playBtn = canPlay ? el('button', { className: 'track-play', type: 'button', innerHTML: ICON.play }) : null;
     if (playBtn) {
       playBtn.setAttribute('aria-label', t('album.playTrack', { name: a.name }));
+      playBtn.dataset.name = a.name;
       playBtn.addEventListener('click', () => playTrack(track, queue));
     }
     const cover = el('span', { className: 'track-art' }, img(artUrl(a.artwork, 80)),
@@ -868,7 +873,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
         row.classList.toggle('playing', active);
         row.classList.toggle('paused', active && !playing);
         row.classList.toggle('loading', player.pendingTrack === id);
-        if (playBtn) playBtn.innerHTML = active && playing ? ICON.pause : ICON.play;
+        if (playBtn) setPlayButton(playBtn, active && playing, ICON.play, ICON.pause);
       }
     }
   }
