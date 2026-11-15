@@ -8,7 +8,7 @@
 //   否则页面默认由浏览器直连用户自己的 wrapper-lite（见 web/wrapper.js）。实例之间不共享状态，不限速、不限并发。
 
 /** am-hook 版本，交给页面显示（host.js 的 version）；须与 Cargo.toml 一致，tests/local_wrapper.rs 会比对 */
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';
 
 const WEB_ORIGIN = 'https://music.apple.com';
 const API_ORIGIN = 'https://amp-api-edge.music.apple.com';

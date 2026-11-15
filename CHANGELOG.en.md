@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## v0.7.1 (2026-11-15)
+
+### New
+- ✨ Redesigned home page laid out like music.apple.com/{cc}/search: the search box on top, then recent searches and **Browse Categories**, the same category bricks as the official search page (genres, moods, decades, Charts, Music Videos, featured collections). They follow the primary storefront and catalog language, with a storefront button next to the title. Bricks open curator, grouping, multi-room and chart pages in app; everything else links to Apple Music. Only the first row shows at first; **Show all** expands the rest and is remembered. New server route `GET /amp/v1/recommendations/<cc>` (also in the serverless deployment)
+- ✨ New home footer: the running am-hook version (click for that release's notes), GitHub, Telegram group and issue links, and credits. The version reaches the page through `host.js`
+- ✨ Motion artwork downloads: albums and playlists can save their square / tall motion artwork (MP4) from the download dialog, with settings for the default, codec (HEVC / H.264) and maximum resolution
+- ✨ Save-artwork menu: right-click or long-press any cover (detail headers, cards, search results, player bar, artist header) to save the still cover (original or sized, JPG / PNG) or the motion artwork in any quality, with bitrate and estimated size; Shift+right-click keeps the browser menu
+- ✨ Installable app (PWA): web app manifest with icons in every size and a title bar colour per colour scheme
+- ✨ The station media-user-token is kept in an HttpOnly cookie; the page only remembers its last six characters. Scripts can still send `X-Media-User-Token`
+- ✨ LAN / loopback wrapper-lite supports Chrome's Local Network Access permission: while it is still undecided the page doesn't contact the wrapper on load, "Save and check" asks for it, and a denied permission gets its own message
+
+### Fixes
+- 🐛 AutoMix stopped after one song with Android Chrome in the background: Chrome pauses a hidden page's media element at volume 0, so transition gains now stay at or above -60 dB
+- 🐛 The 中文网字计划 font catalog showed tiny previews and requested all of them at once, so the CDN answered 429: previews are now full-width, load when scrolled near, four at a time, and back off together on failure
+- 🐛 With many custom fonts the lyrics options menu went off the top of the screen on phones: its height is capped and it scrolls
+- 🐛 In the lyrics view, tapping outside a popup (quality panel, More menu) to close it also seeked to the lyric line underneath
+- 🐛 Accessibility and performance: the player no longer rebuilds the open quality panel five times a second; the seek slider takes Home / End / PageUp / PageDown and arrow keys; the page behind full-screen lyrics is inert; menus return focus to their trigger; search result tabs use arrow keys; reduced motion is honoured; detail covers load first and download segments at low priority; workers compile wasm while streaming
+
+### Changed
+- 🎨 The nav wordmark follows the official lowercase "music" (the apple stays upside down); the app icon is now a black note on white like the official one, with the note upside down
+- 🔒 Every response carries CSP (`script-src 'self' 'wasm-unsafe-eval'`), nosniff, X-Frame-Options, Referrer-Policy and COOP, kept in sync across the binary, serverless and the Vercel / Cloudflare config
+- ⚡ Static assets are served brotli / gzip compressed per Accept-Encoding, compressed once in the background at startup
+- ♻️ The per-page copies of the amp-api request and artwork URL helpers are merged into `web/amp.mjs` (a 5xx is retried once everywhere), and link parsing into `views/links.mjs`
+
 ## v0.7.0 (2026-11-12)
 
 ### Changed
