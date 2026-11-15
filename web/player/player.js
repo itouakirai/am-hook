@@ -1853,6 +1853,12 @@
   const PREROLL_LEAD = 25;
   /** 等下一首准备好最多多久 */
   const PREROLL_TIMEOUT = 20000;
+  /**
+   * <audio> 上过渡增益的下限（−60 dB，听不见）。Android Chrome 会立即暂停后台页面里音量为 0 的媒体元素
+   * （play 之后马上 pause，视为静音的后台播放），AutoMix 从 0 淡入的下一首在后台就停在开头、不再切歌
+   */
+  const ELEMENT_MIX_FLOOR = 0.001;
+  function elementMixGain(gain) { return Math.max(ELEMENT_MIX_FLOOR, gain); }
   /** 混音期间更新音量的间隔（毫秒）；离开始还远时同样用它检查，开销只是几次比较 */
   const MIX_TICK = 40;
   /** 手动下一首（下一首已准备好）时的快速交叉淡化（秒） */
@@ -1902,9 +1908,10 @@
     /** 过渡的增益 0–1 */
     setGain(gain) {
       this.gain = gain;
-      const value = this.player.baseGain(this.item, this.mode) * gain;
-      if (this.deck) this.deck.audio.volume = Math.min(1, Math.max(0, value));
+      const base = this.player.baseGain(this.item, this.mode);
+      if (this.deck) this.deck.audio.volume = Math.min(1, Math.max(0, base * elementMixGain(gain)));
       else {
+        const value = base * gain;
         const param = this.engine.gain.gain;
         param.cancelScheduledValues(this.engine.context.currentTime);
         param.setTargetAtTime(value, this.engine.context.currentTime, 0.012);
@@ -2635,7 +2642,7 @@
      */
     applyVolume() {
       const c = this.current;
-      this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * this.mixGain));
+      this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * elementMixGain(this.mixGain)));
       if (this.pcm) {
         const param = this.pcm.gain.gain;
         if (param.cancelScheduledValues && this.pcm.context) param.cancelScheduledValues(this.pcm.context.currentTime);
@@ -2660,7 +2667,7 @@
         param.cancelScheduledValues(this.pcm.context.currentTime);
         param.setTargetAtTime(this.volume * gain, this.pcm.context.currentTime, 0.012);
       } else {
-        this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * gain));
+        this.audio.volume = Math.min(1, Math.max(0, this.baseGain(c, 'mse') * elementMixGain(gain)));
       }
     }
 
