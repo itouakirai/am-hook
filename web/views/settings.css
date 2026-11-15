@@ -349,14 +349,19 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
 .set-font-local-name { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 中文网字计划：预览图卡片与选中字体的详情 */
-.set-font-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 460px; overflow-y: auto; padding: 2px; }
+.set-font-grid { display: grid; gap: 8px; max-height: 520px; overflow-y: auto; padding: 2px; }
 .set-font-card {
   display: grid; align-content: start; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color .12s;
 }
+.set-font-card[hidden] { display: none; }
 .set-font-card:hover { border-color: var(--line-strong); }
 .set-font-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.set-font-card img { display: block; width: 100%; aspect-ratio: 7 / 1; object-fit: contain; object-position: left center; padding: 6px 8px; border-radius: 6px; background: #f4f4f6; }
+/* 预览框先占好位置（加载前就有尺寸，滚动观察与布局都不跳），图片完整缩放进去、靠左，不依赖图片内容的具体排版 */
+.set-font-card-preview { display: block; aspect-ratio: 7 / 1; padding: 4px 8px; border-radius: 6px; background: #f4f4f6; }
+.set-font-card-preview img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; opacity: 0; transition: opacity .2s; }
+.set-font-card-preview.is-loaded img { opacity: 1; }
+.set-font-card-preview.is-failed { opacity: .5; }
 .set-font-card-name { font-size: 13px; font-weight: 500; }
 .set-font-card-count { color: var(--muted); font-size: 11.5px; }
 .set-font-detail { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); }
@@ -374,5 +379,4 @@ details.set-var-group[open] > summary { margin-bottom: 6px; }
   .set-font { flex-wrap: wrap; padding-right: 0; }
   .set-font-actions { width: 100%; justify-content: flex-start; padding: 0 10px 10px 36px; }
   .set-font-actions:empty { display: none; }
-  .set-font-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }

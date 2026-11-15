@@ -39,6 +39,88 @@ function errorText(error) {
 }
 
 /**
+ * 中文网字计划的预览图加载器。网格是个限高的滚动容器，原生 loading=lazy 按视口判断，会把上百张一起请求，CDN 回 429；
+ * 这里改为：滚动到网格可见区域附近才排队，最多同时 PREVIEW_CONCURRENCY 张；失败（多半是限流，图片拿不到状态码）
+ * 时整个队列暂停一段时间再重试，退避加倍，PREVIEW_RETRIES 次后放弃，点卡片仍可看实时预览。
+ * signal 中止时（离开设置页）停止
+ */
+const PREVIEW_CONCURRENCY = 4;
+const PREVIEW_RETRIES = 4;
+function previewLoader(root, signal) {
+  const queue = [];
+  const urls = new WeakMap();
+  const tries = new WeakMap();
+  let active = 0;
+  let pausedUntil = 0;
+  let backoff = 1500;
+  let timer = 0;
+  const observer = new IntersectionObserver((records) => {
+    for (const record of records) {
+      if (!record.isIntersecting) continue;
+      observer.unobserve(record.target);
+      queue.push(record.target.querySelector('img'));
+    }
+    pump();
+  }, { root, rootMargin: '160px 0px' });
+  signal?.addEventListener('abort', () => { observer.disconnect(); clearTimeout(timer); queue.length = 0; }, { once: true });
+
+  function pump() {
+    if (signal?.aborted) return;
+    const wait = pausedUntil - Date.now();
+    if (wait > 0) {
+      clearTimeout(timer);
+      timer = setTimeout(pump, wait);
+      return;
+    }
+    while (active < PREVIEW_CONCURRENCY && queue.length) {
+      const img = queue.shift();
+      if (!img.isConnected) continue;
+      active += 1;
+      load(img).finally(() => { active -= 1; pump(); });
+    }
+  }
+
+  function load(img) {
+    return new Promise((resolve) => {
+      const done = (ok) => {
+        img.onload = img.onerror = null;
+        if (ok) {
+          img.parentElement?.classList.add('is-loaded');
+          backoff = Math.max(1500, backoff / 2);
+        } else {
+          const n = (tries.get(img) || 0) + 1;
+          tries.set(img, n);
+          if (n < PREVIEW_RETRIES) {
+            // 同时在途的几张一起失败只算一次：已在暂停中就不再加倍
+            if (Date.now() >= pausedUntil) {
+              pausedUntil = Date.now() + backoff * (0.8 + Math.random() * 0.4);
+              backoff = Math.min(backoff * 2, 30000);
+            }
+            queue.unshift(img);
+          } else {
+            img.parentElement?.classList.add('is-failed');
+          }
+        }
+        resolve();
+      };
+      img.onload = () => done(true);
+      img.onerror = () => done(false);
+      // 重试时先清掉再设，确保重新发请求
+      img.removeAttribute('src');
+      img.src = urls.get(img);
+    });
+  }
+
+  return {
+    observe(img, url) {
+      urls.set(img, url);
+      // 观察占位的外框（加载完成后也不变）
+      observer.observe(img.parentElement);
+    },
+  };
+}
+
+/**
  * section(id, titleKey, ...rows)：settings.mjs 的分组卡片；toast(text) 显示提示；
  * signal 中止时（重绘或离开设置页）移除监听
  */
@@ -351,22 +433,36 @@ export function fontSection({ section, toast, signal }) {
     let previewAbort = null;
     const preview = (pkg, dir) => `${CATALOG_CDN}/${encodeURIComponent(pkg)}/dist/${encodeURIComponent(dir)}/preview.svg`;
 
-    function renderGrid() {
-      const q = search.value.trim().toLowerCase();
-      const matched = catalog.filter(([name, pkg, dirs]) => !q || name.toLowerCase().includes(q) || pkg.toLowerCase().includes(q) || dirs.some((d) => d.toLowerCase().includes(q)));
-      grid.replaceChildren(...matched.map(([name, pkg, dirs]) => {
+    const loader = previewLoader(grid, signal);
+    const noMatch = el('div', { className: 'set-font-empty', textContent: t('set.font.noMatch'), hidden: true });
+
+    // 卡片只建一次，搜索时切换 hidden：已加载的预览图不会重新请求
+    function buildGrid() {
+      grid.replaceChildren(...catalog.map(([name, pkg, dirs]) => {
+        const img = el('img', { alt: '', decoding: 'async', referrerPolicy: 'strict-origin-when-cross-origin' });
         const card = el('button', { type: 'button', className: 'set-font-card' },
-          el('img', { src: preview(pkg, dirs[0]), alt: '', loading: 'lazy', decoding: 'async', referrerPolicy: 'strict-origin-when-cross-origin' }),
+          el('span', { className: 'set-font-card-preview' }, img),
           el('span', { className: 'set-font-card-name', textContent: name }),
           dirs.length > 1 ? el('span', { className: 'set-font-card-count', textContent: t('set.font.variants', { n: dirs.length }) }) : null);
         card.dataset.pkg = pkg;
+        card.dataset.search = [name, pkg, ...dirs].join('\n').toLowerCase();
         card.setAttribute('aria-pressed', String(current?.pkg === pkg));
         card.addEventListener('click', () => showDetail(name, pkg, dirs, dirs[0]));
+        loader.observe(img, preview(pkg, dirs[0]));
         return card;
-      }));
-      if (!matched.length) grid.append(el('div', { className: 'set-font-empty', textContent: t('set.font.noMatch') }));
+      }), noMatch);
     }
-    search.addEventListener('input', renderGrid);
+    function filterGrid() {
+      const q = search.value.trim().toLowerCase();
+      let shown = 0;
+      for (const card of grid.querySelectorAll('.set-font-card')) {
+        card.hidden = !!q && !card.dataset.search.includes(q);
+        if (!card.hidden) shown += 1;
+      }
+      noMatch.hidden = shown > 0;
+      grid.scrollTop = 0;
+    }
+    search.addEventListener('input', filterGrid);
 
     async function showDetail(name, pkg, dirs, dir) {
       current = { name, pkg, dirs, dir };
@@ -423,7 +519,7 @@ export function fontSection({ section, toast, signal }) {
     }
 
     grid.append(el('div', { className: 'set-font-empty', textContent: t('set.font.previewLoading') }));
-    import('../lyrics/font-catalog.mjs').then(({ CATALOG }) => { catalog = CATALOG; renderGrid(); });
+    import('../lyrics/font-catalog.mjs').then(({ CATALOG }) => { catalog = CATALOG; buildGrid(); filterGrid(); });
     return panel;
   }
 
