@@ -79,6 +79,7 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 | 首页：搜索与类别浏览 | `views/home.mjs`（输入框、建议、最近搜索）、`views/search-results.mjs`（结果区）、`views/categories.mjs`（类别砖块） | `src/amp.rs`（`/amp/v1/catalog`、`recommendations_handler`）、`serverless/core.mjs` |
 | 歌词 | `lyrics/`（`panel.mjs` 接入播放器；`ttml.mjs`、`fonts.mjs`、`backdrop*.mjs`、`pulse.mjs`） | `src/handlers.rs`（`/lyrics`） |
 | 下载 | `download/`（管理器、下载中心、标签、ZIP、文件名）、`views/download-dialog.mjs`、`media/`（defrag） | — |
+| 动态封面下载与封面菜单 | `download/motion.mjs`（变体、选清晰度、分片 → 普通 MP4）、`views/artwork-menu.mjs`（各页面封面的右键 / 长按菜单）、`motion-art.mjs`（播放、播放列表解析） | — |
 | 资料库与歌单 | `library.mjs`（IndexedDB）、`views/library*.mjs` | —（只在浏览器） |
 | 设置 | `prefs.mjs`（存储）、`views/settings*.mjs`（页面）、`pickers.mjs`（导航选择面板） | — |
 | wrapper-lite 模式与限流 | `wrapper.js`、`pickers.mjs`、`host.js` | `src/wrapper.rs`、`src/limit.rs`、`src/handlers.rs`（`require_relay`） |
@@ -125,10 +126,11 @@ web/                   浏览器应用：内嵌进二进制，地址为 /assets/
   ec3/                 EC-3 PCM 回退：解码 Worker、runtime 与 ec3.wasm（@mediabunny/ac3，见 SOURCE.md）
   joc/                 全景声对象（JOC）：解码 Worker、joc.wasm、AudioWorklet 输出端、声场界面、hrtf/（SADIE II）
   mv/                  MV 播放列表与选轨（hls.mjs）、播放与下载（engine.mjs）、CEA-608 字幕、电台 HLS（radio.mjs）、样式
-  download/            批量下载：管理器（downloads.mjs）、下载中心（center.mjs）、iTunes 标签、ZIP、文件名
+  download/            批量下载：管理器（downloads.mjs）、下载中心（center.mjs）、iTunes 标签、ZIP、文件名、动态封面（motion.mjs）
   lyrics/              歌词界面：panel.mjs（接入播放器）、TTML 解析、LRC 导出、AMLL 打包、封面动态背景、节拍律动、字体库与字体目录
   views/               页面视图：<name>.html + <name>.mjs（+ <name>.css），由 app.mjs 挂载；共用部件：actions.mjs
-                       （封面按钮、「更多」菜单）、detail-header.mjs、library-ui.mjs、download-dialog.mjs、alac-check-dialog.mjs、
+                       （封面按钮、「更多」菜单）、artwork-menu.mjs（保存封面 / 动态封面）、detail-header.mjs、library-ui.mjs、
+                       download-dialog.mjs、alac-check-dialog.mjs、
                        links.mjs（Apple Music / 编辑链接 → 本站页面）；首页拆为 home.mjs、search-results.mjs、categories.mjs
 crates/
   am-mp4/              ISOBMFF 解析、box 修补、样本解密；内嵌预取密钥的模板

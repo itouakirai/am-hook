@@ -2,6 +2,7 @@
 // 进度显示在页面底部的下载中心。MV 也可以下载（是否默认勾选见设置中心），尚未发行的曲目不能下载。
 import { downloads } from '../download/downloads.mjs';
 import { prefs, CODEC_GROUPS } from '../prefs.mjs';
+import { motionSources } from '../download/motion.mjs';
 
 const { AmI18n } = window;
 const { t } = AmI18n;
@@ -36,6 +37,13 @@ export function openDownloadDialog({ kind, resource, tracks, country, navigate, 
     ...list.map((c) => el('option', { value: c, textContent: t(`set.codec.${c}`), selected: c === options.codec })))));
   const mode = options.saveMode === 'folder' && !downloads.folder.supported ? 'zip' : options.saveMode;
   const modeText = mode === 'folder' ? `${t('set.mode.folder')}${downloads.folder.name() ? ` · ${downloads.folder.name()}` : ''}` : t(`set.mode.${mode}`);
+  // 动态封面：专辑 / 歌单有方形或竖版动态封面时可勾选（默认按设置），清晰度按设置
+  const shapes = motionSources(a.editorialVideo).filter((s) => s.kind === 'square' || s.kind === 'tall');
+  const motionBoxes = shapes.map((s) => {
+    const box = el('input', { type: 'checkbox', checked: options.motion && (s.kind === 'square' || options.motionTall) });
+    return [s.kind, box, el('label', { className: 'dl-dialog-motion' }, box, ` ${t(`dlc.motion.${s.kind}`)}`)];
+  });
+  const motionHint = `${{ hevc: 'HEVC', avc: 'H.264' }[options.motionCodec]} · ≤ ${options.motionMax}p`;
   const settingsLink = el('a', { href: '/settings', textContent: t('dlc.changeSettings') });
   settingsLink.addEventListener('click', (e) => { e.preventDefault(); dialog.close(); navigate('/settings'); });
 
@@ -102,6 +110,7 @@ export function openDownloadDialog({ kind, resource, tracks, country, navigate, 
       // 总是给出选择：没有选择时 MV 按设置决定，而这里已由用户勾选
       select: [...selected],
       codec: codec.value,
+      motion: motionBoxes.filter(([, box]) => box.checked).map(([kind]) => kind),
     }).catch((err) => { toast(err.message || String(err)); return null; });
     dialog.close();
     if (job) toast(t('dlc.added', { name: a.name || '' }));
@@ -116,6 +125,8 @@ export function openDownloadDialog({ kind, resource, tracks, country, navigate, 
         el('p', { className: 'dl-dialog-sub', textContent: a.artistName || a.curatorName || '' }))),
     el('div', { className: 'dl-dialog-opts' },
       el('span', { textContent: t('set.codec') }), codec,
+      ...(motionBoxes.length ? [el('span', { textContent: t('dlc.motion') }),
+        el('span', { className: 'dl-dialog-motions' }, ...motionBoxes.map(([, , label]) => label), el('span', { className: 'dl-dialog-artist', textContent: motionHint }))] : []),
       el('span', { textContent: t('set.saveMode') }), el('span', {}, modeText, ' · ', settingsLink)),
     el('div', { className: 'dl-dialog-tools' }, count, all, none, mvToggle),
     el('ul', { className: 'dl-dialog-list' }, ...items),

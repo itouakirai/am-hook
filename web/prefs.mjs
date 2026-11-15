@@ -140,6 +140,9 @@ export const OPTIONS = {
     // MV：最高分辨率（高度）与音轨（同参考实现的 mv-max / mv-audio-type）
     mvMax: [2160, 1440, 1080, 720, 480],
     mvAudio: ['atmos', 'ac3', 'aac'],
+    // 动态封面：编码（HEVC 最高 2160p；H.264 最高 1080p，兼容性更好）与短边上限（见 download/motion.mjs 的 pickMotion）
+    motionCodec: ['hevc', 'avc'],
+    motionMax: [2160, 1440, 1080, 720],
   },
   // JOC 对象渲染（E-AC-3 Dolby Atmos，player.js 的 JocEngine）：off 为浏览器自己的解码（MSE / 内置 EC-3 PCM）
   joc: {
@@ -215,6 +218,11 @@ export const DEFAULTS = {
     saveCoverFormat: 'jpg',
     saveCoverSize: 3000,
     saveCoverOriginal: false,
+    // 动态封面：下载专辑 / 歌单时另存 square_animated_artwork.mp4（下载对话框中默认勾选），motionTall 另存竖版 3:4
+    motion: false,
+    motionTall: true,
+    motionCodec: 'hevc',
+    motionMax: 2160,
     // 歌词
     saveLyrics: false,
     lyricsFormat: 'lrc',
@@ -321,6 +329,10 @@ function clean(section, raw) {
     // 旧版本只有一组封面设置，另存的封面沿用它
     saveCoverFormat: oneOf(r.saveCoverFormat, o.coverFormat, oneOf(r.coverFormat, o.coverFormat, d.saveCoverFormat)),
     saveCoverSize: int(r.saveCoverSize, 100, 10000, int(r.coverSize, 100, 10000, d.saveCoverSize)),
+    motion: bool(r.motion, d.motion),
+    motionTall: bool(r.motionTall, d.motionTall),
+    motionCodec: oneOf(r.motionCodec, o.motionCodec, d.motionCodec),
+    motionMax: oneOf(Number(r.motionMax), o.motionMax, d.motionMax),
     saveLyrics: bool(r.saveLyrics, d.saveLyrics),
     lyricsFormat: oneOf(r.lyricsFormat, o.lyricsFormat, d.lyricsFormat),
     lyricsEmbedFormat: oneOf(r.lyricsEmbedFormat, o.lyricsFormat, d.lyricsEmbedFormat),

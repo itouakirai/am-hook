@@ -98,6 +98,17 @@ export function createDetailHeader({ $, signal, artUrl, rerender }) {
     setImg($('radiosity'), artUrl(cover, 160), '', 'low');
     if (tall) setImg($('tall-art'), artUrl(tallStatic, 1080, 1440), '', 'high');
 
+    // 封面菜单（artwork-menu.mjs）：方形与竖版两个动态封面都可保存，文件名用专辑 / 歌单名
+    const sources = [['square', video.motionDetailSquare], ['tall', video.motionDetailTall]]
+      .filter(([, v]) => v && v.video).map(([kind, v]) => ({ kind, src: v.video }));
+    for (const id of ['art', 'tall-art']) {
+      const box = $(id);
+      if (!box) continue;
+      if (sources.length) box.dataset.motion = JSON.stringify(sources);
+      else delete box.dataset.motion;
+      box.dataset.artworkName = attrs.name || alt || '';
+    }
+
     const source = tall ? video.motionDetailTall : video.motionDetailSquare;
     // 主题色：动态封面首帧的 bgColor，没有时取所用封面的 bgColor
     const theme = detailTheme((source && source.previewFrame && source.previewFrame.bgColor) || ((tall ? tallStatic : cover) || {}).bgColor,

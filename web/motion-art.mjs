@@ -3,15 +3,21 @@
 // 没有打开全屏界面（这里是歌词界面）、系统未开启「减少动态效果」，任一不满足即暂停。
 // 片源是无加密的 fMP4 HLS（单文件 + BYTERANGE，mvod.itunes.apple.com 允许跨域与 Range），用 MSE 逐段追加。
 
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+// 页面状态在第一次挂载时才开始跟踪：下载（download/motion.mjs）只用这里的解析函数，也会在 Node 单元测试中加载
+let reducedMotion = null;
 
 // 页面活动状态（官网 TVe）：初始取页面是否可见，之后 blur → 否、focus → 是、visibilitychange → 是否可见
-let pageActive = document.visibilityState === 'visible';
+let pageActive = false;
 const activeListeners = new Set();
 const setActive = (value) => { pageActive = value; for (const fn of activeListeners) fn(); };
-document.addEventListener('visibilitychange', () => setActive(document.visibilityState === 'visible'));
-addEventListener('blur', () => setActive(false));
-addEventListener('focus', () => setActive(true));
+function trackPage() {
+  if (reducedMotion) return;
+  reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  pageActive = document.visibilityState === 'visible';
+  document.addEventListener('visibilitychange', () => setActive(document.visibilityState === 'visible'));
+  addEventListener('blur', () => setActive(false));
+  addEventListener('focus', () => setActive(true));
+}
 
 /** 全屏界面（歌词）打开时暂停（官网 pauseForFullScreenModal） */
 const fullscreenOpen = () => document.body.classList.contains('lyrics-open');
@@ -22,7 +28,11 @@ function attributes(value) {
   return result;
 }
 
-/** master 中的视频变体：[{ url, codec, size }]，size 为较长边像素 */
+/**
+ * master 中的视频变体：[{ url, codec, size, width, height, bandwidth, average, range }]：size 为较长边像素，
+ * average 为 AVERAGE-BANDWIDTH（没有时取 BANDWIDTH），range 为 VIDEO-RANGE（SDR / PQ / HLG）。
+ * 部分竖版动态封面另带静音的音轨组（AUDIO=…，实测 -91 dB），这里只取视频
+ */
 export function parseMaster(text, base) {
   const variants = [];
   let pending = null;
@@ -31,16 +41,21 @@ export function parseMaster(text, base) {
     if (line.startsWith('#EXT-X-STREAM-INF:')) pending = attributes(line.slice(18));
     else if (line && !line.startsWith('#') && pending) {
       const [w, h] = (pending.RESOLUTION || '0x0').split('x').map(Number);
-      variants.push({ url: new URL(line, base).href, codec: (pending.CODECS || '').split(',')[0], size: Math.max(w, h), bandwidth: Number(pending.BANDWIDTH) || 0 });
+      const bandwidth = Number(pending.BANDWIDTH) || 0;
+      variants.push({
+        url: new URL(line, base).href, codec: (pending.CODECS || '').split(',')[0], size: Math.max(w, h), width: w || 0, height: h || 0,
+        bandwidth, average: Number(pending['AVERAGE-BANDWIDTH']) || bandwidth, range: pending['VIDEO-RANGE'] || 'SDR',
+      });
       pending = null;
     }
   }
   return variants;
 }
 
-/** media playlist：init 与各分片（同一文件内的字节区间） */
+/** media playlist：init 与各分片（同一文件内的字节区间）；duration 为各分片 EXTINF 之和（秒） */
 export function parseMedia(text, base) {
   let init = null;
+  let duration = 0;
   let range = null;
   let previous = null;
   const segments = [];
@@ -57,7 +72,8 @@ export function parseMedia(text, base) {
     if (line.startsWith('#EXT-X-MAP:')) {
       const a = attributes(line.slice(11));
       init = resource(a.URI, a.BYTERANGE);
-    } else if (line.startsWith('#EXT-X-BYTERANGE:')) range = line.slice(17);
+    } else if (line.startsWith('#EXTINF:')) duration += parseFloat(line.slice(8)) || 0;
+    else if (line.startsWith('#EXT-X-BYTERANGE:')) range = line.slice(17);
     else if (line.startsWith('#EXT-X-KEY:') && !/METHOD=NONE/.test(line)) throw new Error('Encrypted motion artwork is not supported');
     else if (line && !line.startsWith('#')) {
       segments.push(resource(line, range));
@@ -65,7 +81,7 @@ export function parseMedia(text, base) {
     }
   }
   if (!init || !segments.length) throw new Error('Invalid motion artwork playlist');
-  return { init, segments };
+  return { init, segments, duration };
 }
 
 /** 选浏览器能解码、且不小于显示尺寸的最小变体（与官网一样按容器大小取清晰度） */
@@ -90,6 +106,7 @@ const mime = (codec) => `video/mp4; codecs="${codec}"`;
  * 在 container 中挂载动态封面，返回 { destroy }。container 里原有的静态封面保留为占位，视频开始播放后淡入覆盖。
  */
 export function mountMotionArt(container, { src }) {
+  trackPage();
   const video = document.createElement('video');
   Object.assign(video, { muted: true, loop: true, playsInline: true, autoplay: false, disablePictureInPicture: true, disableRemotePlayback: true });
   video.defaultMuted = true;
@@ -97,6 +114,8 @@ export function mountMotionArt(container, { src }) {
   video.setAttribute('playsinline', '');
   video.setAttribute('aria-hidden', 'true');
   video.className = 'motion-video';
+  // 封面菜单（views/artwork-menu.mjs）据此提供「保存动态封面」
+  video.dataset.motionSrc = src;
   const controller = new AbortController();
   let objectUrl = null;
   let loading = null;

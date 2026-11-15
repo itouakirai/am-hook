@@ -40,6 +40,8 @@ export function formatSize(bytes) {
 const art = (template, size) => (template ? template.replace('{w}', size).replace('{h}', size).replace('{c}', 'bb').replace('{f}', 'jpg') : '');
 
 function pageHref(job) {
+  // 封面菜单保存的单个文件：链接到保存时所在的页面
+  if (job.kind === 'artwork') return job.spec.href || '/';
   const kind = { album: 'album', playlist: 'playlist', song: 'song', 'music-video': 'music-video' }[job.kind];
   return `/https://music.apple.com/${job.country}/${kind}/_/${job.cid}`;
 }
@@ -245,7 +247,8 @@ export function mountDownloadCenter({ root, navigate }) {
         n.taskNodes.set(task.id, r);
       }
       r.li.className = `dl-task is-${task.state}`;
-      r.idx.textContent = String(task.index).padStart(2, '0');
+      // 动态封面等文件任务不编号
+      r.idx.textContent = task.file ? '' : String(task.index).padStart(2, '0');
       r.nm.textContent = task.name;
       r.nm.title = task.artist ? `${task.name} — ${task.artist}` : task.name;
       r.q.textContent = task.quality || '';
@@ -286,7 +289,7 @@ export function mountDownloadCenter({ root, navigate }) {
       n.name.textContent = job.title || t('dlc.untitled');
       n.name.href = pageHref(job);
       const kind = t(`dlc.kind.${job.kind}`);
-      const mode = t(`dlc.mode.${(job.kind === 'song' || job.kind === 'music-video') && job.mode === 'zip' ? 'files' : job.mode}`);
+      const mode = t(`dlc.mode.${(job.kind === 'song' || job.kind === 'music-video' || job.kind === 'artwork') && job.mode === 'zip' ? 'files' : job.mode}`);
       n.subline.textContent = [kind, job.subtitle, mode].filter(Boolean).join(' · ');
       n.status.textContent = statusText(job);
       n.status.title = n.status.textContent;

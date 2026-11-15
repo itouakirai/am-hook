@@ -25,6 +25,20 @@ export async function amp(path, params, { signal } = {}) {
   return data;
 }
 
+const ART =/^(https:\/\/[a-z0-9-]+\.mzstatic\.com\/image\/thumb\/.+\/)(\d+)x(\d+)([^/]*?)\.(jpe?g|png|webp|avif|heic)([?#].*)?$/i;
+
+/**
+ * 反过来：页面上的 mzstatic 图片地址 → artwork.url 模板（{w}x{h}bb.{f}），不是 Apple 封面时返回 ''（封面菜单 views/artwork-menu.mjs 用）。
+ * 两个字母的裁切码（bb、cc、sr、ea 等，可带 -NN 质量后缀）一律换成 bb，取完整的原图；
+ * 地址里的特殊裁切（如歌单封面的 SC.DN01）与查询参数（封面文字的语言）保留
+ */
+export function artworkTemplate(src) {
+  const m = ART.exec(src || '');
+  if (!m) return '';
+  const crop = /^([a-z]{2})?(-\d+)?$/i.test(m[4]) ? 'bb' : m[4];
+  return `${m[1]}{w}x{h}${crop}.{f}${m[6] || ''}`;
+}
+
 /**
  * amp-api 的 artwork.url 是 {w}x{h}{c}.{f} 模板（请求带 art[url]=c,f 时保留 {c} / {f}）。
  * crop 为官网使用的裁切码（bb 原比例、sr 指定矩形、cc 居中方形、ea / vf 通栏图等）；

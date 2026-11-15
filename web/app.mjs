@@ -11,6 +11,7 @@ import * as library from '/assets/library.mjs';
 import { newPlaylist, newFolder, playlistName, folderName, LIB_ICON } from '/assets/views/library-ui.mjs';
 import { openMenu, createActions, nowPlayingTarget, songTarget } from '/assets/views/actions.mjs';
 import { mountDownloadCenter } from '/assets/download/center.mjs';
+import { installArtworkMenu } from '/assets/views/artwork-menu.mjs';
 import { prefs, playbackFor, onNetworkChange } from '/assets/prefs.mjs';
 
 const { AmPlayer, useJocSettings, usePlaybackSettings } = window.AmHook;
@@ -382,6 +383,8 @@ newButton.addEventListener('click', (event) => {
 /* ---------- 下载中心：与播放条一样常驻（download/center.mjs，下载由 downloads.mjs 管理） ---------- */
 const downloadCenter = mountDownloadCenter({ root: $('downloads'), navigate: (href) => navigate(href) });
 window.AmApp.downloads = downloadCenter;
+// 封面的右键 / 长按菜单（保存静态与动态封面，views/artwork-menu.mjs）
+installArtworkMenu({ toast });
 
 /* ---------- 设置：主地区与曲库语言的选择面板 ---------- */
 // 面板里的「保存并检测」是用户操作：可以请求本地网络权限（见 wrapper.js 的 status）

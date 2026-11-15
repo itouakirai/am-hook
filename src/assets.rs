@@ -165,6 +165,8 @@ pub static ASSETS: &[Asset] = &[
     asset!("download/mp4-tags.mjs"),
     asset!("download/zip.mjs"),
     asset!("download/naming.mjs"),
+    // 动态封面下载（选清晰度、取分片、改写为普通 MP4）
+    asset!("download/motion.mjs"),
     // 歌词界面：TTML 解析与转 LRC、接入播放器的 panel.mjs、打包好的 AMLL（见 vendor/amll）、封面动态背景
     // （backdrop*.mjs，移植自 YouLyPlus）、节拍律动，以及歌词字体库（数据只存在浏览器的 IndexedDB）与中文网字计划的字体目录
     asset!("lyrics/panel.mjs"),
@@ -216,8 +218,9 @@ pub static ASSETS: &[Asset] = &[
     asset!("views/settings.css"),
     asset!("views/settings-fonts.mjs"),
     // 各页面共用的部件：条目操作（封面悬停按钮、「更多」菜单）、专辑 / 歌单页的头部（主题色、动态封面）、
-    // 资料库的对话框与导入导出、专辑 / 歌单的下载对话框、ALAC 检测对话框
+    // 资料库的对话框与导入导出、专辑 / 歌单的下载对话框、ALAC 检测对话框、封面右键 / 长按菜单（保存静态与动态封面）
     asset!("views/actions.mjs"),
+    asset!("views/artwork-menu.mjs"),
     asset!("views/detail-header.mjs"),
     asset!("views/library-ui.mjs"),
     asset!("views/download-dialog.mjs"),

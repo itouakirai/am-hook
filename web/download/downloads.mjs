@@ -9,9 +9,12 @@
 // 专辑 / 歌单中的 MV（以及单独下载的 MV）同参考实现：wrapper-lite 取 MV master → 按 mvMax / mvAudio 选视频与音轨 →
 // mv/engine.mjs 解密、合并并 defrag（标签同样写进 moov，stik 为音乐视频）→ 与歌曲一样保存为 .mp4。
 //
-//   downloads.add(spec)          spec：{ kind: 'album' | 'playlist' | 'song' | 'music-video', id, country, resource?, tracks?, select?, codec?, variant? }
+//   downloads.add(spec)          spec：{ kind: 'album' | 'playlist' | 'song' | 'music-video', id, country, resource?, tracks?, select?, codec?, variant?, motion? }
 //                                resource / tracks 为页面已取到的 amp-api 资源（省略时这里获取）；select：只下载这些曲目 id
-//                                （省略时为全部歌曲，以及设置允许时的 MV）；codec：覆盖设置中的首选音质；variant：单曲指定的音质（master 的 GROUP-ID）
+//                                （省略时为全部歌曲，以及设置允许时的 MV）；codec：覆盖设置中的首选音质；variant：单曲指定的音质（master 的 GROUP-ID）；
+//                                motion：另存的动态封面形状（['square', 'tall']，见 download/motion.mjs；省略时按设置）
+//   downloads.addFile(spec)      单个文件（封面菜单的「保存封面 / 动态封面」）：{ title, subtitle?, artwork?, label, href?,
+//                                run(signal, onProgress(done, total)) → { file, name, crc?, dispose? } }
 //   downloads.jobs               全部任务（只读）；job.tasks 为其中各曲目
 //   downloads.cancel(job, task?) / retry(job, task?) / remove(job) / clearFinished() / save(job)
 //   downloads.onChange(fn)       状态变化（节流）后回调
@@ -26,6 +29,7 @@ import { ttmlToLrc } from '../lyrics/lrc.mjs';
 import { parseMaster, pickMvVideo, pickMvAudio, mvQualityVars } from '../mv/hls.mjs';
 import { createFragmentScanner, tagValue, DEFECTS } from '../alac-check.mjs';
 import { amp } from '../amp.mjs';
+import { motionSources, loadMotion, pickMotion, motionQuality, downloadMotion, MOTION_FILES } from './motion.mjs';
 
 const { AmDecrypt, AmWrapper, AmI18n } = window;
 const t = (key, vars) => AmI18n.t(key, vars);
@@ -47,8 +51,8 @@ async function allPages(first, next, params) {
 const playableSong = (r) => r && r.type === 'songs' && r.attributes && r.attributes.playParams;
 const playableMv = (r) => r && r.type === 'music-videos' && r.attributes && r.attributes.playParams;
 const playable = (r) => playableSong(r) || playableMv(r);
-/** 只有一首（一个 MV）的任务：不打包，不建专辑文件夹（保存到文件夹时除外） */
-const single = (job) => job.kind === 'song' || job.kind === 'music-video';
+/** 只有一首（一个 MV、一个封面文件）的任务：不打包，不建专辑文件夹（保存到文件夹时除外） */
+const single = (job) => job.kind === 'song' || job.kind === 'music-video' || job.kind === 'artwork';
 
 /* ---------- 音质 ---------- */
 /** 文件名变量 codec / quality / bit_depth / sample_rate */
@@ -297,9 +301,53 @@ async function add(spec) {
     }
   }
   jobs.unshift(job);
+  if (job.kind === 'artwork') {
+    // 单个文件：不需要准备元数据
+    job.subtitle = spec.subtitle || '';
+    job.artwork = spec.artwork || '';
+    job.tasks = [fileTask(spec, 1)];
+    job.state = 'ready';
+    pump();
+    return job;
+  }
   notify();
   prepare(job, spec);
   return job;
+}
+
+/**
+ * 不是曲目的文件任务（动态封面、封面菜单保存的单个文件）：run(signal, onProgress) 下载并返回 { file, name, crc?, dispose? }；
+ * fileName 已知时（专辑的动态封面）先检查是否已存在
+ */
+function fileTask(spec, index) {
+  return {
+    id: `f${++seq}`, file: true, index, name: spec.label || spec.title || '', artist: '', song: { attributes: {} },
+    run: spec.run, fileName: spec.fileName || '',
+    state: 'queued', done: 0, total: 0, attempts: 0, throttles: 0, quality: spec.quality || '', check: null, error: '',
+  };
+}
+
+/** 专辑 / 歌单的动态封面任务：shapes 为要保存的形状，片源取自 editorialVideo，清晰度按设置（pickMotion） */
+function motionTasks(job, attributes, shapes) {
+  const o = job.options;
+  return motionSources(attributes && attributes.editorialVideo)
+    .filter((s) => (s.kind === 'square' || s.kind === 'tall') && shapes.includes(s.kind))
+    .map((s, i) => fileTask({
+      label: t(`dlc.motion.${s.kind}`),
+      fileName: MOTION_FILES[s.kind],
+      run: async (signal, onProgress, task) => {
+        const { variants } = await loadMotion(s.src, signal);
+        const v = pickMotion(variants, { codec: o.motionCodec, max: o.motionMax });
+        task.quality = motionQuality(v);
+        notify();
+        return { ...(await downloadMotion(v, { signal, onProgress })), name: MOTION_FILES[s.kind] };
+      },
+    }, job.tasks.length + i + 1));
+}
+
+/** addFile 的单个文件任务：保存方式为文件夹时写入所选文件夹的根目录，否则交给浏览器 */
+function addFile(spec) {
+  return add({ ...spec, kind: 'artwork', id: '' });
 }
 
 /** 取得专辑 / 歌单与各曲目的完整元数据，生成曲目任务 */
@@ -314,13 +362,13 @@ async function prepare(job, spec) {
     let collection = spec.resource || null;
     let list = spec.tracks || null;
     if (job.kind === 'album' && (!collection || !list)) {
-      const data = await amp(`/v1/catalog/${cc}/albums/${job.cid}`, { l, include: 'tracks,artists' });
+      const data = await amp(`/v1/catalog/${cc}/albums/${job.cid}`, { l, include: 'tracks,artists', extend: 'editorialVideo' });
       collection = data.data && data.data[0];
       if (!collection) throw new Error('album not found');
       const rel = collection.relationships && collection.relationships.tracks;
       list = await allPages(rel && rel.data, rel && rel.next, { l });
     } else if (job.kind === 'playlist' && (!collection || !list)) {
-      const data = await amp(`/v1/catalog/${cc}/playlists/${job.cid}`, { l, include: 'tracks,curator', 'limit[tracks]': 300 });
+      const data = await amp(`/v1/catalog/${cc}/playlists/${job.cid}`, { l, include: 'tracks,curator', 'limit[tracks]': 300, extend: 'editorialVideo' });
       collection = data.data && data.data[0];
       if (!collection) throw new Error('playlist not found');
       const rel = collection.relationships && collection.relationships.tracks;
@@ -378,6 +426,11 @@ async function prepare(job, spec) {
         error: '',
       };
     });
+    // 动态封面（专辑 / 歌单）：对话框给出的形状，没有时按设置
+    if (job.kind === 'album' || job.kind === 'playlist') {
+      const shapes = spec.motion || (job.options.motion ? ['square', ...(job.options.motionTall ? ['tall'] : [])] : []);
+      if (shapes.length) job.tasks.push(...motionTasks(job, ca, shapes));
+    }
     const first = job.tasks[0].song;
     const fa = first.attributes || {};
     if (single(job)) {
@@ -464,7 +517,7 @@ function templateFolder(job) {
   if (job.kind === 'playlist') return formatPath(o.playlistFolder, { playlist: job.collection.name, playlist_id: job.cid, curator: job.collection.artist });
   if (job.kind === 'music-video') return [];
   // 专辑文件夹按其中的歌曲命名（MV 的属性可能不带所属专辑）
-  const task = job.tasks.find((x) => !x.mv) || job.tasks[0];
+  const task = job.tasks.find((x) => !x.mv && !x.file) || job.tasks.find((x) => !x.file);
   const info = trackInfo(job, task);
   const vars = nameVars(job, task, info, {});
   if (job.kind === 'album') return formatPath(o.albumFolder, vars);
@@ -532,8 +585,8 @@ async function runTask(job, task) {
   try {
     task.state = 'resolving';
     notify();
-    const info = trackInfo(job, task);
-    const result = await (task.mv ? downloadVideo : downloadSong)(job, task, info, signal);
+    const result = task.file ? await downloadFile(job, task, signal)
+      : await (task.mv ? downloadVideo : downloadSong)(job, task, trackInfo(job, task), signal);
     if (!result) {
       task.state = 'skipped';
       task.saved = true;
@@ -582,6 +635,26 @@ function requeue(task, err, delay) {
 /** 保存到文件夹且已存在同名文件时跳过 */
 async function exists(job, task) {
   return job.mode === 'folder' && job.options.skipExisting && job.dir && fileExists(job.dir, [...job.folder, ...task.path]);
+}
+
+/** 文件任务（动态封面等）：文件名已知时先检查是否已存在；已存在而跳过时返回 null */
+async function downloadFile(job, task, signal) {
+  if (task.fileName) {
+    task.path = [task.fileName];
+    if (await exists(job, task)) return null;
+  }
+  task.state = 'downloading';
+  notify();
+  let last = 0;
+  const out = await task.run(signal, (done, total) => {
+    addBytes(done - last);
+    last = done;
+    task.done = done;
+    task.total = total || 0;
+    notify();
+  }, task);
+  task.path = [out.name || task.fileName || 'file'];
+  return { file: out.file, size: out.size ?? out.file.size, crc: out.crc ?? null, dispose: out.dispose || (() => {}) };
 }
 
 /** 封面：拿不到时不影响下载，只是不写入 */
@@ -845,7 +918,7 @@ function settle(job) {
 function m3u(job) {
   const lines = ['#EXTM3U'];
   for (const task of job.tasks) {
-    if (!(task.state === 'done' || task.state === 'skipped') || !task.path) continue;
+    if (!(task.state === 'done' || task.state === 'skipped') || !task.path || task.file) continue;
     const a = task.song.attributes || {};
     lines.push(`#EXTINF:${Math.round((a.durationInMillis || 0) / 1000)},${a.artistName || ''} - ${a.name || ''}`, task.path.join('/'));
   }
@@ -857,7 +930,7 @@ async function extras(job) {
   const out = [];
   // 专辑 / 歌单的封面；单曲保存到文件夹时为其专辑的封面；单独的 MV 不另存（缩略图已写入标签）
   if (o.saveCover && (!single(job) || (job.kind === 'song' && job.mode === 'folder'))) {
-    const song = job.tasks.find((x) => !x.mv);
+    const song = job.tasks.find((x) => !x.mv && !x.file);
     const art = job.kind === 'playlist' || !song ? job.collection.artwork : trackInfo(job, song).artwork;
     const cover = await fetchCover(job.covers, coverUrl(art, o.saveCoverFormat, o.saveCoverOriginal ? 'original' : o.saveCoverSize), job.ctl.signal).catch(() => null);
     if (cover) out.push({ path: [`cover.${cover.type === 'png' ? 'png' : 'jpg'}`], data: cover.bytes });
@@ -988,6 +1061,7 @@ function stats() {
 export const downloads = {
   get jobs() { return jobs; },
   add,
+  addFile,
   cancel,
   retry,
   remove,

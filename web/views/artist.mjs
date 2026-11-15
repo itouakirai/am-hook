@@ -1,6 +1,7 @@
 // 艺人页（/https://music.apple.com/{cc}/artist/{slug}/{id}），由 app.mjs 挂载
 import { createActions, setPlayButton, targetOf } from './actions.mjs';
 import { amp, artUrl } from '../amp.mjs';
+import { motionSources } from '../download/motion.mjs';
 
 const { formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -201,6 +202,11 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     else document.body.style.removeProperty('--joe');
 
     const media = $('hero-art');
+    // 封面菜单（artwork-menu.mjs）：横版与方形动态头像都可保存，文件名用艺人名
+    const motions = motionSources(a.editorialVideo);
+    if (motions.length) media.dataset.motion = JSON.stringify(motions.map(({ kind, src }) => ({ kind, src })));
+    else delete media.dataset.motion;
+    media.dataset.artworkName = a.name || '';
     if (style.kind === 'wide' || style.kind === 'video') {
       // 通栏：wide 与官网 uberArtwork 的 artwork profile 相同，按 16:9 取图（[[1200], HD_ASPECT_RATIO, cropStyle]），
       // vf 等裁切码由图片服务器按这个比例做智能裁切——hero 原图多为 3000×3000 方图，按原图比例取会拿到整张方图，
@@ -214,6 +220,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       media.replaceChildren();
       // 圆形头像（官网 facehole-uber），背后是同一张图放大、模糊的光晕
       setImg($('portrait'), 'portrait-img', artUrl(style.art, 380), t('artist.portraitAlt', { name: a.name }));
+      $('portrait').dataset.artworkName = a.name || '';
       setImg($('portrait-glow'), 'glow-img', artUrl(style.art, 240));
     }
     const key = style.kind === 'video' ? style.src : '';

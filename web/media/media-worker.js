@@ -91,7 +91,8 @@ async function defrag(song, input, output, dir, tags, crc = !!song) {
   } finally { source.close(); target?.close(); }
 }
 // Without OPFS (e.g. plain HTTP), the same code reads a Blob's bytes and returns a Blob.
-async function defragBlob(blob, tags) {
+// song: 1 for the song layout, 0 for the MV layout (isom ftyp).
+async function defragBlob(blob, tags, song = 1) {
   const bytes = new Uint8Array(await blob.arrayBuffer()), parts = [];
   let length = 0;
   const source = { getSize: () => bytes.length, read: (view, { at }) => { const part = bytes.subarray(at, at + view.length); view.set(part); return part.length; } };
@@ -99,7 +100,7 @@ async function defragBlob(blob, tags) {
     if (at !== length) return -1;
     parts.push(view.slice()); length += view.length; return view.length;
   } });
-  withFiles(source, writer, (i, o) => invoke('media_defrag', i, o, 1, tags || new Uint8Array(0)));
+  withFiles(source, writer, (i, o) => invoke('media_defrag', i, o, song, tags || new Uint8Array(0)));
   return { blob: new Blob(parts, { type: blob.type }), size: length, crc: writer.crc() };
 }
 
@@ -114,6 +115,8 @@ const methods = {
   release: name => { invoke('media_release', name); },
   // defrag(input, output, tags?, crc?) -> { size, crc }: the MV layout; crc is null unless asked for.
   defrag: (input, output, tags, crc) => defrag(0, input, output, undefined, tags, !!crc),
+  // defragVideo(blob, tags?) -> { blob, size, crc }: the MV layout in memory (motion artwork, a few tens of MB).
+  defragVideo: (blob, tags) => defragBlob(blob, tags, 0),
   // defragSong(blob, tags) -> { blob, size, crc } or defragSong(input, output, dir, tags) -> { size, crc }:
   // the reference song layout; tags (Uint8Array, may be omitted) are the ilst items (see mp4-tags.mjs).
   defragSong: (...args) => args[0] instanceof Blob ? defragBlob(args[0], args[1]) : defrag(1, ...args),

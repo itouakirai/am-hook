@@ -846,7 +846,12 @@ export function mount({ root, signal, onLangChange, toast }) {
       on: (v) => v.saveCover, setOn: (on) => set({ saveCover: on }),
       format: 'saveCoverFormat', size: 'saveCoverSize', original: 'saveCoverOriginal',
     });
-    const cover = section('cover', 'set.cover', el('div', { className: 'set-covers' }, embedCover, saveCover));
+    // 动态封面（download/motion.mjs）：随专辑 / 歌单另存，编码与清晰度也用于下载对话框；单个文件从封面的右键 / 长按菜单保存
+    const cover = section('cover', 'set.cover', el('div', { className: 'set-covers' }, embedCover, saveCover),
+      row(t('set.motion'), t('set.motionDesc'), toggle('motion', t('set.motion'))),
+      row(t('set.motionTall'), t('set.motionTallDesc'), toggle('motionTall', t('set.motionTall'))),
+      row(t('set.motionCodec'), t('set.motionCodecDesc'), select('motionCodec', o.motionCodec.map((c) => [c, t(`set.motionCodec.${c}`)]))),
+      row(t('set.motionMax'), t('set.motionMaxDesc'), select('motionMax', o.motionMax.map((n) => [n, `${n}p`]))));
 
     const lyrics = section('lyrics', 'set.lyrics', ...lyricsSection(o));
 

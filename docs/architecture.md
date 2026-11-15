@@ -79,6 +79,7 @@ Paths under `web/` are served at `/assets/<same path>`, so a URL in the browser'
 | Home: search and Browse Categories | `views/home.mjs` (input, suggestions, recent searches), `views/search-results.mjs` (results), `views/categories.mjs` (category bricks) | `src/amp.rs` (`/amp/v1/catalog`, `recommendations_handler`), `serverless/core.mjs` |
 | Lyrics | `lyrics/` (`panel.mjs` wires the view to the player; `ttml.mjs`, `fonts.mjs`, `backdrop*.mjs`, `pulse.mjs`) | `src/handlers.rs` (`/lyrics`) |
 | Downloads | `download/` (manager, center, tags, ZIP, names), `views/download-dialog.mjs`, `media/` (defrag) | — |
+| Motion artwork and the cover menu | `download/motion.mjs` (variants, quality choice, segments → progressive MP4), `views/artwork-menu.mjs` (right-click / long-press on any cover), `motion-art.mjs` (playback, playlist parsing) | — |
 | Library and playlists | `library.mjs` (IndexedDB), `views/library*.mjs` | — (browser only) |
 | Settings | `prefs.mjs` (store), `views/settings*.mjs` (page), `pickers.mjs` (nav pickers) | — |
 | wrapper-lite modes and limits | `wrapper.js`, `pickers.mjs`, `host.js` | `src/wrapper.rs`, `src/limit.rs`, `src/handlers.rs` (`require_relay`) |
@@ -126,11 +127,13 @@ web/                   Browser app: embedded into the binary, served at /assets/
   joc/                 Dolby Atmos objects (JOC): decode worker, joc.wasm, AudioWorklet output, spatial scene, hrtf/ (SADIE II)
   mv/                  MV playlists and track choice (hls.mjs), playback and download (engine.mjs), CEA-608 captions,
                        station HLS (radio.mjs), styles
-  download/            Batch downloads: manager (downloads.mjs), download center (center.mjs), iTunes tags, ZIP, file names
+  download/            Batch downloads: manager (downloads.mjs), download center (center.mjs), iTunes tags, ZIP, file names,
+                       motion artwork (motion.mjs)
   lyrics/              Lyrics view: panel.mjs (wiring to the player), TTML parsing, LRC export, the AMLL bundle,
                        artwork backdrop, beat pulse, font library and catalog
   views/               Page views: <name>.html + <name>.mjs (+ <name>.css), mounted by app.mjs; shared parts: actions.mjs
-                       (cover buttons, More menus), detail-header.mjs, library-ui.mjs, download-dialog.mjs, alac-check-dialog.mjs,
+                       (cover buttons, More menus), artwork-menu.mjs (save cover / motion artwork), detail-header.mjs,
+                       library-ui.mjs, download-dialog.mjs, alac-check-dialog.mjs,
                        links.mjs (Apple Music / editorial links → local pages); the home page is home.mjs, search-results.mjs, categories.mjs
 crates/
   am-mp4/              ISOBMFF parsing, box patching, sample decryption; embeds the prefetch-key template
