@@ -233,6 +233,9 @@ fn describe(path: &str, query: &str) -> Entry {
     if let Some(rest) = path.strip_prefix("/amp/v1/editorial/") {
         return Entry::new("editorial", data_detail(rest, query));
     }
+    if let Some(rest) = path.strip_prefix("/amp/v1/recommendations/") {
+        return Entry::new("editorial", format!("recommendations {}", data_detail(rest, query)));
+    }
     Entry::new("other", path).quiet()
 }
 
@@ -501,6 +504,7 @@ mod tests {
         for (path, query, kind, detail) in [
             ("/amp/v1/editorial/cn/groupings", "name=music&include=contents", "editorial", "cn/groupings name music"),
             ("/amp/v1/editorial/us/rooms/123/contents", "offset=50&limit=25", "editorial", "us/rooms/123/contents offset 50 limit 25"),
+            ("/amp/v1/recommendations/cn", "name=search-landing&extend=editorialArtwork", "editorial", "recommendations cn name search-landing"),
             ("/amp/v1/catalog/us/charts", "types=songs%2Calbums&genre=20&offset=50", "charts", "us/charts types songs,albums genre 20 offset 50"),
             ("/amp/v1/catalog/us", "ids%5Bcurators%5D=123&ids%5Bapple-curators%5D=123", "catalog", "us ids[curators] 123 ids[apple-curators] 123"),
             ("/amp/v1/catalog/us/uploaded-videos/123", "token=secret&fields=name", "catalog", "us/uploaded-videos/123"),

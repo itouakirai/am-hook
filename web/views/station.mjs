@@ -9,6 +9,7 @@ import { createDetailHeader } from './detail-header.mjs';
 import { openDownloadDialog } from './download-dialog.mjs';
 import { stationKind, withToken, askToken, onTokenChange, nextTracks, playAssets } from '/assets/station.mjs';
 import { buildIlst, imageType } from '/assets/download/mp4-tags.mjs';
+import { amp, artUrl } from '../amp.mjs';
 
 const { formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -33,28 +34,10 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-/** artwork.url 模板 {w}x{h}{c}.{f} */
-function artUrl(artwork, w, h = w, crop = 'bb') {
-  return artwork && artwork.url ? artwork.url.replace('{w}', w).replace('{h}', h).replace('{c}', crop).replace('{f}', 'jpg') : '';
-}
-
 const rel = (res, key) => (res && res.relationships && res.relationships[key] && res.relationships[key].data) || [];
 
 function plainText(html) {
   return html ? new DOMParser().parseFromString(html, 'text/html').body.textContent.trim() : '';
-}
-
-async function amp(path, params) {
-  const target = new URL('/amp' + path, location.origin);
-  for (const [key, value] of Object.entries(params || {})) if (value !== undefined) target.searchParams.set(key, value);
-  let res = await fetch(target);
-  if (res.status === 400 && target.searchParams.has('l')) {
-    target.searchParams.delete('l');
-    res = await fetch(target);
-  }
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data) throw new Error((data && ((data.errors && data.errors[0] && data.errors[0].detail) || data.msg)) || `HTTP ${res.status}`);
-  return data;
 }
 
 /** 电台的种类文字（眉题与徽标） */

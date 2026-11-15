@@ -207,6 +207,12 @@ function ampRoute(path, search, platform) {
   if (query.length > MAX_QUERY_LEN) return fail(400, 'Query too long');
   const suffix = query ? `?${query}` : '';
   if (path === '/amp/v1/storefronts') return amp(`${API_ORIGIN}/v1/storefronts${suffix}`, STOREFRONTS_TTL, platform);
+  // 搜索页「类别浏览」（name=search-landing）：只开放地区根路径，同 src/amp.rs 的 recommendations_handler
+  const reco = /^\/amp\/v1\/recommendations\/([^/]+)$/.exec(path);
+  if (reco) {
+    if (!/^[a-z]{2}$/.test(reco[1])) return fail(400, 'Invalid storefront');
+    return amp(`${API_ORIGIN}/v1/recommendations/${reco[1]}${suffix}`, CATALOG_TTL, platform);
+  }
   const match = /^\/amp\/v1\/(catalog|editorial)\/(.+)$/.exec(path);
   if (!match) return null;
   const rest = decode(match[2]);

@@ -1,6 +1,6 @@
-// Run with: node tests/search_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/search_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
-// Covers the home page search: suggestions, results, pagination, ?q= state and the mobile layout.
+// Covers the home page: Browse Categories bricks, search suggestions, results, pagination, ?q= state and the mobile layout.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
@@ -19,6 +19,31 @@ const shots = process.env.SEARCH_UI_SHOTS;
     page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
     await page.addInitScript(() => localStorage.setItem('am-hook:lang', 'en'));
     frame = await openPage(page, base + '/');
+
+    // Browse Categories (/amp/v1/recommendations/{sf}?name=search-landing): 16:9 bricks with a title, links open local pages
+    const bricks = frame.locator('#brick-grid a.brick');
+    await bricks.first().waitFor({ timeout: 20000 });
+    assert.ok(await bricks.count() >= 10, 'category bricks shown');
+    assert.ok((await frame.locator('#categories-title').textContent()).trim(), 'categories title');
+    const brickBox = await bricks.first().boundingBox();
+    assert.ok(Math.abs(brickBox.width / brickBox.height - 16 / 9) < 0.05, 'bricks are 16:9');
+    const hrefs = await bricks.evaluateAll((list) => list.map((a) => a.getAttribute('href')));
+    assert.ok(hrefs.some((href) => /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/curator\/[^/]+\/\d+$/.test(href)), 'curator bricks open the curator page');
+    for (const href of hrefs) assert.ok(href.startsWith('/') || /^https:\/\//.test(href), `brick link ${href}`);
+    assert.ok(await frame.locator('#brick-grid a.brick[href^="/"]:not([target])').count() === hrefs.filter((h) => h.startsWith('/')).length, 'local bricks stay in the tab');
+    await bricks.first().locator('img').evaluate((img) => img.decode());
+    if (shots) await page.screenshot({ path: path.join(shots, 'home-categories.png') });
+
+    // Opening a curator brick lands on the curator page; Back returns to the grid
+    const curatorBrick = frame.locator('#brick-grid a.brick[href*="/curator/"]').first();
+    const curatorName = (await curatorBrick.locator('.brick-title').textContent()).trim();
+    await curatorBrick.click();
+    await page.waitForURL(/\/curator\//, { waitUntil: 'commit' });
+    await page.locator('#sections .ed-section').first().waitFor({ timeout: 20000 });
+    assert.ok((await page.locator('#title').textContent()).includes(curatorName), `curator page title contains ${curatorName}`);
+    await page.goBack();
+    frame = await pageFrame(page);
+    await frame.locator('#brick-grid a.brick').first().waitFor({ timeout: 10000 });
 
     // Links still go straight to the song page; keywords switch the button to "Search"
     const input = frame.locator('#input');
@@ -51,6 +76,7 @@ const shots = process.env.SEARCH_UI_SHOTS;
     await frame.locator('.song-row').first().waitFor({ timeout: 15000 });
     assert.equal(new URL(page.url()).searchParams.get('q'), 'born again');
     assert.match(await frame.locator('#results-title').textContent(), /born again/);
+    assert.ok(await frame.locator('#landing').isHidden(), 'categories hidden while searching');
     const groupTitles = await frame.locator('.group-title').allTextContents();
     const order = ['Top Results', 'Artists', 'Albums', 'Songs', 'Playlists', 'Music Videos'];
     assert.equal(groupTitles[0], 'Top Results');
@@ -96,6 +122,18 @@ const shots = process.env.SEARCH_UI_SHOTS;
     await frame.locator('#close-results').click();
     assert.ok(await frame.locator('#results').isHidden());
     assert.equal(new URL(page.url()).searchParams.get('q'), null);
+    assert.ok(await frame.locator('#landing').isVisible(), 'categories back after closing the results');
+
+    // Switching the storefront reloads the categories for that region (titles come back in its language)
+    const firstBefore = await frame.locator('#brick-grid a.brick').first().getAttribute('href');
+    const sf = await frame.evaluate(() => window.AmI18n.storefront);
+    const other = sf === 'us' ? 'jp' : 'us';
+    await frame.evaluate((cc) => window.AmI18n.setStorefront(cc), other);
+    await frame.waitForFunction(([cc, before]) => {
+      const a = document.querySelector('#brick-grid a.brick');
+      return a && a.getAttribute('href') !== before && [...document.querySelectorAll('#brick-grid a.brick[href*="/curator/"]')].every((b) => b.getAttribute('href').includes(`/${cc}/`));
+    }, [other, firstBefore], { timeout: 20000 });
+    await frame.evaluate((cc) => window.AmI18n.setStorefront(cc), sf);
 
     // Mobile: no horizontal scroll
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -104,6 +142,12 @@ const shots = process.env.SEARCH_UI_SHOTS;
     mobileFrame = await openPage(mobile, base + '/?q=' + encodeURIComponent('taylor swift'));
     await mobileFrame.locator('.song-row').first().waitFor({ timeout: 15000 });
     assert.ok(await mobileFrame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll on mobile');
+    // Mobile landing: two brick columns, still no horizontal scroll (the example chips scroll inside their own row)
+    await mobileFrame.locator('#close-results').click();
+    await mobileFrame.locator('#brick-grid a.brick').nth(1).waitFor({ timeout: 20000 });
+    const [b0, b1] = await Promise.all([0, 1].map((i) => mobileFrame.locator('#brick-grid a.brick').nth(i).boundingBox()));
+    assert.ok(Math.abs(b0.y - b1.y) < 1 && b1.x > b0.x, 'two bricks per row on mobile');
+    assert.ok(await mobileFrame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll on the mobile landing');
     if (shots) await mobile.screenshot({ path: path.join(shots, 'search-mobile.png'), fullPage: true });
 
     assert.deepEqual(errors, []);

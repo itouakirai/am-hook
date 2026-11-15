@@ -26,7 +26,8 @@
         <button class="example" type="button" data-example="https://music.apple.com/us/album/justice-triple-chucks-deluxe-deluxe-video-version/1561058084"><b data-i18n="home.detectAlbum"></b>Justice</button>
         <button class="example" type="button" data-example="https://music.apple.com/us/artist/lisa/1583908668"><b data-i18n="home.detectArtist"></b>LISA</button>
         <button class="example" type="button" data-example="https://music.apple.com/us/playlist/top-100-global/pl.d25f5d1181894928af76c85c967f8f31"><b data-i18n="home.detectPlaylist"></b>Top 100: Global</button>
-      </p>      </section>
+      </p>
+    </section>
 
     <section class="results" id="results" aria-live="polite" hidden>
       <div class="section-head">
@@ -44,20 +45,42 @@
       <div id="results-body"></div>
     </section>
 
-    <section class="recent" id="recent" hidden>
-      <div class="section-head">
-        <h2 class="section-title" data-i18n="home.recent"></h2>
-        <button class="link-btn" id="clear-recent" type="button" data-i18n="home.clear"></button>
-      </div>
-      <ul class="recent-list" id="recent-list"></ul>
-    </section>
+    <!-- 没有搜索时显示：最近搜索、类别浏览（官网搜索页的 browse-category-bricks）与支持的格式；搜索时整块隐藏 -->
+    <div class="home-landing" id="landing">
+      <section class="recent" id="recent" hidden>
+        <div class="section-head">
+          <h2 class="section-title" data-i18n="home.recent"></h2>
+          <button class="link-btn" id="clear-recent" type="button" data-i18n="home.clear"></button>
+        </div>
+        <ul class="recent-list" id="recent-list"></ul>
+      </section>
 
-    <ul class="formats">
-      <li class="format" style="--tint: #fb2c55"><span class="format-tag" data-i18n="q.lossless"></span><strong>ALAC</strong><span data-i18n="home.fmtAlac"></span></li>
-      <li class="format" style="--tint: #8b6cf6"><span class="format-tag" data-i18n="home.tagAtmos"></span><strong>Dolby Atmos</strong><span data-i18n="home.fmtAtmos"></span></li>
-      <li class="format" style="--tint: #e8931c"><span class="format-tag" data-i18n="home.tagAac"></span><strong>AAC</strong><span data-i18n="home.fmtAac"></span></li>
-      <li class="format" style="--tint: #19a7a0"><span class="format-tag" data-i18n="home.tagMv"></span><strong>Music Video</strong><span data-i18n="home.fmtMv"></span></li>
-    </ul>
+      <section class="categories" id="categories" aria-labelledby="categories-title">
+        <div class="section-head">
+          <h2 class="section-title" id="categories-title" data-i18n="home.categories"></h2>
+          <button class="storefront" type="button" data-picker="storefront" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker">
+            <span class="storefront-caption" data-i18n="search.storefront"></span>
+            <span class="storefront-value" data-setting-value="storefront"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="brick-grid" id="brick-grid"></div>
+        <p class="categories-error" id="categories-error" role="alert" hidden>
+          <span></span>
+          <button class="link-btn" id="categories-retry" type="button" data-i18n="home.retry"></button>
+        </p>
+      </section>
+
+      <section class="formats-section">
+        <h2 class="section-title" data-i18n="home.formats"></h2>
+        <ul class="formats">
+          <li class="format" style="--tint: #fb2c55"><span class="format-tag" data-i18n="q.lossless"></span><strong>ALAC</strong><span data-i18n="home.fmtAlac"></span></li>
+          <li class="format" style="--tint: #8b6cf6"><span class="format-tag" data-i18n="home.tagAtmos"></span><strong>Dolby Atmos</strong><span data-i18n="home.fmtAtmos"></span></li>
+          <li class="format" style="--tint: #e8931c"><span class="format-tag" data-i18n="home.tagAac"></span><strong>AAC</strong><span data-i18n="home.fmtAac"></span></li>
+          <li class="format" style="--tint: #19a7a0"><span class="format-tag" data-i18n="home.tagMv"></span><strong>Music Video</strong><span data-i18n="home.fmtMv"></span></li>
+        </ul>
+      </section>
+    </div>
   </main>
 
   <footer class="footer home-footer">

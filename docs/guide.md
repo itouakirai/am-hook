@@ -8,7 +8,7 @@
 - Settings at the bottom of the navigation, saved in localStorage with no expiry:
   - Primary storefront: used for search (and future features). The wrapper-lite account's storefronts are listed first as the best experience, then favorite storefronts (US / CN / JP by default); every other storefront sits under "More storefronts" with a filter, and the star next to each one adds or removes it from favorites. Defaults to the first wrapper-lite storefront.
   - Catalog language (amp-api `l`, independent of the UI language): defaults to each storefront's default language; the choices are only that storefront's `supportedLanguageTags` from `/amp/v1/storefronts`. Chosen per storefront, and also used for lyrics.
-- The home page shows wrapper-lite status and your recent searches (click to search again, or remove them one by one); its footer links to this GitHub repository and credits the projects am-hook builds on.
+- The home page is laid out like music.apple.com/{cc}/search: the search box on top, then your recent searches (click to search again, or remove them one by one) and **Browse Categories** — the same category bricks as the official search page (genres, moods and activities, Charts, Music Videos, featured collections; amp-api `recommendations/{cc}?name=search-landing`) for the primary storefront, with a storefront button next to the title. Bricks open the curator, grouping, multi-room and chart pages here; anything the site cannot open links to Apple Music. A search replaces this area with the results, and closing them brings it back. Its footer links to this GitHub repository and credits the projects am-hook builds on.
 - Search: the home input takes either a link or keywords (the same amp-api requests as music.apple.com). Typing shows suggested terms and direct results; results are grouped into top results, artists, albums, songs, playlists and music videos, with "Load more". Search uses the primary storefront, which can also be changed from the button next to the results. `/` focuses the input; the term is kept in the address bar as `?q=`, so Back / Forward and sharing work. Search lives only on the home page; other pages have a Back button at the top instead, which returns to the previous page (or to the home page when the page was opened directly from a link).
 - The address bar, page title and browser Back / Forward follow the current page, so links can be shared and a reload stays on the same page.
 - How it works: like music.apple.com, the site is a single-page app. Every page URL gets `app.html`, which owns the player bar, audio, decryption workers and lyrics view; a client-side router (`app.mjs`) takes over in-site links, changes the address with `history.pushState` and swaps page views (`web/views/`) without reloading the document. It relies on no request headers, so it works the same over `http://<LAN IP>`.
@@ -32,7 +32,7 @@ Every page below is a route of the single-page app; the server returns `app.html
 
 | Page | Description |
 |---|---|
-| `/` | Home: search, wrapper-lite status and recent searches |
+| `/` | Home: search, recent searches and Browse Categories (as on music.apple.com/{cc}/search) |
 | `/https://music.apple.com/<cc>/song/<slug>/<id>` | Song page (see [Songs](#songs)) |
 | `/https://music.apple.com/<cc>/music-video/<slug>/<id>` | MV page (see [Music Videos](#music-videos)) |
 | `/https://music.apple.com/<cc>/post/<id>` | Artist-uploaded video (MV page) |

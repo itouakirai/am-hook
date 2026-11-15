@@ -2,6 +2,7 @@
 import { createActions, ICON as ACTION_ICON, openAlacCheck, playable, targetOf } from './actions.mjs';
 import { createDetailHeader } from './detail-header.mjs';
 import { openDownloadDialog } from './download-dialog.mjs';
+import { amp, artUrl } from '../amp.mjs';
 
 const { formatTime, qualityIcon } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -90,25 +91,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     'fields[curators]': 'name',
     views: 'appears-on,more-by-artist,related-videos,other-versions,you-might-also-like,audio-extras,video-extras',
   };
-
-  async function amp(path, params) {
-    const url = new URL('/amp' + path, location.origin);
-    // 值为 undefined 的参数不传（如地区不支持当前语言时的 l）
-    for (const [key, value] of Object.entries(params || {})) if (value !== undefined) url.searchParams.set(key, value);
-    let res = await fetch(url);
-    if (res.status === 400 && url.searchParams.has('l')) {
-      url.searchParams.delete('l');
-      res = await fetch(url);
-    }
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data) throw new Error((data && ((data.errors && data.errors[0] && data.errors[0].detail) || data.msg)) || `HTTP ${res.status}`);
-    return data;
-  }
-
-  /** artwork.url 模板：{w}x{h}{c}.{f} */
-  function artUrl(artwork, w, h = w) {
-    return artwork && artwork.url ? artwork.url.replace('{w}', w).replace('{h}', h).replace('{c}', 'bb').replace('{f}', 'jpg') : '';
-  }
 
   /** 目录资源的 url → 本站页面路径；识别不了时按类型与 ID 拼出 */
   function pagePath(resource) {

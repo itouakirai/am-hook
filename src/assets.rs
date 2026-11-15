@@ -81,6 +81,8 @@ pub static ASSETS: &[Asset] = &[
     asset!("pickers.mjs"),
     asset!("i18n.js"),
     asset!("prefs.mjs"),
+    // amp-api 请求与封面地址的公共工具
+    asset!("amp.mjs"),
     asset!("library.mjs"),
     asset!("host.js"),
     asset!("wrapper.js"),
@@ -162,6 +164,10 @@ pub static ASSETS: &[Asset] = &[
     // 页面视图：`<name>.html` 为页面内容，`<name>.mjs` 为页面脚本（导出 mount，见 app.mjs），`<name>.css` 为页面样式
     asset!("views/home.html"),
     asset!("views/home.mjs"),
+    // 首页的搜索结果与类别浏览，及首页 / 编辑页共用的链接解析
+    asset!("views/search-results.mjs"),
+    asset!("views/categories.mjs"),
+    asset!("views/links.mjs"),
     asset!("views/song.html"),
     asset!("views/song.mjs"),
     asset!("views/song.css"),

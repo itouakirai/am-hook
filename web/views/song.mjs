@@ -6,6 +6,7 @@ import { createActions, openMenu, copyText, targetOf, pagePath, artistLinks, alb
 import { compareAlac, pickAlac } from '../alac-check.mjs';
 import { createDetailHeader } from './detail-header.mjs';
 import { downloads } from '../download/downloads.mjs';
+import { artUrl } from '../amp.mjs';
 
 const { detectMode, qualityBadge, qualityIcon, formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n, AmWrapper } = window;
@@ -66,11 +67,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   const explicitBadge = () => el('span', { className: 'explicit', textContent: 'E', title: t('search.explicit') });
   const related = (resource, key) => ((resource && resource.relationships && resource.relationships[key] && resource.relationships[key].data) || [])
     .filter((r) => r.attributes);
-
-  /** artwork.url 模板：{w}x{h}{c}.{f} */
-  function artUrl(artwork, w, h = w) {
-    return artwork && artwork.url ? artwork.url.replace('{w}', w).replace('{h}', h).replace('{c}', 'bb').replace('{f}', 'jpg') : '';
-  }
 
   /** message 可以是函数，切换语言时会重新求值 */
   let alertState = null;

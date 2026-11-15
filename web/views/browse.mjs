@@ -12,6 +12,8 @@
 // 货架的列数与官网 shelf-grid 的 grid-type 相同（见 app.css .ed-shelf）。
 import { createActions, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
 import { userToken, personalStation, recentStations } from '/assets/station.mjs';
+import { amp, artUrl } from '../amp.mjs';
+import { CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
 
 const { formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -127,14 +129,6 @@ function chartGenres(cc, l) {
 /** 站内能打开的目录资源 */
 const LOCAL_KINDS = new Set(['songs', 'music-videos', 'albums', 'playlists', 'artists']);
 const VIDEO_TYPES = new Set(['music-videos', 'uploaded-videos', 'music-movies']);
-/** 与 app.mjs 的路由相同：本站能打开的 Apple Music 页面 */
-const LOCAL_PAGE = /^https:\/\/music\.apple\.com\/[a-z]{2}\/(?:(?:song|music-video)\/[^/?#]+\/\d+|post\/(?:[^/?#]+\/)?\d+|(?:album|artist)\/(?:[^/?#]+\/)?\d+|playlist\/(?:[^/?#]+\/)?pl\.[\w-]+|(?:room|multi-room|grouping)\/\d+|curator\/(?:[^/?#]+\/)?\d+|station\/(?:[^/?#]+\/)?ra\.[\w.-]+|new\/?|radio\/?)$/;
-
-/** 排行榜：地址中的榜单名（官网 kH）→ charts 接口 results 的键，按官网排行榜首页的顺序 */
-const CHART_KEYS = {
-  songs: 'songs', 'city-charts': 'cityCharts', 'daily-global-top-charts': 'dailyGlobalTopCharts',
-  playlists: 'playlists', albums: 'albums', 'music-videos': 'music-videos',
-};
 const CHART_SLUGS = Object.fromEntries(Object.entries(CHART_KEYS).map(([slug, key]) => [key, slug]));
 /** 可按类型筛选的榜单（官网 Yf）；「所有类型」为 genre 34（官网 Ps） */
 const GENRE_CHARTS = new Set(['songs', 'albums', 'music-videos']);
@@ -142,7 +136,6 @@ const ALL_GENRES = '34';
 /** 带名次的榜单（官网 vae：歌曲、歌单、专辑、视频），城市榜与每周热门 100 首没有 */
 const RANKED_CHARTS = new Set(['songs', 'playlists', 'albums', 'music-videos']);
 const CHARTS_PATH = /^\/new\/top-charts(?:\/([a-z-]+))?\/?$/;
-const CHARTS_LINK = /^https:\/\/music\.apple\.com\/([a-z]{2})\/new\/top-charts(?:\/([a-z-]+))?\/?$/i;
 
 /** 地址 → 页面：{ kind, cc, id, follow, chart, genre }；follow 为 true 时地区跟随主地区（/new、/new/top-charts） */
 function parsePage(url) {
@@ -204,32 +197,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     a.textContent = typeof alertState.message === 'function' ? alertState.message() : alertState.message;
   }
 
-  /* ---------- amp-api（经服务端 /amp 代理） ---------- */
-  async function amp(path, params) {
-    const target = new URL('/amp' + path, location.origin);
-    // 值为 undefined 的参数不传（如地区不支持当前语言时的 l）
-    for (const [key, value] of Object.entries(params || {})) if (value !== undefined) target.searchParams.set(key, value);
-    let res = await fetch(target);
-    // amp-api 偶尔返回 5xx（如 charts 的「Service failure」），稍等后重试一次
-    if (res.status >= 500) {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      res = await fetch(target);
-    }
-    // 地区不支持所选语言时去掉 l，改用地区默认语言
-    if (res.status === 400 && target.searchParams.has('l')) {
-      target.searchParams.delete('l');
-      res = await fetch(target);
-    }
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data) throw new Error((data && ((data.errors && data.errors[0] && data.errors[0].detail) || data.msg)) || `HTTP ${res.status}`);
-    return data;
-  }
-
-  /** artwork.url 模板 {w}x{h}{c}.{f}；部分歌单封面的裁切码已写在地址里（如 SC.DN01），这时没有 {c} */
-  function artUrl(artwork, w, h = w, crop = 'bb', format = 'jpg') {
-    return artwork && artwork.url ? artwork.url.replace('{w}', w).replace('{h}', h).replace('{c}', crop).replace('{f}', format) : '';
-  }
-
   function img(src, alt = '') {
     return src ? el('img', { src, alt, loading: 'lazy', decoding: 'async' }) : el('span', { className: 'ph' });
   }
@@ -250,36 +217,8 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   const withAttrs = (list) => list.filter((res) => res && res.attributes);
 
   /* ---------- 链接：Apple Music 地址 → 本站页面（与官网各 PageIntent 的路由相同），其余为外部链接 ---------- */
-  /**
-   * 编辑数据里的链接有多种写法：music.apple.com/{cc}/room/{id}、/cn/room/{id}（相对路径）、
-   * itunes.apple.com/.../collection/...?fcId={room}、MZStore.woa/wa/viewGrouping?id=&cc=、viewFeature?id=（multi-room）、viewRoom?fcId=。
-   * 返回 { href, local }。
-   */
-  function resolveLink(raw) {
-    if (!raw) return null;
-    let link;
-    try { link = new URL(raw, 'https://music.apple.com'); } catch { return null; }
-    if (!/(^|\.)(music|itunes)\.apple\.com$/i.test(link.hostname)) return { href: link.href, local: false };
-    const cc = (link.searchParams.get('cc') || (link.pathname.match(/^\/([a-z]{2})\//i) || [])[1] || country).toLowerCase();
-    const id = (key) => (/^\d+$/.test(link.searchParams.get(key) || '') ? link.searchParams.get(key) : '');
-    const at = (kind, value) => ({ href: `/https://music.apple.com/${cc}/${kind}/${value}`, local: true });
-    if (/\/viewGrouping$/i.test(link.pathname) && id('id')) return at('grouping', id('id'));
-    if (/\/viewFeature$/i.test(link.pathname) && id('id')) return at('multi-room', id('id'));
-    if (/\/view(?:Multi)?Room$/i.test(link.pathname) && id('fcId')) return at(/Multi/i.test(link.pathname) ? 'multi-room' : 'room', id('fcId'));
-    if (/^\/(?:[a-z]{2}\/)?collection\//i.test(link.pathname) && id('fcId')) return at('room', id('fcId'));
-    const clean = `https://music.apple.com${link.pathname.replace(/\/$/, '')}`;
-    // 排行榜（含 MZStore.woa/wa/viewTop）：新发现里的链接写死了 /us/，这里改为跟随主地区的 /new/top-charts
-    const charts = clean.match(CHARTS_LINK);
-    if (charts && (!charts[2] || CHART_KEYS[charts[2].toLowerCase()])) {
-      return { href: `/new/top-charts${charts[2] ? `/${charts[2].toLowerCase()}` : ''}${id('genreId') ? `?genreId=${id('genreId')}` : ''}`, local: true };
-    }
-    if (/\/viewTop$/i.test(link.pathname)) return { href: '/new/top-charts', local: true };
-    // 专辑链接带 ?i= 时打开歌曲页
-    const song = clean.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/album\/([^/]+)\/\d+$/i) && id('i');
-    if (song) return { href: `/https://music.apple.com/${cc}/song/${clean.split('/')[5]}/${song}`, local: true };
-    if (LOCAL_PAGE.test(clean)) return { href: '/' + clean, local: true };
-    return { href: link.href, local: false };
-  }
+  /** 编辑数据里的链接 → { href, local }（见 links.mjs），链接没写地区时用当前页面的地区 */
+  const resolveLink = (raw) => resolveEditorialLink(raw, country);
 
   /** 资源 → { href, local }：歌曲 / MV / 专辑 / 歌单 / 艺人为本站页面，策展人、room 等编辑资源为本站编辑页，电台等为外部链接 */
   function linkFor(res) {

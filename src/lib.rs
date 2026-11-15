@@ -46,6 +46,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/parse/mv-master", get(handlers::mv_master_url_handler))
         .route("/amp/v1/catalog/*path", get(amp::catalog_handler))
         .route("/amp/v1/editorial/*path", get(amp::editorial_handler))
+        .route("/amp/v1/recommendations/:cc", get(amp::recommendations_handler))
         .route("/amp/v1/storefronts", get(amp::storefronts_handler))
         // 电台（wrapper-lite 没有这些接口）：带页面传来的 media-user-token 请求 amp-api 与 Apple 的 license 服务器
         .route("/station/assets", get(amp::station_assets_handler))

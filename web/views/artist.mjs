@@ -1,5 +1,6 @@
 // 艺人页（/https://music.apple.com/{cc}/artist/{slug}/{id}），由 app.mjs 挂载
 import { createActions, targetOf } from './actions.mjs';
+import { amp, artUrl } from '../amp.mjs';
 
 const { formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -71,25 +72,6 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     'omit[resource]': 'autos',
     views: 'appears-on-albums,compilation-albums,featured-albums,featured-on-albums,featured-release,full-albums,latest-release,live-albums,more-to-see,playlists,similar-artists,singles,music-videos,top-songs',
   };
-
-  async function amp(path, params) {
-    const url = new URL('/amp' + path, location.origin);
-    // 值为 undefined 的参数不传（如地区不支持当前语言时的 l）
-    for (const [key, value] of Object.entries(params || {})) if (value !== undefined) url.searchParams.set(key, value);
-    let res = await fetch(url);
-    if (res.status === 400 && url.searchParams.has('l')) {
-      url.searchParams.delete('l');
-      res = await fetch(url);
-    }
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data) throw new Error((data && ((data.errors && data.errors[0] && data.errors[0].detail) || data.msg)) || `HTTP ${res.status}`);
-    return data;
-  }
-
-  /** artwork.url 模板：{w}x{h}{c}.{f}；crop 为官网使用的裁切码（通栏图 ea / vf 等） */
-  function artUrl(artwork, w, h = w, crop = 'bb', format = 'jpg') {
-    return artwork && artwork.url ? artwork.url.replace('{w}', w).replace('{h}', h).replace('{c}', crop).replace('{f}', format) : '';
-  }
 
   /** 目录资源的 url → 本站页面路径；识别不了时按类型与 ID 拼出 */
   function pagePath(resource) {

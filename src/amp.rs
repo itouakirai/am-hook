@@ -508,6 +508,25 @@ pub async fn editorial_handler(State(state): State<Arc<AppState>>, Path(path): P
     forward(&state, api_url(&format!("/v1/editorial/{path}"), query), CATALOG_TTL).await
 }
 
+/// 推荐接口只开放地区根路径（`/v1/recommendations/<cc>`），不转发 `personal-recommendation/<id>` 等子路径
+fn valid_storefront(cc: &str) -> bool {
+    cc.len() == 2 && cc.bytes().all(|b| b.is_ascii_lowercase())
+}
+
+/// `GET /amp/v1/recommendations/<cc>?<query>` → `amp-api-edge.music.apple.com/v1/recommendations/<cc>?<query>`。
+/// music.apple.com 搜索页的「类别浏览」（官网 SearchLandingPageIntent：`name=search-landing`）。
+/// 只带 developer token，内容与访问者无关，与目录接口一样按 URL 缓存。
+pub async fn recommendations_handler(State(state): State<Arc<AppState>>, Path(cc): Path<String>, uri: Uri) -> Response<Body> {
+    if !valid_storefront(&cc) {
+        return error(StatusCode::BAD_REQUEST, "Invalid storefront");
+    }
+    let query = uri.query().unwrap_or_default();
+    if query.len() > MAX_QUERY_LEN {
+        return error(StatusCode::BAD_REQUEST, "Query too long");
+    }
+    forward(&state, api_url(&format!("/v1/recommendations/{cc}"), query), CATALOG_TTL).await
+}
+
 /// `GET /amp/v1/storefronts?<query>` → 全部地区信息。前端据各地区的 `supportedLanguageTags` 选择 `l`：
 /// 地区不支持的语言不会报错，而是静默回退到默认语言（如 cn 只支持 zh-Hans-CN / en-GB，传 en-US 返回中文）。
 /// 数据几乎不变，前端取一次后缓存在 localStorage；查询参数原样转发，以便跟随分页 `next`。
@@ -760,6 +779,16 @@ mod tests {
         assert!(!valid_catalog_path("../me/library"));
         assert!(!valid_catalog_path("us/search?x"));
         assert!(!valid_catalog_path("us/%2e%2e/x"));
+    }
+
+    #[test]
+    fn test_valid_storefront() {
+        assert!(valid_storefront("cn"));
+        assert!(valid_storefront("us"));
+        assert!(!valid_storefront("US"));
+        assert!(!valid_storefront("usa"));
+        assert!(!valid_storefront("us/personal-recommendation"));
+        assert!(!valid_storefront(".."));
     }
 
     #[test]

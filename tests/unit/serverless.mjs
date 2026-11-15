@@ -163,6 +163,8 @@ test('amp proxy sends the scraped developer token and reuses it', async () => {
   assert.equal((await get('/amp/v1/editorial/cn/groupings?name=music')).status, 200);
   assert.equal(calls.filter((c) => c.url.startsWith('https://music.apple.com/')).length, 2, 'token scraped once');
   assert.equal(calls.at(-1).url, 'https://amp-api-edge.music.apple.com/v1/editorial/cn/groupings?name=music');
+  assert.equal((await get('/amp/v1/recommendations/cn?name=search-landing')).status, 200);
+  assert.equal(calls.at(-1).url, 'https://amp-api-edge.music.apple.com/v1/recommendations/cn?name=search-landing');
 });
 
 test('amp proxy rejects bad paths and refetches a rejected token once', async () => {
@@ -170,6 +172,8 @@ test('amp proxy rejects bad paths and refetches a rejected token once', async ()
   let current = jwt({ iss: 'AMPWebPlay', n: 1 });
   const calls = stub(apple({ token: () => current, valid: fresh }));
   assert.equal((await get('/amp/v1/catalog/..%2Fme/library')).status, 400);
+  assert.equal((await get('/amp/v1/recommendations/us/personal-recommendation/x')), null);
+  assert.equal((await get('/amp/v1/recommendations/US')).status, 400);
   assert.equal((await get(`/amp/v1/catalog/us/search?term=${'a'.repeat(5000)}`)).status, 400);
   assert.equal(await get('/amp/v1/me/library'), null);
   assert.equal(calls.length, 0, 'invalid requests never reach Apple');
