@@ -1,4 +1,4 @@
-// Run with: node tests/download_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/download_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook, wrapper-lite with the cn region and access to the Apple CDN (default http://127.0.0.1:8888).
 // Covers batch downloads: settings page, album download dialog → ZIP with iTunes tags / cover / lyrics, folder mode
 // (the directory picker is replaced by an OPFS directory), playlist numbering and .m3u8, the song page, the More menu,
@@ -13,6 +13,9 @@ const ALBUM = '/https://music.apple.com/cn/album/1989-taylors-version-deluxe/171
 const PLAYLIST = '/https://music.apple.com/cn/playlist/x/pl.d467987f72384448b2bebe52c0b212d6';
 // 第 23 首是 MV（96 秒）
 const MV_ALBUM = '/https://music.apple.com/cn/album/speak-now-taylors-version/1690839749';
+// 专辑 / 歌单头部的「更多」菜单；同一行里排在它前面的是「检测 ALAC」按钮（album.mjs / playlist.mjs）
+const MORE = '.detail-extra .detail-circle-btn[aria-haspopup="menu"]';
+const MORE_READY = `${MORE}:not([disabled])`;
 
 /** ZIP central directory → { name: Buffer } */
 function unzip(buf) {
@@ -87,7 +90,7 @@ function nextDownload(page) {
 
 async function pickTracks(page, indexes) {
   // 头部「更多」→「下载专辑 / 下载歌单」
-  await page.click('.detail-extra .detail-circle-btn');
+  await page.click(MORE);
   await page.locator('.menu .menu-label').filter({ hasText: /^下载(专辑|歌单)$/ }).click();
   await page.waitForSelector('.dl-dialog[open]');
   await page.click('.dl-dialog-tools button:nth-of-type(2)');
@@ -112,7 +115,8 @@ async function pickTracks(page, indexes) {
       assert.match(page.url(), /#playback$/);
       await page.click('#play-quality .set-tiers >> nth=1 >> .set-tier.is-efficient');
       await page.click('#spatial [role="radio"] >> nth=1');
-      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('am-hook:settings')).playback), { wifi: 'hires', cellular: 'efficient', spatial: 'always' });
+      const { wifi, cellular, spatial } = await page.evaluate(() => JSON.parse(localStorage.getItem('am-hook:settings')).playback);
+      assert.deepEqual({ wifi, cellular, spatial }, { wifi: 'hires', cellular: 'efficient', spatial: 'always' });
       assert.equal(await page.locator('#play-quality .set-tiers >> nth=1 >> [aria-checked="true"]').textContent().then((s) => /HE-AAC/.test(s)), true);
       // 分组的 hash 打开其所在的标签页
       await openPage(page, `${base}/settings#naming`);
@@ -130,7 +134,7 @@ async function pickTracks(page, indexes) {
     {
       const { page, errors } = await newPage(browser, { codec: 'aac', coverSize: 600, saveLyrics: true });
       await openPage(page, base + ALBUM);
-      await page.waitForSelector('.detail-extra .detail-circle-btn:not([disabled])', { timeout: 30000 });
+      await page.waitForSelector(MORE_READY, { timeout: 30000 });
       await pickTracks(page, [0, 1]);
       const download = nextDownload(page);
       await page.click('.dl-dialog-start');
@@ -163,8 +167,8 @@ async function pickTracks(page, indexes) {
     {
       const { page, errors } = await newPage(browser, { codec: 'aac', coverSize: 600, mvMax: 480, mvAudio: 'aac' });
       await openPage(page, base + MV_ALBUM);
-      await page.waitForSelector('.detail-extra .detail-circle-btn:not([disabled])', { timeout: 30000 });
-      await page.click('.detail-extra .detail-circle-btn');
+      await page.waitForSelector(MORE_READY, { timeout: 30000 });
+      await page.click(MORE);
       await page.locator('.menu .menu-label').filter({ hasText: /^下载专辑$/ }).click();
       await page.waitForSelector('.dl-dialog[open]');
       const mvItem = page.locator('.dl-dialog-item').filter({ has: page.locator('.dl-dialog-mv') });
@@ -232,7 +236,7 @@ async function pickTracks(page, indexes) {
       const { page, errors } = await newPage(browser, settings, true);
       await openPage(page, base + ALBUM);
       await page.evaluate(async () => { try { await (await navigator.storage.getDirectory()).removeEntry('picked', { recursive: true }); } catch {} });
-      await page.waitForSelector('.detail-extra .detail-circle-btn:not([disabled])', { timeout: 30000 });
+      await page.waitForSelector(MORE_READY, { timeout: 30000 });
       for (let round = 0; round < 2; round++) {
         await pickTracks(page, [2]);
         await page.click('.dl-dialog-start');
@@ -266,7 +270,7 @@ async function pickTracks(page, indexes) {
     {
       const { page, errors } = await newPage(browser, { codec: 'aac-he', coverSize: 300, playlistAlbumInfo: false });
       await openPage(page, base + PLAYLIST);
-      await page.waitForSelector('.detail-extra .detail-circle-btn:not([disabled])', { timeout: 30000 });
+      await page.waitForSelector(MORE_READY, { timeout: 30000 });
       await pickTracks(page, [1]);
       const download = nextDownload(page);
       await page.click('.dl-dialog-start');

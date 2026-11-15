@@ -1,4 +1,4 @@
-// Run with: node tests/album_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/album_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
 // In-page playback is checked too when wrapper-lite is online.
 // Covers the album page: catalog data, track rows, shelves, ?i= track selection, playback queue and the mobile layout.
@@ -36,8 +36,9 @@ const albumPath = '/https://music.apple.com/cn/album/justice-triple-chucks-delux
       const shelves = await frame.locator('.shelf-section').count();
       assert.ok(shelves >= 1, 'shelves from views');
       assert.match(await frame.locator('.shelf-item').first().getAttribute('href'), /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/(album|music-video)\/[^/]+\/\d+$/);
-      const tint = await frame.evaluate(() => document.body.style.getPropertyValue('--album-tint'));
-      assert.match(tint, /^#[0-9a-f]{6}$/i, 'page tinted with artwork colour');
+      // 主题色（views/detail-header.mjs）：body 上的 --joe 与 detail-themed
+      const tint = await frame.evaluate(() => document.body.classList.contains('detail-themed') && document.body.style.getPropertyValue('--joe'));
+      assert.match(tint || '', /^#[0-9a-f]{6}$/i, 'page tinted with artwork colour');
       // Motion artwork (editorialVideo.motionDetailSquare) plays muted over the square cover
       await frame.locator('#art .motion-video.ready').waitFor({ timeout: 30000 });
       assert.ok(await frame.locator('#art .motion-video').evaluate((v) => !v.paused && v.muted && v.loop && v.currentTime > 0));

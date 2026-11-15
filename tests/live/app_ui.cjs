@@ -1,4 +1,4 @@
-// Run with: node tests/app_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/app_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api and an online wrapper-lite
 // (default http://127.0.0.1:8888).
 // Covers the single-page app (web/app.html + app.mjs, same as music.apple.com): every page URL gets the app,

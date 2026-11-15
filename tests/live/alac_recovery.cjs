@@ -1,5 +1,5 @@
 // Live regression: start am-hook with the default wrapper-lite, then run:
-// node tests/alac_recovery.cjs <path-to-playwright-package>
+// node tests/live/alac_recovery.cjs <path-to-playwright-package>
 // AM_HOOK_URL optionally overrides http://127.0.0.1:8888.
 // Uses the server's embedded WASM and the browser's CDN/decryption/MSE path.
 const assert = require('node:assert/strict');

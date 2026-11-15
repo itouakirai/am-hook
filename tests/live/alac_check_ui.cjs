@@ -1,4 +1,4 @@
-// Run with: node tests/alac_check_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/alac_check_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to amp-api and the Apple CDN (default http://127.0.0.1:8888); wrapper-lite is not used.
 // Covers the album page's ALAC check: the escape frames of "Shadows In The Night (AJSE Extended Remix)" listed in
 // AppleMusicDecrypt#136 (frame 2287 keeps a valid END tag over garbage padding, frame 2288 lost its END tag), the

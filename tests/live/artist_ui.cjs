@@ -1,4 +1,4 @@
-// Run with: node tests/artist_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/artist_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
 // In-page playback is checked too when wrapper-lite is online.
 // Covers the artist page: the three header styles (circular portrait, wide image, motion video), latest release,
@@ -16,6 +16,14 @@ const circularLink = 'https://music.apple.com/cn/artist/taylor-swift/159260351';
 const widePath = '/https://music.apple.com/us/artist/the-weeknd/479756766';
 const videoPath = '/https://music.apple.com/us/artist/billie-eilish/1065981054';
 const loaded = () => !document.getElementById('name').classList.contains('skeleton');
+
+/** 曲库语言（i18n.js 的 ampLang）改为该地区提供的英文 */
+const catalogInEnglish = (page, cc) => page.evaluate(async (cc) => {
+  const sf = (await window.AmI18n.storefronts())[cc];
+  const tag = sf.tags.find((t) => t.startsWith('en') && t !== sf.default);
+  if (!tag) throw new Error(`${cc} offers no English catalog: ${sf.tags}`);
+  await window.AmI18n.setAmpLang(cc, tag);
+}, cc);
 const localPage = (kind) => new RegExp(`^/https://music\\.apple\\.com/[a-z]{2}/${kind}/[^/]+/${kind === 'playlist' ? 'pl\\.[\\w-]+' : '\\d+'}$`);
 
 (async () => {
@@ -91,7 +99,7 @@ const localPage = (kind) => new RegExp(`^/https://music\\.apple\\.com/[a-z]{2}/$
       await page.close();
     }
 
-    // Switching language refetches the catalog data in the new language
+    // Switching the UI language relabels the page; switching the catalog language (ampLang) refetches the data in it
     {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       let frame;
@@ -100,6 +108,7 @@ const localPage = (kind) => new RegExp(`^/https://music\\.apple\\.com/[a-z]{2}/$
       await frame.waitForFunction(loaded, null, { timeout: 20000 });
       const zhHeading = await frame.locator('#top-songs-title').textContent();
       await frame.locator('[data-lang-toggle]').click();
+      await catalogInEnglish(page, 'cn');
       await frame.waitForFunction((before) => document.getElementById('top-songs-title').textContent !== before, zhHeading, { timeout: 20000 });
       assert.match(await frame.locator('#top-songs-title').textContent(), /[A-Za-z]/);
       assert.match(await frame.locator('#about-title').textContent(), /^About /);

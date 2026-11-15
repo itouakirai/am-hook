@@ -1,4 +1,4 @@
-// Run with: node tests/browse_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/browse_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
 // In-page playback is checked too when wrapper-lite is online.
 // Covers the editorial pages (views/browse.mjs): New (/new, groupings?name=music) with the same sections as music.apple.com/cn/new,

@@ -1,6 +1,6 @@
 // Opt-in browser integration test for Radio and the station pages. Requires a running am-hook, a media-user-token and Apple CDN access.
-// node tests/radio_live.cjs <playwright-package-path> [base] [token-file]
-//   base defaults to AM_HOOK_URL or http://127.0.0.1:18888; the token comes from token-file, AM_HOOK_MEDIA_USER_TOKEN or target/my-media-user-token.txt.
+// node tests/run.mjs live radio   (or: node tests/live/radio_live.cjs <playwright-package-path> [base] [token-file])
+//   base defaults to AM_HOOK_URL or http://127.0.0.1:8888; the token comes from token-file, AM_HOOK_MEDIA_USER_TOKEN or target/my-media-user-token.txt.
 // Covers: Radio with "Your Stations"; a genre station (batches of next tracks, the endless queue; playback when wrapper-lite is online);
 // the personal station; an episode taken from the account's recently played radio (Widevine license through /station/license,
 // MSE playback, seeking, M4A download decoded by the size of its mdat); and live radio simulated by serving a sliding window over the
@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
 
-const base = (process.argv[3] || process.env.AM_HOOK_URL || 'http://127.0.0.1:18888').replace(/\/$/, '');
+const base = (process.argv[3] || process.env.AM_HOOK_URL || 'http://127.0.0.1:8888').replace(/\/$/, '');
 const tokenFile = process.argv[4] || path.join(__dirname, '../../target/my-media-user-token.txt');
 const token = (process.env.AM_HOOK_MEDIA_USER_TOKEN || (fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, 'utf8') : '')).trim();
 if (!token) { console.log('No media-user-token: skipped'); process.exit(0); }

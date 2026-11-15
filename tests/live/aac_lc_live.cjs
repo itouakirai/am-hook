@@ -1,6 +1,6 @@
 // Live test for songs without a master m3u8 (only AAC-LC 256 through /webplayback, Widevine).
 // Start am-hook with the default wrapper-lite (cn region), then run:
-// node tests/aac_lc_live.cjs <path-to-playwright-package> [base]
+// node tests/live/aac_lc_live.cjs <path-to-playwright-package> [base]
 // [base] defaults to AM_HOOK_URL or http://127.0.0.1:8888. Checks the song page (variant, playback,
 // seeking) in server and local wrapper-lite modes, and writes the downloaded file to target/aac-lc-<id>.m4a
 // (verify with ffprobe / ffmpeg).
@@ -14,7 +14,10 @@ const ID = '1569279827'; // Stay With Me: wrapper-lite /m3u8 returns an .m4p, no
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
   try {
-    for (const local of [false, true]) {
+    // 本地模式要求本机 12340 上有 wrapper-lite（且允许 CORS）；没有时跳过
+    const localUp = await fetch('http://127.0.0.1:12340/', { signal: AbortSignal.timeout(3000) }).then(() => true, () => false);
+    if (!localUp) console.log('no wrapper-lite on 127.0.0.1:12340: local mode skipped');
+    for (const local of localUp ? [false, true] : [false]) {
       const context = await browser.newContext();
       // Local mode: the browser talks to wrapper-lite itself (it must allow CORS).
       if (local) await context.addInitScript(() => localStorage.setItem('am-hook-wrapper', JSON.stringify({ local: true, url: 'http://127.0.0.1:12340' })));

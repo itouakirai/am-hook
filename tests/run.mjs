@@ -6,7 +6,7 @@
 // A filter keeps the files whose name contains it (`node tests/run.mjs ui library`).
 // ui / live pass the Playwright package as the first argument: $PLAYWRIGHT, else target/pw/node_modules/playwright-core
 // when present, else `playwright` from node_modules. live scripts read the server from $AM_HOOK_URL
-// (default http://127.0.0.1:8888); the MV / radio scripts take it as their second argument, which is passed through.
+// (default http://127.0.0.1:8888), which is also passed through as their second argument.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

@@ -1,5 +1,5 @@
 // Live source-repair regression. Start am-hook with wrapper-lite, then:
-// AM_HOOK_URL=http://127.0.0.1:8888 node tests/alac_source_recovery.cjs <playwright-path>
+// AM_HOOK_URL=http://127.0.0.1:8888 node tests/live/alac_source_recovery.cjs <playwright-path>
 // Compares browser workers with unmodified temari plaintext.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

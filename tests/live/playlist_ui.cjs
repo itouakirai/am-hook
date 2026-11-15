@@ -1,4 +1,4 @@
-// Run with: node tests/playlist_ui.cjs <path-to-playwright-package> [base]
+// Run with: node tests/live/playlist_ui.cjs <path-to-playwright-package> [base]
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
 // In-page playback is checked too when wrapper-lite is online.
 // Covers the playlist page: catalog data, chart track rows, shelves, language refetch, playback queue,
@@ -14,6 +14,14 @@ const shots = process.env.PLAYLIST_UI_SHOTS;
 const playlistLink = 'https://music.apple.com/cn/playlist/%E6%AF%8F%E5%91%A8%E7%83%AD%E9%97%A8-100-%E9%A6%96-%E5%85%A8%E7%90%83/pl.921750b485a6496ea58b16d46c097557';
 const playlistPath = '/' + playlistLink;
 const loaded = () => !document.getElementById('title').classList.contains('skeleton');
+
+/** 曲库语言（i18n.js 的 ampLang）改为该地区提供的英文 */
+const catalogInEnglish = (page, cc) => page.evaluate(async (cc) => {
+  const sf = (await window.AmI18n.storefronts())[cc];
+  const tag = sf.tags.find((t) => t.startsWith('en') && t !== sf.default);
+  if (!tag) throw new Error(`${cc} offers no English catalog: ${sf.tags}`);
+  await window.AmI18n.setAmpLang(cc, tag);
+}, cc);
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -47,8 +55,9 @@ const loaded = () => !document.getElementById('title').classList.contains('skele
       const artist = frame.locator('.shelf-item.artist').first();
       assert.match(await artist.getAttribute('href'), /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/artist\/[^/]+\/\d+$/);
       assert.equal(await artist.getAttribute('target'), null);
-      const tint = await frame.evaluate(() => document.body.style.getPropertyValue('--album-tint'));
-      assert.match(tint, /^#[0-9a-f]{6}$/i, 'page tinted with artwork colour');
+      // 主题色（views/detail-header.mjs）：body 上的 --joe 与 detail-themed
+      const tint = await frame.evaluate(() => document.body.classList.contains('detail-themed') && document.body.style.getPropertyValue('--joe'));
+      assert.match(tint || '', /^#[0-9a-f]{6}$/i, 'page tinted with artwork colour');
       await frame.locator('#art .motion-video.ready').waitFor({ timeout: 30000 });
       assert.ok(await frame.locator('#art .motion-video').evaluate((v) => !v.paused && v.muted && v.loop && v.currentTime > 0));
       if (shots) await page.screenshot({ path: path.join(shots, `playlist-${scheme}.png`), fullPage: true });
@@ -56,7 +65,7 @@ const loaded = () => !document.getElementById('title').classList.contains('skele
       await page.close();
     }
 
-    // Switching language refetches the catalog data in the new language
+    // Switching the catalog language (the ampLang picker, separate from the UI language) refetches the data in it
     {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       let frame;
@@ -64,7 +73,7 @@ const loaded = () => !document.getElementById('title').classList.contains('skele
       frame = await openPage(page, base + playlistPath);
       await frame.waitForFunction(loaded, null, { timeout: 20000 });
       const zhTitle = await frame.locator('#title').textContent();
-      await frame.locator('[data-lang-toggle]').click();
+      await catalogInEnglish(page, 'cn');
       await frame.waitForFunction((before) => document.getElementById('title').textContent !== before, zhTitle, { timeout: 20000 });
       assert.match(await frame.locator('#title').textContent(), /[A-Za-z]/);
       assert.ok(await frame.locator('.pl-track').count() >= 90, 'tracks kept after refetch');

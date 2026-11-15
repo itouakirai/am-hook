@@ -1,8 +1,9 @@
 // Opt-in browser integration test. Requires am-hook, wrapper-lite and Apple CDN access.
-// node tests/mv_live.cjs <playwright-package-path> [http://127.0.0.1:18888]
+// node tests/run.mjs live mv_live   (or: node tests/live/mv_live.cjs <playwright-package-path> [base])
+// [base] defaults to AM_HOOK_URL or http://127.0.0.1:8888.
 const assert = require('node:assert/strict');
 const { chromium } = require(process.argv[2] || 'playwright');
-const base = process.argv[3] || 'http://127.0.0.1:18888';
+const base = (process.argv[3] || process.env.AM_HOOK_URL || 'http://127.0.0.1:8888').replace(/\/$/, '');
 
 // Every c608 sample of the progressive output must be a sequence of whole atoms
 // with byte pairs (FFmpeg's rule); recent FFmpeg rejects others and mpv stops.
