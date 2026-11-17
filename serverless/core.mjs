@@ -69,7 +69,7 @@ export function withSecurityHeaders(response) {
 }
 
 export function isPagePath(pathname) {
-  const path = pathname.replace(/^\//, '');
+  const path = pathname.replace(/^\//, '').replace(/^(https:\/{1,2}music\.apple\.com\/)(?=song\/|album\/|artist\/|playlist\/|music-video\/|post\/|station\/)/, '$1us/');
   return path === '' || LOCAL_PAGE_RE.test(path) || SITE_PAGE_RE.test(path);
 }
 

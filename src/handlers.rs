@@ -25,7 +25,10 @@ pub async fn app_handler(headers: HeaderMap) -> Response<Body> {
 /// 歌曲 / MV / post / 专辑 / 歌单 / 艺人 / 电台页、编辑页、广播、资料库页与设置中心都返回单页应用，其他一律 404
 pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
     let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
-    if parse_song_link(path).is_ok()
+    let normalized = path.replacen("https:/music.apple.com/", "https://music.apple.com/", 1);
+    let path = normalized.as_str();
+    if crate::links::is_regionless_link(path)
+        || parse_song_link(path).is_ok()
         || parse_mv_link(path).is_ok()
         || parse_post_link(path).is_ok()
         || parse_album_link(path).is_ok()

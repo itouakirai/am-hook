@@ -1,5 +1,6 @@
 // Apple Music 链接 → 本站页面。首页输入框（parseAppleLink）与编辑页 / 首页类别浏览里的编辑链接（resolveLink）共用。
 // 本站页面地址就是 / 加上规整后的 Apple Music 链接（见 app.mjs 的路由与 src/links.rs）。
+import { regionlessResource } from '../amp.mjs';
 
 /** 与 app.mjs 的路由相同：本站能打开的 Apple Music 页面（规整后的地址） */
 export const LOCAL_PAGE = /^https:\/\/music\.apple\.com\/[a-z]{2}\/(?:(?:song|music-video)\/[^/?#]+\/\d+|post\/(?:[^/?#]+\/)?\d+|(?:album|artist)\/(?:[^/?#]+\/)?\d+|playlist\/(?:[^/?#]+\/)?pl\.[\w-]+|(?:room|multi-room|grouping)\/\d+|curator\/(?:[^/?#]+\/)?\d+|station\/(?:[^/?#]+\/)?ra\.[\w.-]+|new\/?|radio\/?)$/;
@@ -20,6 +21,8 @@ export function parseAppleLink(raw) {
   let url;
   try { url = new URL(value); } catch { return null; }
   if (!/(^|\.)music\.apple\.com$/i.test(url.hostname)) return null;
+  const regionless = `https://music.apple.com${url.pathname}`;
+  if (regionlessResource('/' + regionless)) return regionless + url.search + url.hash;
   const parts = url.pathname.split('/').filter(Boolean);
   const cc = /^[a-z]{2}$/i.test(parts[0] || '') ? parts[0].toLowerCase() : 'us';
   const mv = url.pathname.match(/^\/[a-z]{2}\/music-video\/(?:([^/]+)\/)?(\d+)\/?$/i);

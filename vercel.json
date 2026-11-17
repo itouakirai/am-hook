@@ -24,7 +24,7 @@
     { "source": "/status", "destination": "/api/handler?__path=/status" },
     { "source": "/key", "destination": "/api/handler?__path=/key" },
     { "source": "/station/:__rest*", "destination": "/api/handler?__path=/station/:__rest*" },
-    { "source": "/(https:/+music\\.apple\\.com/[a-z]{2}/.+)", "destination": "/index.html" },
+    { "source": "/(https:/+music\\.apple\\.com/(?:[a-z]{2}/)?.+)", "destination": "/index.html" },
     { "source": "/new", "destination": "/index.html" },
     { "source": "/new/top-charts", "destination": "/index.html" },
     { "source": "/new/top-charts/:kind", "destination": "/index.html" },

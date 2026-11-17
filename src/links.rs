@@ -23,6 +23,11 @@ macro_rules! page_kinds {
 }
 pub(crate) use {chart_kinds, new_section, page_kinds};
 
+pub fn is_regionless_link(path: &str) -> bool {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^https:/{1,2}music\.apple\.com/(?:(?:song|music-video)/[^/?#]+/[0-9]+|(?:album|artist|post)/(?:[^/?#]+/)?[0-9]+|playlist/(?:[^/?#]+/)?pl\.[0-9A-Za-z_-]+|station/(?:[^/?#]+/)?ra\.[0-9A-Za-z._-]+)/?$").unwrap());
+    RE.is_match(path)
+}
+
 static SONG_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^https://music\.apple\.com/[a-z]{2}/song/[^/?#]+/([0-9]+)(?:[/?#]|$)").unwrap());
 static MV_LINK_RE: LazyLock<Regex> =
@@ -140,6 +145,17 @@ pub fn is_settings_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regionless_pages() {
+        for path in ["song/name/123", "album/123", "playlist/pl.abc", "artist/123", "music-video/name/123", "post/123", "station/ra.123"] {
+            assert!(is_regionless_link(&format!("https://music.apple.com/{path}")));
+            assert!(is_regionless_link(&format!("https:/music.apple.com/{path}/")));
+        }
+        for path in ["album/nope", "song/123", "playlist/123", "us/album/123", ""] {
+            assert!(!is_regionless_link(&format!("https://music.apple.com/{path}")));
+        }
+    }
 
     #[test]
     fn test_parse_song_link() {

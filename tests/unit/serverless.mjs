@@ -84,6 +84,7 @@ test('path checks match src/amp.rs, src/state.rs and src/links.rs', () => {
     '/https://music.apple.com/us/playlist/mix/pl.u-AkAmPlyUxqvoZ7', '/https://music.apple.com/us/artist/159260351',
     '/https://music.apple.com/cn/new', '/https://music.apple.com/cn/new/top-charts/songs', '/https://music.apple.com/us/multi-room/1532467784',
     '/https://music.apple.com/us/curator/1019400049', '/https:/music.apple.com/us/album/lover/1468058165',
+    '/https://music.apple.com/song/name/123', '/https:/music.apple.com/album/123',
     '/radio', '/https://music.apple.com/cn/radio', '/https://music.apple.com/us/station/apple-music-1/ra.978194965',
     '/https://music.apple.com/cn/station/ra.686227433',
   ]) assert(isPagePath(page), page);
