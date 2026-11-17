@@ -1,5 +1,34 @@
 // amp-api（经服务端 /amp 代理，见 src/amp.rs 与 serverless/core.mjs）的公共请求与封面地址工具，各页面视图与下载共用
 
+const STOREFRONTS = ['cn', 'us', 'kr', 'jp', 'tw'];
+
+export function chooseStorefront(valid, regions = []) {
+  const online = regions.map((cc) => String(cc).toLowerCase());
+  return STOREFRONTS.find((cc) => valid.includes(cc) && online.includes(cc))
+    || STOREFRONTS.find((cc) => valid.includes(cc)) || null;
+}
+
+export function regionlessResource(path) {
+  const m = path.match(/^\/https:\/{1,2}music\.apple\.com\/(song|album|playlist|artist|music-video|post|station)\/(?:[^/?#]+\/)?([^/?#]+)\/?$/);
+  if (!m) return null;
+  const types = { song: 'songs', album: 'albums', playlist: 'playlists', artist: 'artists', 'music-video': 'music-videos', post: 'uploaded-videos', station: 'stations' };
+  const valid = m[1] === 'playlist' ? /^pl\.[\w-]+$/ : m[1] === 'station' ? /^ra\.[\w.-]+$/ : /^\d+$/;
+  return valid.test(m[2]) ? { type: types[m[1]], id: m[2] } : null;
+}
+
+export async function guessStorefront(resource) {
+  const [valid, regions] = await Promise.all([
+    Promise.all(STOREFRONTS.map(async (cc) => {
+      try {
+        const data = await amp(`/v1/catalog/${cc}/${resource.type}/${resource.id}`);
+        return data.data?.some((item) => item.id === resource.id) ? cc : null;
+      } catch { return null; }
+    })),
+    Promise.resolve().then(() => window.AmWrapper.status()).then((data) => data.regions || []).catch(() => []),
+  ]);
+  return chooseStorefront(valid, regions);
+}
+
 /**
  * GET /amp<path>?<params>，返回 JSON。
  * - 值为 undefined 或空字符串的参数不传（如地区不支持当前语言时的 l）；

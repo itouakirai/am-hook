@@ -16,7 +16,7 @@ export const bodyClass = 'home-page';
 const DETECT_LABELS = {
   song: 'home.detectSong', 'music-video': 'home.detectMv', post: 'home.detectPost', album: 'home.detectAlbum', playlist: 'home.detectPlaylist', artist: 'home.detectArtist',
   room: 'home.detectRoom', 'multi-room': 'home.detectRoom', grouping: 'home.detectGrouping', curator: 'home.detectCurator', new: 'home.detectNew',
-  'new/top-charts': 'charts.title',
+  'new/top-charts': 'charts.title', station: 'station.pageTitle',
 };
 
 export function mount({ root, signal, player, navigate, onLangChange, toast, loadStatus }) {
@@ -72,8 +72,8 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
     submitLabel.textContent = t(submitLabel.dataset.i18n);
     detectEl.hidden = !link;
     if (!link) return;
-    const [, cc, kind] = link.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/(song|music-video|post|album|playlist|artist|room|multi-room|grouping|curator|new\/top-charts|new)\b/);
-    detectEl.textContent = `${t(DETECT_LABELS[kind])} · ${cc.toUpperCase()}`;
+    const [, cc, kind] = link.match(/^https:\/\/music\.apple\.com\/(?:([a-z]{2})\/)?(song|music-video|post|album|playlist|artist|station|room|multi-room|grouping|curator|new\/top-charts|new)\b/);
+    detectEl.textContent = t(DETECT_LABELS[kind]) + (cc ? ` · ${cc.toUpperCase()}` : '');
   }
 
   // 示例链接：填入输入框，按“解析”即可打开
