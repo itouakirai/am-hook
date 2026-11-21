@@ -103,7 +103,7 @@ src/                   Rust server (the binary)
   amp.rs               amp-api catalog / editorial / storefront proxy (developer token, HTTP/2 keep-alive, cache)
                        and station endpoints (media-user-token, license relay)
   links.rs             Apple Music link parsing and page-path matching (shared regex fragments; log.rs reuses them)
-  log.rs               Startup summary and the one-line request log
+  log.rs               Startup summary, one-line request log (client IP, user tag) and hourly summary
   updater.rs           --check-update / --auto-update (GitHub Releases)
 web/                   Browser app: embedded into the binary, served at /assets/ (app.html is the shell for every page URL)
   app.html / app.mjs / app.css

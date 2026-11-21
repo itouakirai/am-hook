@@ -103,7 +103,7 @@ src/                   Rust 服务端（二进制）
   amp.rs               amp-api 曲库 / 编辑 / 地区接口代理（developer token、HTTP/2 保活、缓存）
                        与电台接口（media-user-token、许可证转发）
   links.rs             Apple Music 链接解析与页面路径匹配（共用的正则片段，log.rs 也用）
-  log.rs               启动摘要与单行请求日志
+  log.rs               启动摘要、单行请求日志（客户端 IP、用户标签）与每小时汇总
   updater.rs           --check-update / --auto-update（GitHub Releases）
 web/                   浏览器应用：内嵌进二进制，地址为 /assets/（app.html 是所有页面地址的外壳）
   app.html / app.mjs / app.css

@@ -48,7 +48,7 @@ fn amp_only_router(state: Arc<AppState>) -> Router {
     apple_routes(&state)
         .fallback(handlers::not_found_handler)
         .layer(axum::middleware::from_fn(security::headers))
-        .layer(axum::middleware::from_fn(log::access_log))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), log::access_log))
         .with_state(state)
 }
 
@@ -87,6 +87,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .fallback(handlers::fallback_handler)
         // CSP、nosniff 等安全响应头（见 security.rs），所有响应都带
         .layer(axum::middleware::from_fn(security::headers))
-        .layer(axum::middleware::from_fn(log::access_log))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), log::access_log))
         .with_state(state)
 }

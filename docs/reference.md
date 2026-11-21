@@ -26,6 +26,23 @@
 | `--check-update` | off | Checks GitHub Releases for a newer version at startup and logs it |
 | `--auto-update` | off | Like `--check-update`, and also downloads the new binary for this platform and replaces the current one (the old one is kept as a backup); restart am-hook afterwards. On Windows the running exe cannot be replaced, so the log lists the manual steps |
 
+## Request Log
+
+Each request is logged as one line after the response: `status method kind detail · notes · elapsed · source`, for example
+
+```text
+200 GET  search    US "lover" · 723 ms · 203.0.113.7
+403 GET  station   storefront · Invalid authentication · 485 ms · 203.0.113.7 user afc0b7
+204 POST station   token · set user afc0b7 · 0.1 ms · 2001:db8::5
+```
+
+- The source is the client IP (as for rate limiting: the `--client-ip-header` header, otherwise the TCP peer; loopback addresses are left out).
+  Requests carrying a media-user-token add `user <tag>`: a 6-hex-digit hash of the token, always the same for one token, to tell users apart; neither the token nor any part of it is logged.
+  The note of `POST /station/token` names the tag being set, so later requests can be traced back to it.
+- 5xx and 4xx other than 404 are WARN; assets, `/status`, search suggestions and `/amp/health` only appear with `RUST_LOG=am_hook=debug`.
+- An hourly summary line (skipped when the hour had no requests): request count per kind, number of clients and users, errors (and how many were 429) and the slowest request.
+- A WARN when Apple returns 429 and the cooldown starts, and an INFO once Apple answers normally again after it.
+
 ## Server Endpoints
 
 Page URLs (see [Pages](guide.md#pages)) all return the single-page app `app.html`. The API endpoints are:

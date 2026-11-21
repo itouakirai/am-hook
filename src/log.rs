@@ -4,13 +4,18 @@
 //! 高频且无信息量的请求（静态资源、页面轮询的 /status、输入联想）降为 debug，
 //! 需要时用 `RUST_LOG=am_hook=debug` 查看。
 //! 请求因 wrapper-lite 限速 / 限并发排队时，该行附上排队时间；排队期间每秒另有一行队列状态。
+//!
+//! 行尾标明是谁的请求：客户端 IP（与限流相同，取自 `--client-ip-header` 或对端地址；本机回环地址省略）
+//! 与带 media-user-token 时的用户标签（token 的短哈希，见 [`user_tag`]，不记录 token 本身）。
+//! 每小时另有一行汇总（请求数与分类、客户端与用户数、错误、最慢的请求），没有请求的时段不输出。
 
 use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::Request;
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -46,10 +51,14 @@ pub fn note<B>(mut response: Response<B>, note: impl Into<String>) -> Response<B
 }
 
 /// 请求日志中间件
-pub async fn access_log(request: Request, next: Next) -> Response {
+pub async fn access_log(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let query = request.uri().query().unwrap_or_default().to_owned();
+    let peer = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0);
+    let client = state.client_limit.client_ip(request.headers(), peer);
+    // 设置 / 清除 token 的请求由处理函数在备注里写明是哪个用户，这里不再取（可能是旧 cookie）
+    let user = (path != "/station/token").then(|| crate::amp::user_token(request.headers()).map(user_tag)).flatten();
     let started = Instant::now();
 
     let (mut response, wait) = QUEUE_WAIT
@@ -74,7 +83,14 @@ pub async fn access_log(request: Request, next: Next) -> Response {
     }
     line.push_str(" · ");
     line.push_str(&format_elapsed(elapsed));
+    if let Some(who) = describe_client(client, user.as_deref()) {
+        line.push_str(" · ");
+        line.push_str(&who);
+    }
 
+    if !entry.quiet {
+        SUMMARY.lock().unwrap_or_else(|e| e.into_inner()).record(&entry, status, elapsed, client, user);
+    }
     match level(status, entry.quiet) {
         Level::WARN => warn!("{line}"),
         Level::INFO => info!("{line}"),
@@ -94,6 +110,113 @@ fn describe_wait(wait: QueueWait) -> Option<String> {
         _ => "rate limit".to_owned(),
     };
     Some(format!("QUEUED {} by {by}", format_elapsed(wait.total())))
+}
+
+/// media-user-token 的用户标签：FNV-1a 64 位哈希的前 24 位，6 位十六进制。
+/// 同一 token 在重启后标签不变，不同用户几乎不会撞上；24 位远不足以反推 token，日志里不出现 token 的任何片段
+/// （token 本身的末几位可能是各用户相同的填充，不适合做区分）
+pub fn user_tag(token: &str) -> String {
+    let hash = token.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
+    format!("{:06x}", hash >> 40)
+}
+
+/// IPv4 映射的 IPv6 地址（监听 `[::]` 时的 IPv4 访客）还原为 IPv4
+fn canonical_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    }
+}
+
+/// 行尾的「谁」：`203.0.113.7 user 3fa2c1`；本机回环地址（本地使用、或反向代理后未设 `--client-ip-header`）省略
+fn describe_client(client: Option<IpAddr>, user: Option<&str>) -> Option<String> {
+    let ip = client.map(canonical_ip).filter(|ip| !ip.is_loopback());
+    match (ip, user) {
+        (Some(ip), Some(user)) => Some(format!("{ip} user {user}")),
+        (Some(ip), None) => Some(ip.to_string()),
+        (None, Some(user)) => Some(format!("user {user}")),
+        (None, None) => None,
+    }
+}
+
+/// 汇总间隔
+const SUMMARY_EVERY: Duration = Duration::from_secs(60 * 60);
+
+static SUMMARY: LazyLock<Mutex<Summary>> = LazyLock::new(Default::default);
+
+/// 一个汇总时段内（info 级别的）请求统计
+#[derive(Default)]
+struct Summary {
+    requests: u64,
+    kinds: HashMap<&'static str, u64>,
+    clients: HashSet<IpAddr>,
+    users: HashSet<String>,
+    /// 4xx（不含 404）与 5xx
+    errors: u64,
+    /// 其中的 429（本地限流或 Apple 429 冷却）
+    throttled: u64,
+    slowest: Option<(Duration, String)>,
+}
+
+impl Summary {
+    fn record(&mut self, entry: &Entry, status: StatusCode, elapsed: Duration, client: Option<IpAddr>, user: Option<String>) {
+        self.requests += 1;
+        *self.kinds.entry(entry.kind).or_default() += 1;
+        self.clients.extend(client.map(canonical_ip));
+        self.users.extend(user);
+        if status.is_server_error() || (status.is_client_error() && status != StatusCode::NOT_FOUND) {
+            self.errors += 1;
+        }
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            self.throttled += 1;
+        }
+        // 页面整页加载与 wrapper-lite 排队之外，最慢的请求通常就是该关注的上游问题
+        if self.slowest.as_ref().is_none_or(|(slowest, _)| elapsed > *slowest) {
+            self.slowest = Some((elapsed, format!("{} {}", entry.kind, entry.detail)));
+        }
+    }
+
+    /// `last 60 min · 1234 requests (song 300, key 280, …) · 12 clients · 3 users · 5 errors (2 × 429) · slowest 4.20 s song master 1`
+    fn line(&self, period: Duration) -> Option<String> {
+        if self.requests == 0 {
+            return None;
+        }
+        let mut kinds: Vec<_> = self.kinds.iter().collect();
+        kinds.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        let kinds = kinds.iter().map(|(kind, n)| format!("{kind} {n}")).collect::<Vec<_>>().join(", ");
+        let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+        let mut line = format!("last {} min · {} ({kinds})", period.as_secs() / 60, plural(self.requests as usize, "request"));
+        if !self.clients.is_empty() {
+            line.push_str(&format!(" · {}", plural(self.clients.len(), "client")));
+        }
+        if !self.users.is_empty() {
+            line.push_str(&format!(" · {}", plural(self.users.len(), "user")));
+        }
+        if self.errors > 0 {
+            line.push_str(&format!(" · {}", plural(self.errors as usize, "error")));
+            if self.throttled > 0 {
+                line.push_str(&format!(" ({} × 429)", self.throttled));
+            }
+        }
+        if let Some((elapsed, what)) = &self.slowest {
+            line.push_str(&format!(" · slowest {} {what}", format_elapsed(*elapsed)));
+        }
+        Some(line)
+    }
+}
+
+/// 每小时输出一行请求汇总（上一时段没有请求时不输出）
+pub async fn report_summary() {
+    let mut tick = tokio::time::interval(SUMMARY_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        let summary = std::mem::take(&mut *SUMMARY.lock().unwrap_or_else(|e| e.into_inner()));
+        if let Some(line) = summary.line(SUMMARY_EVERY) {
+            info!("{line}");
+        }
+    }
 }
 
 /// 5xx 与非 404 的 4xx 为 warn；quiet 请求（含 favicon 等无关路径）的 4xx 仍只在 debug 输出
@@ -195,6 +318,12 @@ fn describe(path: &str, query: &str) -> Entry {
         "/station/storefront" => return Entry::new("station", "storefront"),
         "/station/recent" => return Entry::new("station", "recent"),
         "/station/recommendations" => return Entry::new("station", "recommendations"),
+        // 设置（POST）/ 清除（DELETE）media-user-token；备注里是用户标签
+        "/station/token" => return Entry::new("station", "token"),
+        // 负载均衡的健康检查，频繁且无信息量
+        "/amp/health" => return Entry::new("health", "amp").quiet(),
+        // 浏览器直连本地 wrapper-lite 时，由服务端获取 MV master
+        "/parse/mv-master" => return Entry::new("mv", "master (local wrapper-lite)"),
         // 为你推荐（官网 /{cc}/home）
         "/home" | "/home/" => return Entry::new("page", "for-you"),
         "/status" => return Entry::new("status", "wrapper-lite").quiet(),
@@ -343,7 +472,9 @@ pub fn print_banner(listen: SocketAddr, config: &Config) {
         lines.push("                music video · post · station · room · multi-room · grouping · curator".into());
         lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
     }
-    lines.push("  Verbose log   RUST_LOG=am_hook=debug (assets, status, suggestions)".into());
+    let source = config.client_ip_header.as_deref().unwrap_or("peer address");
+    lines.push(format!("  Request log   client IP from {source} · users by token tag · summary every hour"));
+    lines.push("                RUST_LOG=am_hook=debug adds assets, status, suggestions, health".into());
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let rule = "─".repeat(width + 2);
     println!("{rule}");
@@ -468,6 +599,40 @@ mod tests {
     }
 
     #[test]
+    fn test_user_tag_and_client() {
+        let tag = user_tag("AmT0ken+abc/def==");
+        assert_eq!(tag.len(), 6);
+        assert_eq!(tag, user_tag("AmT0ken+abc/def=="), "stable");
+        assert_ne!(tag, user_tag("AmT0ken+abc/deg=="));
+        // 固定值：标签在版本之间保持不变，运维可以跨日志对照
+        assert_eq!(user_tag(""), "cbf29c");
+
+        let ip = |s: &str| s.parse::<IpAddr>().ok();
+        assert_eq!(describe_client(ip("127.0.0.1"), None), None);
+        assert_eq!(describe_client(ip("::1"), Some("abc123")).as_deref(), Some("user abc123"));
+        assert_eq!(describe_client(ip("::ffff:127.0.0.1"), None), None);
+        assert_eq!(describe_client(ip("::ffff:203.0.113.7"), None).as_deref(), Some("203.0.113.7"));
+        assert_eq!(describe_client(ip("2001:db8::1"), Some("abc123")).as_deref(), Some("2001:db8::1 user abc123"));
+        assert_eq!(describe_client(None, None), None);
+    }
+
+    #[test]
+    fn test_summary_line() {
+        assert_eq!(Summary::default().line(SUMMARY_EVERY), None);
+        let mut s = Summary::default();
+        let ms = Duration::from_millis;
+        let a = "203.0.113.1".parse().ok();
+        s.record(&describe("/parse/song/1", ""), StatusCode::OK, ms(900), a, None);
+        s.record(&describe("/parse/song/2", ""), StatusCode::OK, ms(20), a, Some("abc123".into()));
+        s.record(&describe("/key", "adamId=2"), StatusCode::TOO_MANY_REQUESTS, ms(1), "203.0.113.2".parse().ok(), None);
+        s.record(&describe("/lyrics/2", ""), StatusCode::NOT_FOUND, ms(5), a, None);
+        assert_eq!(
+            s.line(SUMMARY_EVERY).as_deref(),
+            Some("last 60 min · 4 requests (song 2, key 1, lyrics 1) · 2 clients · 1 user · 1 error (1 × 429) · slowest 900 ms song master 1")
+        );
+    }
+
+    #[test]
     fn test_query_param() {
         assert_eq!(query_param("term=taylor+swift&l=en-US", "term").as_deref(), Some("taylor swift"));
         assert_eq!(query_param("l=zh&term=%E5%91%A8%E6%9D%B0%E4%BC%A6", "term").as_deref(), Some("周杰伦"));
@@ -486,6 +651,10 @@ mod tests {
         assert_eq!(describe("/amp/v1/catalog/cn/albums/1", "").kind, "catalog");
         assert!(describe("/assets/player/player.js", "").quiet);
         assert_eq!(describe("/lyrics/123", "").kind, "lyrics");
+        let e = describe("/station/token", "");
+        assert_eq!((e.kind, e.detail.as_str(), e.quiet), ("station", "token", false));
+        assert!(describe("/amp/health", "").quiet);
+        assert_eq!(describe("/parse/mv-master", "url=x").kind, "mv");
     }
 
     #[test]

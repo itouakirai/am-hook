@@ -456,11 +456,12 @@ impl Cooldown {
         wait
     }
 
-    /// 上游正常响应：冷却已结束时清除退避等级（冷却前发出、之后才返回的请求不算）
+    /// 上游正常响应：冷却已结束时清除退避等级（冷却前发出、之后才返回的请求不算），并输出一行恢复日志
     fn clear(&self, host: &str, now: Instant) {
         let mut hosts = self.hosts.lock().unwrap();
         if hosts.get(host).is_some_and(|e| e.until <= now) {
-            hosts.remove(host);
+            let strikes = hosts.remove(host).map_or(0, |e| e.strikes);
+            info!(host, strikes, "Apple is answering again, 429 cooldown over");
         }
     }
 }
@@ -704,7 +705,7 @@ fn valid_user_token(token: &str) -> bool {
 }
 
 /// 请求带来的 media-user-token：先取 cookie，没有时取 `X-Media-User-Token` 请求头；缺失或含非法字符时为 None
-fn user_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn user_token(headers: &HeaderMap) -> Option<&str> {
     let cookie = headers
         .get_all(COOKIE)
         .iter()
@@ -764,7 +765,9 @@ pub async fn station_token_handler(headers: HeaderMap, body: Bytes) -> Response<
     if !valid_user_token(token) {
         return error(StatusCode::BAD_REQUEST, "Invalid media-user-token");
     }
-    token_response(&[token_cookie(token, USER_TOKEN_MAX_AGE, https_request(&headers))])
+    // 只记录 token 的短标签（见 log::user_tag），便于把之后的请求日志对应到这次设置
+    let response = token_response(&[token_cookie(token, USER_TOKEN_MAX_AGE, https_request(&headers))]);
+    log::note(response, format!("set user {}", log::user_tag(token)))
 }
 
 /// `DELETE /station/token`：清除 cookie（两种名称都清；HTTP 下浏览器会忽略带 Secure 的那条，本来也不存在）
@@ -772,7 +775,11 @@ pub async fn station_token_clear_handler(headers: HeaderMap) -> Response<Body> {
     if !same_origin(&headers) {
         return error(StatusCode::FORBIDDEN, "Cross-site request");
     }
-    token_response(&[token_cookie("", 0, false), token_cookie("", 0, true)])
+    let response = token_response(&[token_cookie("", 0, false), token_cookie("", 0, true)]);
+    match user_token(&headers) {
+        Some(token) => log::note(response, format!("cleared user {}", log::user_tag(token))),
+        None => log::note(response, "cleared"),
+    }
 }
 
 /// 电台 ID：编辑 / 直播电台为 `ra.<数字>`，个人电台为 `ra.u-<…>` 等

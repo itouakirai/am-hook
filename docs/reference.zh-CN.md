@@ -26,6 +26,23 @@
 | `--check-update` | 关闭 | 启动时检查 GitHub Releases 上是否有新版本，并写入日志 |
 | `--auto-update` | 关闭 | 同 `--check-update`，并下载当前平台的新版二进制替换当前文件（旧文件保留为备份），之后需重启 am-hook。Windows 无法替换正在运行的 exe，日志会列出手动替换的步骤 |
 
+## 请求日志
+
+每个请求在响应后输出一行：`状态码 方法 分类 要点 · 备注 · 耗时 · 来源`，例如
+
+```text
+200 GET  search    US "lover" · 723 ms · 203.0.113.7
+403 GET  station   storefront · Invalid authentication · 485 ms · 203.0.113.7 user afc0b7
+204 POST station   token · set user afc0b7 · 0.1 ms · 2001:db8::5
+```
+
+- 来源是客户端 IP（与限流相同：`--client-ip-header` 指定的请求头，否则为 TCP 对端地址；本机回环地址省略）。
+  带 media-user-token 的请求另有 `user <标签>`：token 的 6 位短哈希，同一 token 始终相同，用来区分不同用户；不记录 token 本身或其片段。
+  `POST /station/token` 的备注写明设置的是哪个标签，可据此把之后的请求对应到这次设置。
+- 5xx 与 404 以外的 4xx 为 WARN；静态资源、`/status`、输入联想与 `/amp/health` 只在 `RUST_LOG=am_hook=debug` 时输出。
+- 每小时一行汇总（该小时没有请求时不输出）：请求数与各分类数量、客户端与用户数、错误数（其中 429 的数量）与最慢的请求。
+- Apple 返回 429 进入冷却时输出 WARN，冷却结束后上游恢复正常时输出一行 INFO。
+
 ## 服务端接口
 
 页面地址（见[页面一览](guide.zh-CN.md#页面一览)）都返回单页应用 `app.html`。API 接口如下：

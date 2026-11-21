@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
     log::print_banner(listen_addr, &config);
+    tokio::spawn(log::report_summary());
     if config.wrapper_relay {
         tokio::spawn(log::check_wrapper(state.clone()));
         tokio::spawn(log::report_wrapper_queue(state.clone()));
