@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v0.7.2 (2026-11-22)
+
+### New
+- ✨ For You (`/home`, like music.apple.com/{cc}/home): the account's personal recommendations, fetched with the station media-user-token and shown like the official page with poster, cover and track shelves; See All opens a grid. Storefront and catalog language follow the token's account. A For You brick leads Browse Categories and shows whether a token is set. New server routes `/station/recommendations` and `/station/recommendations/<id>/see-all` (also in the serverless deployment)
+- ✨ Artist section See All opens a separate page like music.apple.com (`…/see-all?section=`, official `…/<id>/<section>` links work too), 100 items per page with Show More
+- ✨ After Apple returns 429, forwarding to that host pauses: 1 min, doubling on each further 429 up to 30 min (plus 0–25% jitter), answered locally with a 429 and `Retry-After`; cached responses are still served. The serverless deployment does the same
+- ✨ `--amp-client-rate` / `--amp-client-concurrency`: per-client-IP limits for the amp-api proxy (`/amp/*`, `/station/*`), so one visitor can't get everyone a 429
+- ✨ `--amp-proxy <URL>`: send amp-api requests to Apple (and the developer token scrape) through an HTTP / HTTPS / SOCKS5 proxy
+- ✨ `--amp-only` and `GET /amp/health`: nodes that only serve the amp-api proxy (no assets loaded, about half the memory), to run as an amp proxy cluster behind nginx that moves on to the next node on 429 (see the deployment docs)
+- ✨ The request log ends each line with the client IP and, for requests carrying a media-user-token, a user tag (a 6-hex-digit hash of the token; the token itself is never logged). Token set / clear and other previously hidden requests are logged, the end of a 429 cooldown is logged, and an hourly summary line shows requests per kind, clients and users, errors and the slowest request
+
+### Fixes
+- 🐛 On amp-api 401 / 403 the developer token is only re-fetched when it is older than 30 s, instead of scraping music.apple.com on every request
+- 🐛 clippy errors on newer Rust (1.100)
+
 ## v0.7.1 (2026-11-15)
 
 ### New

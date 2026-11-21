@@ -1,5 +1,20 @@
 # 更新日志
 
+## v0.7.2 (2026-11-22)
+
+### 新功能
+- ✨ 为你推荐（`/home`，与 music.apple.com/{cc}/home 相同）：用电台的 media-user-token 获取账号的个性化推荐，按官网的样式显示海报、封面与歌曲区块，「查看全部」打开网格页；地区与曲库语言跟随 token 的账号。类别浏览第一块是它的入口，并显示是否已设置 token。服务端新增 `/station/recommendations` 与 `/station/recommendations/<id>/see-all`（serverless 部署同样支持）
+- ✨ 艺人页区块的「查看全部」改为与官网相同的独立页面（`…/see-all?section=`，也支持官网的 `…/<id>/<section>` 链接），每页 100 项，「显示更多」继续加载
+- ✨ Apple 返回 429 后暂停向该主机转发：冷却 1 分钟，之后每次 429 翻倍，上限 30 分钟（另加 0–25% 抖动），期间直接返回带 `Retry-After` 的 429，已缓存的响应照常返回；serverless 部署同样处理
+- ✨ `--amp-client-rate` / `--amp-client-concurrency`：按客户端 IP 限制经 amp-api 代理（`/amp/*`、`/station/*`）的请求，免得一个访客刷爆让所有人都拿到 429
+- ✨ `--amp-proxy <URL>`：发往 Apple 的 amp-api 请求（含抓取 developer token）经 HTTP / HTTPS / SOCKS5 代理
+- ✨ `--amp-only` 与 `GET /amp/health`：只提供 amp-api 代理的节点（不加载前端资源，内存约为一半），可以在 nginx 后面组成 amp 代理集群，某个节点 429 时转到下一个（见部署文档）
+- ✨ 请求日志每行末尾标明客户端 IP，带 media-user-token 的请求另有用户标签（token 的 6 位短哈希，不记录 token 本身）；补上设置 / 清除 token 等之前不显示的请求；429 冷却结束时输出恢复日志；每小时输出一行汇总（请求数与分类、客户端与用户数、错误、最慢的请求）
+
+### 修复
+- 🐛 amp-api 返回 401 / 403 时，只有 developer token 抓到超过 30 秒才重新抓取，不再每个请求都去抓 music.apple.com
+- 🐛 新版 Rust（1.100）的 clippy 报错
+
 ## v0.7.1 (2026-11-15)
 
 ### 新功能
