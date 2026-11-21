@@ -170,6 +170,49 @@ async function developerToken(platform, rejected) {
 /** 测试用：清空实例内存中的 token */
 export function resetTokenCache() {
   cachedToken = null;
+  cooldowns.clear();
+}
+
+/* ---------- 上游 429 后的冷却（同 src/amp.rs 的 Cooldown） ---------- */
+
+// Apple 按出口 IP 限流，换 token 无用，继续转发只会延长限流：冷却期内不再请求该主机，直接返回本地构造的 429。
+// 首次 1 分钟，冷却结束后再遇到 429 时翻倍（上限 30 分钟），另加 0–25% 抖动（amp-api 的 429 不带 Retry-After）；
+// 收到非 429 响应后归零。状态只在实例内存里（各实例的出口 IP 本来也可能不同）
+const COOLDOWN_BASE = 60_000;
+const COOLDOWN_MAX = 1_800_000;
+const cooldowns = new Map(); // host → { until, strikes }
+
+function cooldownRemaining(host, now = Date.now()) {
+  const entry = cooldowns.get(host);
+  return entry && entry.until > now ? entry.until - now : 0;
+}
+
+/** 记一次 429，返回冷却毫秒数；冷却期内在途请求返回的 429 不再加码 */
+export function cooldownStrike(host, now = Date.now(), jitter = Math.random()) {
+  const entry = cooldowns.get(host) ?? { until: now, strikes: 0 };
+  cooldowns.set(host, entry);
+  if (entry.until > now) return entry.until - now;
+  entry.strikes = Math.min(entry.strikes + 1, 16);
+  const base = Math.min(COOLDOWN_BASE * 2 ** (entry.strikes - 1), COOLDOWN_MAX);
+  const wait = Math.round(base * (1 + Math.min(Math.max(jitter, 0), 1) * 0.25));
+  entry.until = now + wait;
+  return wait;
+}
+
+function cooldownClear(host, now = Date.now()) {
+  const entry = cooldowns.get(host);
+  if (entry && entry.until <= now) cooldowns.delete(host);
+}
+
+function rateLimited(waitMs) {
+  const secs = Math.max(1, Math.ceil(waitMs / 1000));
+  return json(429, { code: 1, msg: `Apple rate limited this server; retry in ${secs} s` }, { ...NO_STORE, 'retry-after': String(secs) });
+}
+
+/** 上游返回 429：进入冷却，丢弃上游响应体，返回本地的 429 */
+async function throttled(host, upstream) {
+  await upstream.arrayBuffer().catch(() => {});
+  return rateLimited(cooldownStrike(host));
 }
 
 /* ---------- amp-api 代理 ---------- */
@@ -181,6 +224,9 @@ export function validCatalogPath(path) {
 
 /** 带 developer token 请求 amp-api；token 失效（401/403）时重新获取一次。原样返回状态码与 JSON */
 async function amp(url, ttl, platform) {
+  const host = new URL(url).host;
+  const wait = cooldownRemaining(host);
+  if (wait > 0) return rateLimited(wait);
   let rejected;
   let upstream;
   let elapsed;
@@ -200,6 +246,8 @@ async function amp(url, ttl, platform) {
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT),
       });
       elapsed = Date.now() - started;
+      if (upstream.status === 429) return throttled(host, upstream);
+      cooldownClear(host);
       if ((upstream.status === 401 || upstream.status === 403) && rejected === undefined) {
         await upstream.arrayBuffer().catch(() => {});
         rejected = token;
@@ -321,6 +369,9 @@ export function validLicenseUrl(raw) {
  * 401 / 403 多半是 media-user-token 失效，不换 developer token 重试；不跟随重定向，token 不会被带到别处
  */
 async function userRequest(platform, url, user, { method = 'GET', body, license } = {}) {
+  const host = new URL(url).host;
+  const wait = cooldownRemaining(host);
+  if (wait > 0) return rateLimited(wait);
   try {
     const token = await developerToken(platform).catch((error) => {
       throw new Error(`developer token unavailable: ${error.message}`);
@@ -336,6 +387,8 @@ async function userRequest(platform, url, user, { method = 'GET', body, license 
     const started = Date.now();
     const upstream = await fetch(url, { method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(UPSTREAM_TIMEOUT) });
     const elapsed = Date.now() - started;
+    if (upstream.status === 429) return throttled(host, upstream);
+    cooldownClear(host);
     const text = await upstream.arrayBuffer();
     const bodyless = [204, 205, 304].includes(upstream.status);
     return new Response(bodyless ? null : text, {

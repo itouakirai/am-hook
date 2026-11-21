@@ -3,6 +3,10 @@
 //! - `--client-rate`：任意 60 秒内的请求数，超出时返回 429（管一段时间内的总量）
 //! - `--client-concurrency`：同时在处理的请求数，超出的排队（管同一时刻占多少全局名额，突发时不堵住其他用户）
 //!
+//! amp-api 代理（`/amp/*`、`/station/*`）另有一套同样的限制（`--amp-client-rate` / `--amp-client-concurrency`）：
+//! Apple 按本服务器的出口 IP 限流，一个访问者刷爆会让所有人都拿到 429（上游 429 后的冷却见 amp.rs 的 `Cooldown`）。
+//! 缓存命中的请求也计入。
+//!
 //! 客户端 IP 取自 `--client-ip-header`（由前面的反向代理设置），没有设置或请求中没有该请求头时用 TCP 对端地址。
 
 use std::collections::{HashMap, VecDeque};
@@ -111,8 +115,23 @@ pub fn parse_ip_header(raw: &str) -> Result<Option<String>, String> {
 
 /// 转发 wrapper-lite 接口的中间件。`/status`（所有客户端共用缓存，见 handlers.rs）不限
 pub async fn limit_clients(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response<Body> {
-    let limit = &state.client_limit;
-    if !limit.enabled() || request.uri().path() == "/status" {
+    if request.uri().path() == "/status" {
+        return next.run(request).await;
+    }
+    apply(&state.client_limit, request, next).await
+}
+
+/// amp-api 代理（`/amp/*`、`/station/*`）的中间件（`--amp-client-rate` / `--amp-client-concurrency`）。
+/// Apple 按服务器出口 IP 限流，所有访问者共用一份额度；只在本地处理的 `/station/token` 不限
+pub async fn limit_amp_clients(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response<Body> {
+    if request.uri().path() == "/station/token" {
+        return next.run(request).await;
+    }
+    apply(&state.amp_client_limit, request, next).await
+}
+
+async fn apply(limit: &ClientLimit, request: Request, next: Next) -> Response<Body> {
+    if !limit.enabled() {
         return next.run(request).await;
     }
     let peer = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0);

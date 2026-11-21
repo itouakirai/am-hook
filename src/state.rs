@@ -23,6 +23,10 @@ pub struct Config {
     pub client_rate: u32,
     /// 每个客户端 IP 同时转发 wrapper-lite 的请求上限（不含 `/status`），超出的排队，0 表示不限
     pub client_concurrency: usize,
+    /// 每个客户端 IP 每分钟经 amp-api 代理（`/amp`、`/station`）的请求上限，0 表示不限
+    pub amp_client_rate: u32,
+    /// 每个客户端 IP 同时经 amp-api 代理的请求上限，超出的排队，0 表示不限
+    pub amp_client_concurrency: usize,
     /// 取客户端 IP 的请求头（小写，由反向代理设置），None 表示用 TCP 对端地址
     pub client_ip_header: Option<String>,
 }
@@ -38,6 +42,8 @@ pub struct AppState {
     pub amp: Arc<crate::amp::Amp>,
     /// 按客户端 IP 限流（见 [`crate::limit`]）
     pub client_limit: crate::limit::ClientLimit,
+    /// amp-api 代理按客户端 IP 限流
+    pub amp_client_limit: crate::limit::ClientLimit,
     /// `/status` 的共用缓存（见 [`crate::handlers::status_handler`]）
     pub status_cache: crate::handlers::StatusCache,
 }
@@ -56,6 +62,8 @@ impl AppState {
             wrapper_hint: None,
             client_rate: 0,
             client_concurrency: 0,
+            amp_client_rate: 0,
+            amp_client_concurrency: 0,
             client_ip_header: None,
         })
     }
@@ -87,7 +95,9 @@ impl AppState {
         let amp = Arc::new(crate::amp::Amp::new(config.amp_cache_mb * 1024 * 1024));
         let wrapper = crate::wrapper::Wrapper::new(&config);
         let client_limit = crate::limit::ClientLimit::new(config.client_rate, config.client_concurrency, config.client_ip_header.as_deref());
-        Self { config, http_client, apple_client, wrapper, amp, client_limit, status_cache: Default::default() }
+        let amp_client_limit =
+            crate::limit::ClientLimit::new(config.amp_client_rate, config.amp_client_concurrency, config.client_ip_header.as_deref());
+        Self { config, http_client, apple_client, wrapper, amp, client_limit, amp_client_limit, status_cache: Default::default() }
     }
 }
 

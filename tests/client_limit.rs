@@ -20,6 +20,8 @@ fn config(wrapper_url: String, ip_header: Option<&str>) -> Config {
         wrapper_hint: None,
         client_rate: 2,
         client_concurrency: 0,
+        amp_client_rate: 0,
+        amp_client_concurrency: 0,
         client_ip_header: ip_header.map(str::to_owned),
     }
 }
@@ -126,6 +128,30 @@ async fn client_concurrency_queues_per_ip() {
     assert!(different.iter().all(|r| r.as_ref().unwrap().status() == 200));
     assert!(start.elapsed() < Duration::from_millis(500));
     assert_eq!(peak.load(Ordering::SeqCst), 3);
+}
+
+/// --amp-client-rate：amp-api 代理另有一套按 IP 的限额，与 wrapper-lite 的互不影响；/station/token 不计入。
+/// 无效的地区在本地就返回 400（不请求 Apple），用来计数
+#[tokio::test]
+async fn amp_proxy_is_limited_per_client_ip() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut config = config(fake_wrapper(calls).await, Some("x-real-ip"));
+    config.amp_client_rate = 2;
+    let app = serve_app(AppState::with_config(config)).await;
+    let client = reqwest::Client::new();
+    let amp = |ip: &str| client.get(format!("{app}/amp/v1/recommendations/XX")).header("x-real-ip", ip).send();
+
+    assert_eq!(amp("198.51.100.1").await.unwrap().status(), 400);
+    assert_eq!(amp("198.51.100.1").await.unwrap().status(), 400);
+    let limited = amp("198.51.100.1").await.unwrap();
+    assert_eq!(limited.status(), 429);
+    assert!(limited.headers().contains_key("retry-after"));
+    assert_eq!(amp("198.51.100.2").await.unwrap().status(), 400, "other IPs unaffected");
+    let token = client.delete(format!("{app}/station/token")).header("x-real-ip", "198.51.100.1").send().await.unwrap();
+    assert_eq!(token.status(), 204, "/station/token not counted");
+    // wrapper-lite 的限额独立计算
+    let song = client.get(format!("{app}/parse/song/1440833098")).header("x-real-ip", "198.51.100.1").send().await.unwrap();
+    assert_eq!(song.status(), 200);
 }
 
 #[tokio::test]

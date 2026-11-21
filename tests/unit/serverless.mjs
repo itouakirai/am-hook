@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import vercel from '../../api/handler.mjs';
 import worker from '../../serverless/cloudflare.mjs';
 import {
-  extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, SECURITY_HEADERS, validCatalogPath,
+  cooldownStrike, extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, SECURITY_HEADERS, validCatalogPath,
   validLicenseUrl, validRecommendationId, validStationId, VERSION, withSecurityHeaders, wrapperConfig,
 } from '../../serverless/core.mjs';
 
@@ -243,6 +243,38 @@ test('amp proxy rejects bad paths and refetches a rejected token once', async ()
   const down = await get('/amp/v1/catalog/us/songs/1');
   assert.equal(down.status, 502);
   assert.match((await down.json()).msg, /^developer token unavailable/);
+});
+
+test('upstream 429 pauses forwarding to that host (same as src/amp.rs Cooldown)', async () => {
+  const token = jwt({ iss: 'AMPWebPlay', n: 4 });
+  const base = apple({ token });
+  let edge = 0;
+  stub((url, init) => {
+    if (url.startsWith('https://amp-api-edge.music.apple.com/')) {
+      edge += 1;
+      return reply({ errors: [{ title: 'Too Many Requests' }] }, { status: 429 });
+    }
+    return base(url, init);
+  });
+  for (let i = 0; i < 3; i++) {
+    const res = await get('/amp/v1/catalog/us/songs/1');
+    assert.equal(res.status, 429);
+    const secs = Number(res.headers.get('retry-after'));
+    assert.ok(secs >= 59 && secs <= 75, String(secs));
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.match((await res.json()).msg, /retry in/);
+  }
+  assert.equal(edge, 1, 'requests during the cooldown never reach Apple');
+
+  resetTokenCache();
+  const t0 = 1_000_000;
+  assert.equal(cooldownStrike('h', t0, 0), 60_000);
+  assert.equal(cooldownStrike('h', t0 + 1000, 0), 59_000, 'in-flight 429s do not escalate');
+  assert.equal(cooldownStrike('h', t0 + 60_000, 0), 120_000);
+  assert.equal(cooldownStrike('h', t0 + 180_000, 0.999999), 300_000);
+  let now = t0 + 480_000;
+  for (let i = 0; i < 10; i++) now += cooldownStrike('h', now, 0);
+  assert.equal(cooldownStrike('h', now, 0), 1_800_000, 'capped at 30 min');
 });
 
 test('a shared token store spares new instances the scrape', async () => {

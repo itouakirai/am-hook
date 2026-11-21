@@ -33,7 +33,7 @@ Alternatively the function can relay to a publicly reachable wrapper-lite, set t
 
 Other differences from the binary:
 
-- amp-api responses are cached by the platform (Vercel CDN, Cloudflare Cache API; 5 minutes for the catalog, 24 hours for storefronts); there is no connection keep-alive or background warm-up, and the first catalog request of a new instance scrapes the developer token first, which takes a few seconds.
+- amp-api responses are cached by the platform (Vercel CDN, Cloudflare Cache API; 5 minutes for the catalog, 24 hours for storefronts); there is no connection keep-alive or background warm-up, and the first catalog request of a new instance scrapes the developer token first, which takes a few seconds. An HTTP 429 from Apple pauses forwarding to that host with the same cooldown as the binary, but only within one instance; there is no per-client limit (use the platform's rate limiting).
 - No command-line options, request log or auto-update.
 - On Vercel, page paths are matched by the rewrite rules in `vercel.json`, which are looser than the binary: invalid paths under `/library/…`, `/new/…` and `/https://music.apple.com/<cc>/…` get the app shell instead of a 404.
 

@@ -68,6 +68,12 @@ const CATALOG_TTL: Duration = Duration::from_secs(300);
 const STOREFRONTS_TTL: Duration = Duration::from_secs(24 * 3600);
 /// 保活请求：响应很小，同时能验证 token 仍然有效
 const PING_PATH: &str = "/v1/storefronts/us";
+/// amp-api 拒绝 token（401/403）时，比这更新的 token 不再丢弃重抓：刚抓到的 token 也被拒，多半不是 token 的问题，
+/// 每个请求都重抓只会多打 music.apple.com
+const TOKEN_MIN_AGE: Duration = Duration::from_secs(30);
+/// 上游 429 后的冷却时间：首次 [`COOLDOWN_BASE`]，连续 429 时翻倍，不超过 [`COOLDOWN_MAX`]，另加 0–25% 抖动
+const COOLDOWN_BASE: Duration = Duration::from_secs(60);
+const COOLDOWN_MAX: Duration = Duration::from_secs(1800);
 /// 未开启保活时，后台检查 token 是否需要刷新的周期
 const TOKEN_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -83,6 +89,8 @@ pub struct Amp {
     user_client: Client,
     token: DeveloperToken,
     cache: ResponseCache,
+    /// 上游 429 后按主机暂停转发
+    cooldown: Cooldown,
     epoch: Instant,
     /// 最近一次 amp-api 请求（含保活）开始的时间（相对 `epoch` 的毫秒数），保活只在连接空闲时发送
     last_request_ms: AtomicU64,
@@ -112,6 +120,7 @@ impl Amp {
             user_client,
             token: DeveloperToken::default(),
             cache: ResponseCache::new(cache_bytes),
+            cooldown: Cooldown::default(),
             epoch: Instant::now(),
             last_request_ms: AtomicU64::new(0),
         }
@@ -155,8 +164,13 @@ impl Amp {
         (lookup, pending.await)
     }
 
-    /// 带 developer token 请求 amp-api；token 失效（401/403）时重新获取一次
+    /// 带 developer token 请求 amp-api；token 失效（401/403）时重新获取一次（token 刚抓到不久时不重抓）。
+    /// 冷却期内（上游刚返回过 429）不请求上游，直接返回本地构造的 429
     async fn request(&self, url: &str, ttl: Duration) -> Result<Upstream, String> {
+        let host = host_of(url);
+        if let Some(wait) = self.cooldown.remaining(&host, Instant::now()) {
+            return Ok(Upstream::rate_limited(wait));
+        }
         let mut retried = false;
         loop {
             let token = self.token.get(&self.client).await.map_err(|e| format!("developer token unavailable: {e}"))?;
@@ -174,9 +188,12 @@ impl Amp {
                 .await
                 .map_err(|e| format!("amp-api request failed: {e}"))?;
             let status = response.status();
-            if matches!(status.as_u16(), 401 | 403) && !retried {
+            if status.as_u16() == 429 {
+                return Ok(self.throttled(&host));
+            }
+            self.cooldown.clear(&host, Instant::now());
+            if matches!(status.as_u16(), 401 | 403) && !retried && self.token.invalidate(&token, Instant::now()) {
                 info!(%status, "amp-api rejected the developer token, fetching a new one");
-                self.token.invalidate(&token);
                 retried = true;
                 continue;
             }
@@ -188,8 +205,17 @@ impl Amp {
                 expires_at: Instant::now() + ttl,
                 elapsed: started.elapsed(),
                 version,
+                retry_after: None,
             });
         }
+    }
+
+    /// 上游返回 429：Apple 按出口 IP 限流，换 token 无用，继续转发只会延长限流。进入冷却并返回本地构造的 429，
+    /// 上游响应体丢弃。amp-api 的 429 不带 `Retry-After`，冷却时间全由本地退避决定
+    fn throttled(&self, host: &str) -> Upstream {
+        let wait = self.cooldown.strike(host, Instant::now(), jitter());
+        warn!(host, cooldown = ?wait, "Apple returned HTTP 429, pausing requests to this host");
+        Upstream::rate_limited(wait)
     }
 }
 
@@ -206,6 +232,10 @@ impl Amp {
         body: Option<Bytes>,
         license: Option<bool>,
     ) -> Result<Upstream, String> {
+        let host = host_of(url);
+        if let Some(wait) = self.cooldown.remaining(&host, Instant::now()) {
+            return Ok(Upstream::rate_limited(wait));
+        }
         let token = self.token.get(&self.client).await.map_err(|e| format!("developer token unavailable: {e}"))?;
         let started = Instant::now();
         let mut request = self
@@ -228,6 +258,10 @@ impl Amp {
         }
         let response = request.send().await.map_err(|e| format!("Apple request failed: {e}"))?;
         let status = response.status();
+        if status.as_u16() == 429 {
+            return Ok(self.throttled(&host));
+        }
+        self.cooldown.clear(&host, Instant::now());
         let version = response.version();
         let body = response.bytes().await.map_err(|e| format!("failed to read Apple response: {e}"))?;
         Ok(Upstream {
@@ -236,6 +270,7 @@ impl Amp {
             expires_at: Instant::now(),
             elapsed: started.elapsed(),
             version,
+            retry_after: None,
         })
     }
 }
@@ -268,6 +303,39 @@ struct Upstream {
     expires_at: Instant,
     elapsed: Duration,
     version: reqwest::Version,
+    /// 本地构造的 429：还要等多久（写入 `Retry-After`）
+    retry_after: Option<Duration>,
+}
+
+impl Upstream {
+    /// 冷却期内代替上游返回的 429（不缓存）
+    fn rate_limited(wait: Duration) -> Self {
+        let secs = retry_after_secs(wait);
+        let body = json!({ "code": 1, "msg": format!("Apple rate limited this server; retry in {secs} s") });
+        Upstream {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            body: Bytes::from(body.to_string()),
+            expires_at: Instant::now(),
+            elapsed: Duration::ZERO,
+            version: reqwest::Version::HTTP_11,
+            retry_after: Some(wait),
+        }
+    }
+}
+
+fn retry_after_secs(wait: Duration) -> u64 {
+    wait.as_secs_f64().ceil().max(1.0) as u64
+}
+
+fn host_of(url: &str) -> String {
+    reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
+}
+
+/// [0, 1) 的随机数（每个 `RandomState` 的种子不同），用于退避抖动
+fn jitter() -> f64 {
+    use std::hash::{BuildHasher, Hasher};
+    let bits = std::collections::hash_map::RandomState::new().build_hasher().finish();
+    (bits >> 11) as f64 / (1u64 << 53) as f64
 }
 
 type Pending = Shared<BoxFuture<'static, Result<Arc<Upstream>, String>>>;
@@ -323,9 +391,52 @@ impl Drop for InflightGuard {
     }
 }
 
+/// 上游 429 后按主机暂停转发：冷却期内直接返回本地的 429，不再请求该主机。冷却期间仍在途的请求陆续返回 429 只算一次；
+/// 冷却结束后再遇到 429 时退避翻倍，收到非 429 响应后归零。
+/// 抖动避免冷却结束时所有浏览器按同一 `Retry-After` 同时重试。
+#[derive(Default)]
+struct Cooldown {
+    hosts: Mutex<HashMap<String, HostCooldown>>,
+}
+
+struct HostCooldown {
+    until: Instant,
+    strikes: u32,
+}
+
+impl Cooldown {
+    fn remaining(&self, host: &str, now: Instant) -> Option<Duration> {
+        let until = self.hosts.lock().unwrap().get(host)?.until;
+        (until > now).then(|| until - now)
+    }
+
+    /// 记一次 429，返回冷却时间；`jitter` 在 [0, 1)
+    fn strike(&self, host: &str, now: Instant, jitter: f64) -> Duration {
+        let mut hosts = self.hosts.lock().unwrap();
+        let entry = hosts.entry(host.to_owned()).or_insert(HostCooldown { until: now, strikes: 0 });
+        if entry.until > now {
+            return entry.until - now;
+        }
+        entry.strikes = (entry.strikes + 1).min(16);
+        let base = COOLDOWN_BASE.saturating_mul(1 << (entry.strikes - 1)).min(COOLDOWN_MAX);
+        let wait = base + base.mul_f64(jitter.clamp(0.0, 1.0) * 0.25);
+        entry.until = now + wait;
+        wait
+    }
+
+    /// 上游正常响应：冷却已结束时清除退避等级（冷却前发出、之后才返回的请求不算）
+    fn clear(&self, host: &str, now: Instant) {
+        let mut hosts = self.hosts.lock().unwrap();
+        if hosts.get(host).is_some_and(|e| e.until <= now) {
+            hosts.remove(host);
+        }
+    }
+}
+
 struct Token {
     value: Arc<str>,
     refresh_at: Instant,
+    fetched_at: Instant,
 }
 
 /// 缓存的 developer token。抓取过程持有锁，并发请求只会抓取一次；后台刷新期间请求继续使用旧 token。
@@ -371,15 +482,23 @@ impl DeveloperToken {
         let now_unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let refresh_in = refresh_delay(&value, now_unix);
         info!(refresh_in = %format!("{} min", refresh_in.as_secs() / 60), "Fetched Apple Music web developer token");
-        *self.current.write().unwrap() = Some(Token { value: value.clone(), refresh_at: Instant::now() + refresh_in });
+        *self.current.write().unwrap() = Some(Token { value: value.clone(), refresh_at: Instant::now() + refresh_in, fetched_at: Instant::now() });
         Ok(value)
     }
 
-    /// 丢弃失效的 token；若缓存已被其他请求换成新 token 则保留
-    fn invalidate(&self, token: &str) {
+    /// 丢弃失效的 token，返回是否值得用新 token 重试：缓存已被其他请求换成新 token（或已丢弃）时为 true；
+    /// 被拒的正是缓存中的 token 时，只有抓到超过 [`TOKEN_MIN_AGE`] 才丢弃，否则保留并返回 false
+    fn invalidate(&self, token: &str, now: Instant) -> bool {
         let mut current = self.current.write().unwrap();
-        if current.as_ref().is_some_and(|t| &*t.value == token) {
-            *current = None;
+        match current.as_ref() {
+            Some(t) if &*t.value == token => {
+                if now.duration_since(t.fetched_at) < TOKEN_MIN_AGE {
+                    return false;
+                }
+                *current = None;
+                true
+            }
+            _ => true,
         }
     }
 }
@@ -658,7 +777,7 @@ async fn forward_user(
         .header("server-timing", format!("upstream;dur={:.1}", upstream.elapsed.as_secs_f64() * 1000.0))
         .body(Body::from(upstream.body))
         .unwrap();
-    log::note(response, note)
+    log::note(with_retry_after(response, upstream.retry_after), note)
 }
 
 /// `GET /station/assets?<playParams>` → `amp-api.music.apple.com/v1/play/assets?<playParams>`：
@@ -845,7 +964,14 @@ async fn forward(state: &AppState, url: String, ttl: Duration) -> Response<Body>
         .header("server-timing", timing)
         .body(Body::from(upstream.body.clone()))
         .unwrap();
-    log::note(response, note)
+    log::note(with_retry_after(response, upstream.retry_after), note)
+}
+
+fn with_retry_after(mut response: Response<Body>, wait: Option<Duration>) -> Response<Body> {
+    if let Some(wait) = wait {
+        response.headers_mut().insert(axum::http::header::RETRY_AFTER, retry_after_secs(wait).into());
+    }
+    response
 }
 
 /// amp-api 错误响应 `{"errors":[{"title","detail"}]}` 的首条说明，供请求日志输出
@@ -853,7 +979,8 @@ fn api_error_summary(body: &[u8]) -> String {
     let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
     let first = value.pointer("/errors/0");
     let field = |key| first.and_then(|e| e.get(key)).and_then(serde_json::Value::as_str);
-    field("detail").or_else(|| field("title")).unwrap_or_default().to_owned()
+    let msg = value.get("msg").and_then(serde_json::Value::as_str);
+    field("detail").or_else(|| field("title")).or(msg).unwrap_or_default().to_owned()
 }
 
 fn error(status: StatusCode, msg: &str) -> Response<Body> {
@@ -998,6 +1125,7 @@ mod tests {
             expires_at: Instant::now() + ttl,
             elapsed: Duration::ZERO,
             version: reqwest::Version::HTTP_2,
+            retry_after: None,
         })
     }
 
@@ -1021,5 +1149,83 @@ mod tests {
         let disabled = ResponseCache::new(0);
         disabled.put("a", upstream(StatusCode::OK, b"1", CATALOG_TTL));
         assert!(disabled.get("a").is_none());
+    }
+
+    #[test]
+    fn cooldown_backoff() {
+        let cd = Cooldown::default();
+        let t0 = Instant::now();
+        let s = Duration::from_secs;
+        assert_eq!(cd.remaining("a", t0), None);
+        assert_eq!(cd.strike("a", t0, 0.0), s(60));
+        assert_eq!(cd.remaining("a", t0 + s(2)), Some(s(58)));
+        assert_eq!(cd.remaining("b", t0), None, "per host");
+        // 冷却期内在途请求返回的 429 不再加码
+        assert_eq!(cd.strike("a", t0 + s(1), 0.0), s(59));
+        // 冷却结束后再次 429：翻倍，抖动最多 +25%
+        assert_eq!(cd.strike("a", t0 + s(60), 0.0), s(120));
+        assert_eq!(cd.strike("a", t0 + s(180), 0.999_999).as_secs(), 299);
+        // 一直 429 时封顶 COOLDOWN_MAX
+        let mut now = t0 + s(480);
+        for _ in 0..10 {
+            now += cd.strike("a", now, 0.0);
+        }
+        assert_eq!(cd.strike("a", now, 0.0), COOLDOWN_MAX);
+        // 冷却期内的正常响应（冷却前发出的请求）不清除；冷却结束后的正常响应清除退避等级
+        cd.clear("a", now + s(1));
+        assert!(cd.remaining("a", now + s(1)).is_some());
+        let after = now + COOLDOWN_MAX;
+        cd.clear("a", after);
+        assert_eq!(cd.strike("a", after, 0.0), s(60));
+        let j = jitter();
+        assert!((0.0..1.0).contains(&j));
+    }
+
+    /// 上游 429 → 本地 429 + Retry-After，冷却期内的请求不到达上游
+    #[tokio::test]
+    async fn upstream_429_pauses_forwarding() {
+        use std::sync::atomic::AtomicUsize;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = axum::Router::new().fallback(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async { Response::builder().status(429).body(Body::from("{}")).unwrap() }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/catalog/us/songs/1", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let amp = Amp::new(0);
+        *amp.token.current.write().unwrap() =
+            Some(Token { value: "t".into(), refresh_at: Instant::now() + TOKEN_TTL, fetched_at: Instant::now() });
+        for _ in 0..3 {
+            let up = amp.request(&url, CATALOG_TTL).await.unwrap();
+            assert_eq!(up.status, StatusCode::TOO_MANY_REQUESTS);
+            let wait = up.retry_after.unwrap();
+            assert!(wait > Duration::from_secs(58) && wait <= Duration::from_secs(75), "{wait:?}");
+            assert!(api_error_summary(&up.body).contains("retry in"));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn token_invalidate_min_age() {
+        let token = DeveloperToken::default();
+        let t0 = Instant::now();
+        let set = |value: &str| {
+            *token.current.write().unwrap() =
+                Some(Token { value: value.into(), refresh_at: t0 + TOKEN_TTL, fetched_at: t0 });
+        };
+        set("old");
+        // 刚抓到的 token 被拒：不丢弃、不重试
+        assert!(!token.invalidate("old", t0 + Duration::from_secs(1)));
+        assert_eq!(token.cached().as_deref(), Some("old"));
+        // 抓到已有一阵：丢弃并重试
+        assert!(token.invalidate("old", t0 + TOKEN_MIN_AGE));
+        assert!(token.cached().is_none());
+        // 已被其他请求换成新 token：保留新 token，用它重试
+        set("new");
+        assert!(token.invalidate("old", t0));
+        assert_eq!(token.cached().as_deref(), Some("new"));
     }
 }

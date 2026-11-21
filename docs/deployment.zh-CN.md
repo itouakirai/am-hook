@@ -33,7 +33,7 @@
 
 与二进制的其他区别：
 
-- amp-api 的响应由平台缓存（Vercel CDN、Cloudflare Cache API；目录 5 分钟、地区表 24 小时），没有连接保活与后台预热；新实例的第一个目录请求要先抓取 developer token，会慢几秒。
+- amp-api 的响应由平台缓存（Vercel CDN、Cloudflare Cache API；目录 5 分钟、地区表 24 小时），没有连接保活与后台预热；新实例的第一个目录请求要先抓取 developer token，会慢几秒。Apple 返回 HTTP 429 后与二进制一样暂停转发一段冷却时间，但只在单个实例内生效；没有按客户端限流（用平台自带的限流）。
 - 没有命令行参数、请求日志与自动更新。
 - Vercel 上页面地址由 `vercel.json` 的改写规则匹配，比二进制宽松：`/library/…`、`/new/…` 与 `/https://music.apple.com/<cc>/…` 下无效的地址也返回页面外壳而不是 404。
 

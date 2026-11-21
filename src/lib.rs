@@ -37,14 +37,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         // 按客户端 IP 限流（--client-rate），在 require_relay 之内
         .route_layer(axum::middleware::from_fn_with_state(state.clone(), limit::limit_clients))
         .route_layer(axum::middleware::from_fn_with_state(state.clone(), handlers::require_relay));
-    router
-        .merge(relay)
-        .route(assets::HOST_JS, get(handlers::host_js_handler))
-        .route("/", get(handlers::app_handler))
-        // 「新发现」（官网 /{cc}/new，这里跟随主地区）
-        .route("/new", get(handlers::app_handler))
-        // 浏览器直连本地 wrapper-lite 时，MV master 仍由服务端获取
-        .route("/parse/mv-master", get(handlers::mv_master_url_handler))
+    // amp-api 代理：按客户端 IP 限流（--amp-client-rate），上游 429 后的冷却在 amp.rs
+    let apple = Router::new()
         .route("/amp/v1/catalog/*path", get(amp::catalog_handler))
         .route("/amp/v1/editorial/*path", get(amp::editorial_handler))
         .route("/amp/v1/recommendations/:cc", get(amp::recommendations_handler))
@@ -61,6 +55,16 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/station/recommendations", get(amp::station_recommendations_handler))
         .route("/station/recommendations/:id/see-all", get(amp::station_recommendation_see_all_handler))
         .route("/station/license", post(amp::station_license_handler))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), limit::limit_amp_clients));
+    router
+        .merge(relay)
+        .merge(apple)
+        .route(assets::HOST_JS, get(handlers::host_js_handler))
+        .route("/", get(handlers::app_handler))
+        // 「新发现」（官网 /{cc}/new，这里跟随主地区）
+        .route("/new", get(handlers::app_handler))
+        // 浏览器直连本地 wrapper-lite 时，MV master 仍由服务端获取
+        .route("/parse/mv-master", get(handlers::mv_master_url_handler))
         .fallback(handlers::fallback_handler)
         // CSP、nosniff 等安全响应头（见 security.rs），所有响应都带
         .layer(axum::middleware::from_fn(security::headers))

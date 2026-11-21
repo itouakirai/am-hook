@@ -326,6 +326,12 @@ pub fn print_banner(listen: SocketAddr, config: &Config) {
         secs => format!("keep-alive {secs}s"),
     };
     lines.push(format!("  amp-api       warm connection, {keepalive}, response cache {} MB", config.amp_cache_mb));
+    if config.amp_client_rate > 0 || config.amp_client_concurrency > 0 {
+        let source = config.client_ip_header.as_deref().unwrap_or("peer address");
+        let per_client =
+            format!("{}, {}", limit(config.amp_client_rate as usize, "req/min"), limit(config.amp_client_concurrency, "concurrent"));
+        lines.push(format!("                per client {per_client} · IP from {source}"));
+    }
     lines.push("  Pages         home & search · for you · new · top charts · radio · song · album · playlist · artist".into());
     lines.push("                music video · post · station · room · multi-room · grouping · curator".into());
     lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
