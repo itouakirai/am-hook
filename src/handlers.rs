@@ -23,6 +23,11 @@ pub async fn app_handler(headers: HeaderMap) -> Response<Body> {
 
 /// 其余路径：Apple Music 页面路径本身也是 "https://..."（`/` 后拼接官网地址），
 /// 歌曲 / MV / post / 专辑 / 歌单 / 艺人 / 电台页、编辑页、广播、资料库页与设置中心都返回单页应用，其他一律 404
+/// `--amp-only` 下除 amp-api 代理外的路径
+pub async fn not_found_handler() -> Response<Body> {
+    json_response(StatusCode::NOT_FOUND, json!({ "code": 1, "msg": "Not found (amp-only node)" }))
+}
+
 pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
     let path = uri.path().strip_prefix('/').unwrap_or(uri.path());
     if parse_song_link(path).is_ok()

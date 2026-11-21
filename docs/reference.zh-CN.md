@@ -14,6 +14,8 @@
 | `--wrapper-auth <VALUE>` | 不发送 | wrapper-lite 请求的 `Authorization` 头。只填 token 时自动加 `Bearer ` 前缀；已带认证方案（`Bearer …`、`Basic …`）则原样发送。也可用环境变量 `AM_HOOK_WRAPPER_AUTH` 设置（不会出现在进程列表中）。以上三项只作用于服务端转发；页面切换为本地 wrapper-lite 时在页面中另行设置 |
 | `--client-rate <N>` | `0` | 每个客户端 IP 任意 60 秒内转发 wrapper-lite 的请求上限（不含 `/status`：它由所有客户端共用，每 10 秒最多请求一次 wrapper-lite），免得单个访客用光共用的 wrapper-lite；超出时返回 HTTP 429 与 `Retry-After`。播放一首歌约 3 个请求（master、key、歌词）。0 不限 |
 | `--client-concurrency <N>` | `0` | 每个客户端 IP 同时转发 wrapper-lite 的请求上限（不含 `/status`）；超出的请求排队等待而不是失败，免得单个访客突发时占满 `--wrapper-concurrency` 的名额、堵住其他用户。播放一首歌同时需要 3 个（master、key、歌词）。0 不限 |
+| `--amp-proxy <URL>` | 直连 | `/amp` 与 `/station` 发往 Apple 的请求（以及抓取 developer token）都经此代理：`http://`、`https://`、`socks5://` 或 `socks5h://`（由代理解析域名），可带 `user:pass@`。Apple 按 IP 限流，用它把这些请求换到另一个 IP。也可用环境变量 `AM_HOOK_AMP_PROXY` |
+| `--amp-only` | 关闭 | 只提供 amp-api 代理（`/amp/*`、`/station/*`、`/amp/health`）：不提供页面与静态资源、不转发 wrapper-lite，其他路径 404。用作 [amp 代理集群](deployment.zh-CN.md#amp-代理集群)的节点；不加载、不压缩前端资源，内存约为一半 |
 | `--amp-client-rate <N>` | `0` | 每个客户端 IP 任意 60 秒内经 amp-api 代理的请求上限（`/amp/*` 与除 `/station/token` 外的 `/station/*`，缓存命中也计入）；超出时返回 HTTP 429 与 `Retry-After`。Apple 按本服务器的 IP 整体限流，不限的话一个访客刷爆会让所有人都拿到 429。0 不限 |
 | `--amp-client-concurrency <N>` | `0` | 每个客户端 IP 同时经 amp-api 代理的请求上限；超出的排队等待。0 不限 |
 | `--client-ip-header <NAME>` | TCP 对端地址 | 存放客户端 IP 的请求头，由前面的反向代理设置（如 `X-Real-IP`、`CF-Connecting-IP`；是列表时取第一个）。在反向代理后面时需要设置，否则所有请求的对端都是代理。只有所有请求都经过该代理时才能设置，否则客户端可以伪造 |
@@ -44,6 +46,7 @@
 | `POST /station/next-tracks/ra.<id>`、`GET /station/assets?<playParams>`、`GET /station/catalog/<path>`、`GET /station/recent`、`GET /station/storefront` | 电台接口：带上用户的 media-user-token（取自 `POST /station/token` 设置的 HttpOnly cookie；脚本直接调用时也可用 `X-Media-User-Token` 请求头）与 developer token 请求 `amp-api.music.apple.com`（`/v1/me/stations/next-tracks`、`/v1/play/assets`、`/v1/catalog`、`/v1/me/recent/radio-stations`、`/v1/me/storefront`），原样返回、不缓存；没有 token 时返回 401 |
 | `GET /station/recommendations?<query>`、`GET /station/recommendations/<id>/see-all?<query>` | 为你推荐：`amp-api.music.apple.com/v1/me/recommendations` 与 `/v1/me/recommendations/<id>/view/see-all`，token 与规则同电台接口（查询参数原样转发，Apple 要求带 `timezone` 与 `platform`） |
 | `POST /station/token`、`DELETE /station/token` | `{ token }`：把 media-user-token 存进 HttpOnly、`SameSite=Strict` 的 cookie（HTTPS 下为带 `Secure` 的 `__Host-am-mut`，HTTP 下为 `am-mut`），保存 180 天；`DELETE` 清除。跨站请求（`Sec-Fetch-Site` 不是 `same-origin`）返回 403。服务端不保存 |
+| `GET /amp/health` | 负载均衡的健康检查：developer token 已就绪且目录主机不在 429 冷却中时 200，否则 503（冷却中带 `Retry-After`）。响应体 `{ok, token, cooldown, proxy}`（`cooldown` 为秒）。只读本地状态，不请求 Apple；不计入 `--amp-client-rate` |
 | `POST /station/license` | `{ url, body, renewal }`：把 `body` 连同两个 token POST 给电台的 license 服务器（`url` 须为 Apple 的 HTTPS 地址，且是 MusicKit 认识的 license 路径），原样返回响应 |
 | `/assets/...` | 内嵌在二进制中的前端路由、页面视图（`/assets/views/`）、脚本、样式与按需加载的 WASM。页面通过 `/assets/h/` 下带内容哈希的地址加载（`immutable` 长期缓存），原地址以 `no-cache` + ETag 提供。文本与 WASM 按 `Accept-Encoding` 以 brotli 或 gzip 压缩提供（启动后在后台压缩一次）。`/assets/host.js` 告诉页面服务端能否转发 wrapper-lite（serverless 部署由函数生成） |
 

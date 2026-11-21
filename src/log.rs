@@ -292,13 +292,16 @@ pub(crate) fn format_elapsed(elapsed: Duration) -> String {
 pub fn print_banner(listen: SocketAddr, config: &Config) {
     let mut lines = vec![format!("am-hook v{}", env!("CARGO_PKG_VERSION"))];
     let urls = access_urls(listen);
-    lines.push(format!("  Web UI        {}", urls[0]));
+    let label = if config.amp_only { "  amp-only      " } else { "  Web UI        " };
+    lines.push(format!("{label}{}", urls[0]));
     for url in &urls[1..] {
         lines.push(format!("                {url}"));
     }
     let limit = |n: usize, unit: &str| if n == 0 { format!("unlimited {unit}") } else { format!("{n} {unit}") };
     let limits = format!("{}, {}", limit(config.wrapper_rate as usize, "req/s"), limit(config.wrapper_concurrency, "concurrent"));
-    if config.wrapper_relay {
+    if config.amp_only {
+        lines.push("                /amp/* · /station/* · /amp/health only: no pages, no wrapper-lite relay".into());
+    } else if config.wrapper_relay {
         lines.push(format!("  wrapper-lite  {}", config.wrapper_url));
         // 只显示认证方案，不输出凭据
         let auth = match config.wrapper_auth.as_deref() {
@@ -318,7 +321,7 @@ pub fn print_banner(listen: SocketAddr, config: &Config) {
             lines.push("                --wrapper-auth ignored (never sent to pages)".into());
         }
     }
-    if let Some(hint) = &config.wrapper_hint {
+    if let Some(hint) = config.wrapper_hint.as_ref().filter(|_| !config.amp_only) {
         lines.push(format!("                hint {hint}"));
     }
     let keepalive = match config.amp_keepalive.as_secs() {
@@ -326,15 +329,20 @@ pub fn print_banner(listen: SocketAddr, config: &Config) {
         secs => format!("keep-alive {secs}s"),
     };
     lines.push(format!("  amp-api       warm connection, {keepalive}, response cache {} MB", config.amp_cache_mb));
+    if let Some(proxy) = &config.amp_proxy {
+        lines.push(format!("                via proxy {}", crate::amp::proxy_label(proxy)));
+    }
     if config.amp_client_rate > 0 || config.amp_client_concurrency > 0 {
         let source = config.client_ip_header.as_deref().unwrap_or("peer address");
         let per_client =
             format!("{}, {}", limit(config.amp_client_rate as usize, "req/min"), limit(config.amp_client_concurrency, "concurrent"));
         lines.push(format!("                per client {per_client} · IP from {source}"));
     }
-    lines.push("  Pages         home & search · for you · new · top charts · radio · song · album · playlist · artist".into());
-    lines.push("                music video · post · station · room · multi-room · grouping · curator".into());
-    lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
+    if !config.amp_only {
+        lines.push("  Pages         home & search · for you · new · top charts · radio · song · album · playlist · artist".into());
+        lines.push("                music video · post · station · room · multi-room · grouping · curator".into());
+        lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
+    }
     lines.push("  Verbose log   RUST_LOG=am_hook=debug (assets, status, suggestions)".into());
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let rule = "─".repeat(width + 2);

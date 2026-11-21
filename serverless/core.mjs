@@ -276,6 +276,13 @@ function ampRoute(path, search, platform) {
   const query = search.replace(/^\?/, '');
   if (query.length > MAX_QUERY_LEN) return fail(400, 'Query too long');
   const suffix = query ? `?${query}` : '';
+  // 健康检查（同 src/amp.rs 的 health_handler）：只读实例内存里的状态，不请求 Apple
+  if (path === '/amp/health') {
+    const cooldown = cooldownRemaining(new URL(API_ORIGIN).host);
+    const ok = cachedToken !== null && cooldown === 0;
+    const body = { ok, token: cachedToken !== null, cooldown: Math.ceil(cooldown / 1000), proxy: false };
+    return json(ok ? 200 : 503, body, cooldown ? { ...NO_STORE, 'retry-after': String(Math.ceil(cooldown / 1000)) } : NO_STORE);
+  }
   if (path === '/amp/v1/storefronts') return amp(`${API_ORIGIN}/v1/storefronts${suffix}`, STOREFRONTS_TTL, platform);
   // 搜索页「类别浏览」（name=search-landing）：只开放地区根路径，同 src/amp.rs 的 recommendations_handler
   const reco = /^\/amp\/v1\/recommendations\/([^/]+)$/.exec(path);

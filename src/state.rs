@@ -23,6 +23,10 @@ pub struct Config {
     pub client_rate: u32,
     /// 每个客户端 IP 同时转发 wrapper-lite 的请求上限（不含 `/status`），超出的排队，0 表示不限
     pub client_concurrency: usize,
+    /// `--amp-only`：只提供 amp-api 代理（集群节点），不提供页面、不转发 wrapper-lite
+    pub amp_only: bool,
+    /// 发往 Apple 的请求经此代理（`--amp-proxy`，已校验），None 为直连
+    pub amp_proxy: Option<String>,
     /// 每个客户端 IP 每分钟经 amp-api 代理（`/amp`、`/station`）的请求上限，0 表示不限
     pub amp_client_rate: u32,
     /// 每个客户端 IP 同时经 amp-api 代理的请求上限，超出的排队，0 表示不限
@@ -62,6 +66,8 @@ impl AppState {
             wrapper_hint: None,
             client_rate: 0,
             client_concurrency: 0,
+            amp_only: false,
+            amp_proxy: None,
             amp_client_rate: 0,
             amp_client_concurrency: 0,
             client_ip_header: None,
@@ -92,7 +98,7 @@ impl AppState {
             }))
             .build()
             .expect("Failed to build reqwest Apple-only HTTP client");
-        let amp = Arc::new(crate::amp::Amp::new(config.amp_cache_mb * 1024 * 1024));
+        let amp = Arc::new(crate::amp::Amp::new(config.amp_cache_mb * 1024 * 1024, config.amp_proxy.as_deref()));
         let wrapper = crate::wrapper::Wrapper::new(&config);
         let client_limit = crate::limit::ClientLimit::new(config.client_rate, config.client_concurrency, config.client_ip_header.as_deref());
         let amp_client_limit =

@@ -26,7 +26,7 @@ export default {
 async function route(request, env, ctx) {
   const url = new URL(request.url);
   // amp-api 的成功响应按地址缓存（Worker 的响应不会自动进 CDN 缓存），缓存时间取自响应的 Cache-Control
-  const cacheable = request.method === 'GET' && url.pathname.startsWith('/amp/');
+  const cacheable = request.method === 'GET' && url.pathname.startsWith('/amp/') && url.pathname !== '/amp/health';
   if (cacheable) {
     const hit = await caches.default.match(request.url);
     if (hit) return hit;

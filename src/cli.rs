@@ -58,6 +58,19 @@ pub struct Cli {
     #[arg(long, default_value_t = 0)]
     pub client_concurrency: usize,
 
+    /// Serve only the amp-api proxy (/amp/*, /station/*, /amp/health): no pages, no static
+    /// assets, no wrapper-lite relay. For amp proxy cluster nodes behind a reverse proxy that
+    /// routes those paths to them; uses less memory (assets are never loaded or compressed)
+    #[arg(long)]
+    pub amp_only: bool,
+
+    /// Send amp-api / station requests to Apple (and the developer token scrape) through
+    /// this proxy: http://, https://, socks5:// or socks5h:// (DNS via the proxy) URL,
+    /// optionally with user:pass@. Apple rate-limits by IP, so this moves them to another IP.
+    /// Default: direct
+    #[arg(long, env = "AM_HOOK_AMP_PROXY", hide_env_values = true)]
+    pub amp_proxy: Option<String>,
+
     /// Max amp-api proxy requests (/amp/*, /station/*; cache hits included) per client IP
     /// in any 60 seconds; further requests get HTTP 429 with Retry-After. Apple rate-limits
     /// this server's IP as a whole, so one visitor's flood would otherwise hit everyone.
@@ -120,10 +133,15 @@ impl Cli {
             wrapper_rate: self.wrapper_rate,
             wrapper_concurrency: self.wrapper_concurrency,
             wrapper_auth,
-            wrapper_relay: !self.local_wrapper_only,
+            wrapper_relay: !self.local_wrapper_only && !self.amp_only,
+            amp_only: self.amp_only,
             wrapper_hint: self.wrapper_hint.as_deref().map(str::trim).filter(|h| !h.is_empty()).map(str::to_owned),
             client_rate: self.client_rate,
             client_concurrency: self.client_concurrency,
+            amp_proxy: match self.amp_proxy.as_deref().map(str::trim) {
+                Some(raw) if !raw.is_empty() => Some(crate::amp::parse_proxy(raw)?),
+                _ => None,
+            },
             amp_client_rate: self.amp_client_rate,
             amp_client_concurrency: self.amp_client_concurrency,
             client_ip_header: match &self.client_ip_header {

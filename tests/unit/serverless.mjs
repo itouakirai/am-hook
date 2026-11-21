@@ -265,6 +265,10 @@ test('upstream 429 pauses forwarding to that host (same as src/amp.rs Cooldown)'
     assert.match((await res.json()).msg, /retry in/);
   }
   assert.equal(edge, 1, 'requests during the cooldown never reach Apple');
+  const health = await get('/amp/health');
+  assert.equal(health.status, 503);
+  const state = await health.json();
+  assert.ok(state.token && !state.ok && state.cooldown >= 59, JSON.stringify(state));
 
   resetTokenCache();
   const t0 = 1_000_000;

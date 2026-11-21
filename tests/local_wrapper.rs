@@ -33,6 +33,8 @@ fn config(wrapper_url: String, relay: bool) -> Config {
         wrapper_hint: Some("Get a token at https://token.test".into()),
         client_rate: 0,
         client_concurrency: 0,
+        amp_only: false,
+        amp_proxy: None,
         amp_client_rate: 0,
         amp_client_concurrency: 0,
         client_ip_header: None,
@@ -87,4 +89,36 @@ async fn local_wrapper_only_never_relays() {
     );
     assert_eq!(client.get(format!("{relay}/status")).send().await.unwrap().status(), 200);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// --amp-only：只提供 amp-api 代理（集群节点），页面、静态资源、wrapper-lite 接口都是 404，wrapper-lite 从不被请求
+#[tokio::test]
+async fn amp_only_serves_just_the_amp_proxy() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let wrapper = serve(Router::new().fallback(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+        async { "{}" }
+    }))
+    .await;
+    let mut config = config(wrapper, false);
+    config.amp_only = true;
+    let base = serve(am_hook::router(Arc::new(AppState::with_config(config)))).await;
+    let client = reqwest::Client::new();
+    let get = |path: &str| client.get(format!("{base}{path}")).send();
+
+    for path in ["/", "/us/album/x/1", "/assets/host.js", "/assets/app.html", "/status", "/parse/song/1440833098"] {
+        let response = get(path).await.unwrap();
+        assert_eq!(response.status(), 404, "{path}");
+        assert!(response.headers().contains_key("content-security-policy"), "{path}");
+    }
+    // amp 代理照常（无效地区在本地返回 400，不请求 Apple）
+    assert_eq!(get("/amp/v1/recommendations/XX").await.unwrap().status(), 400);
+    assert_eq!(client.delete(format!("{base}/station/token")).send().await.unwrap().status(), 204);
+    // 还没有 developer token（没有运行预热）：健康检查 503
+    let health = get("/amp/health").await.unwrap();
+    assert_eq!(health.status(), 503);
+    let body: serde_json::Value = health.json().await.unwrap();
+    assert_eq!(body, serde_json::json!({ "ok": false, "token": false, "cooldown": 0, "proxy": false }));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

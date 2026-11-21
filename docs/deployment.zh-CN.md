@@ -37,6 +37,42 @@
 - 没有命令行参数、请求日志与自动更新。
 - Vercel 上页面地址由 `vercel.json` 的改写规则匹配，比二进制宽松：`/library/…`、`/new/…` 与 `/https://music.apple.com/<cc>/…` 下无效的地址也返回页面外壳而不是 404。
 
+## amp 代理集群
+
+Apple 按 IP 限流 amp-api（目录、搜索、电台）。要分摊负载，可以在其他 IP 的机器上运行二进制作为 **amp-only 节点**，由前面的反向代理把 `/amp/` 与 `/station/` 分给它们；其余（页面、静态资源、wrapper-lite 转发）仍由主 am-hook 提供。
+
+- `am-hook --amp-only` 只提供 `/amp/*`、`/station/*` 与 `/amp/health`，其他路径一律 404。它不加载、不压缩前端资源，空闲内存约为完整实例的一半（Windows 上约 11 MB 对 24 MB）；调小 `--amp-cache-mb` 还能更省。
+- 每个节点有自己的 developer token、响应缓存与 429 冷却；冷却期内立即返回 429，反向代理可以据此把请求交给下一个节点。
+- `GET /amp/health`：节点有 token 且不在冷却中时 200，否则 503（响应体 `{ok, token, cooldown, proxy}`），供带主动健康检查的负载均衡使用。
+- 电台请求带着访客的 media-user-token cookie：在同一站点下按路径分流，cookie 才会发送；节点只让反向代理访问（绑定内网地址或用防火墙挡住）。
+- 节点本身也可以经 `--amp-proxy` 出去，一台机器即可提供多个出口 IP。
+- 在反向代理后面使用 `--amp-client-rate` / `--amp-client-concurrency` 时，节点要加 `--client-ip-header X-Real-IP`。
+
+nginx 示例（主 am-hook 在 `127.0.0.1:8080`，两个节点）：
+
+```nginx
+upstream am_hook { server 127.0.0.1:8080; }
+upstream amp_nodes {
+    server 10.0.0.2:8080;
+    server 10.0.0.3:8080;
+}
+server {
+    # ……listen / TLS……
+    location ~ ^/(amp|station)/ {
+        proxy_pass http://amp_nodes;
+        proxy_set_header X-Real-IP $remote_addr;
+        # 节点返回 429（冷却中）或连不上：换下一个节点（默认只重试 GET）
+        proxy_next_upstream error timeout http_429;
+    }
+    location / {
+        proxy_pass http://am_hook;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+节点用 `am-hook --amp-only --listen 0.0.0.0:8080 --client-ip-header X-Real-IP` 启动（经代理出去时再加 `--amp-proxy socks5h://…`）。
+
 ## 使用本地 wrapper-lite
 
 导航底部的「wrapper-lite」设置可以在两种方式间切换（保存在浏览器中）：

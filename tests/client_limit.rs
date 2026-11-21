@@ -20,6 +20,8 @@ fn config(wrapper_url: String, ip_header: Option<&str>) -> Config {
         wrapper_hint: None,
         client_rate: 2,
         client_concurrency: 0,
+        amp_only: false,
+        amp_proxy: None,
         amp_client_rate: 0,
         amp_client_concurrency: 0,
         client_ip_header: ip_header.map(str::to_owned),

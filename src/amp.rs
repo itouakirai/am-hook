@@ -97,9 +97,14 @@ pub struct Amp {
 }
 
 impl Amp {
-    /// `cache_bytes` 为 0 时不缓存响应，但并发的相同请求仍只请求一次上游
-    pub fn new(cache_bytes: usize) -> Self {
-        let client = Client::builder()
+    /// `cache_bytes` 为 0 时不缓存响应，但并发的相同请求仍只请求一次上游。
+    /// `proxy`（已经过 [`parse_proxy`]）：所有发往 Apple 的请求（含抓取 developer token）都经它发出
+    pub fn new(cache_bytes: usize, proxy: Option<&str>) -> Self {
+        let with_proxy = |builder: reqwest::ClientBuilder| match proxy {
+            Some(url) => builder.proxy(reqwest::Proxy::all(url).expect("--amp-proxy is validated by parse_proxy")),
+            None => builder,
+        };
+        let client = with_proxy(Client::builder())
             .connect_timeout(Duration::from_secs(5))
             .tcp_nodelay(true)
             .tcp_keepalive(Duration::from_secs(30))
@@ -109,7 +114,7 @@ impl Amp {
             .http2_keep_alive_while_idle(true)
             .build()
             .expect("Failed to build amp-api HTTP client");
-        let user_client = Client::builder()
+        let user_client = with_proxy(Client::builder())
             .connect_timeout(Duration::from_secs(5))
             .tcp_nodelay(true)
             .redirect(reqwest::redirect::Policy::none())
@@ -388,6 +393,33 @@ struct InflightGuard(Arc<Amp>, String);
 impl Drop for InflightGuard {
     fn drop(&mut self) {
         self.0.cache.inflight.lock().unwrap().remove(&self.1);
+    }
+}
+
+/// 校验 `--amp-proxy`：`http://`、`https://`、`socks5://`、`socks5h://`（由代理解析域名）地址，可带 `user:pass@`。
+/// Apple 按出口 IP 限流，本机 IP 被限流时可换一个出口
+pub fn parse_proxy(raw: &str) -> Result<String, String> {
+    let raw = raw.trim();
+    let url = reqwest::Url::parse(raw).map_err(|e| format!("Invalid --amp-proxy '{}': {e}", proxy_label(raw)))?;
+    if !matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h") || url.host_str().is_none_or(str::is_empty) {
+        return Err(format!(
+            "Invalid --amp-proxy '{}': expected http://, https://, socks5:// or socks5h://host:port",
+            proxy_label(raw)
+        ));
+    }
+    reqwest::Proxy::all(raw).map_err(|e| format!("Invalid --amp-proxy '{}': {e}", proxy_label(raw)))?;
+    Ok(raw.to_owned())
+}
+
+/// 代理地址去掉账号密码，供日志与启动信息显示
+pub fn proxy_label(raw: &str) -> String {
+    match reqwest::Url::parse(raw) {
+        Ok(mut url) => {
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
+            url.as_str().trim_end_matches('/').to_owned()
+        }
+        Err(_) => "<invalid>".to_owned(),
     }
 }
 
@@ -974,6 +1006,28 @@ fn with_retry_after(mut response: Response<Body>, wait: Option<Duration>) -> Res
     response
 }
 
+/// `GET /amp/health`：负载均衡的健康检查。developer token 已就绪且目录接口不在 429 冷却中时 200，否则 503
+/// （`cooldown` 为冷却剩余秒数）。只读状态，不请求 Apple
+pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response<Body> {
+    let amp = &state.amp;
+    let token = amp.token.cached().is_some();
+    let cooldown = amp.cooldown.remaining(&host_of(API_ORIGIN), Instant::now());
+    let ok = token && cooldown.is_none();
+    let body = json!({
+        "ok": ok,
+        "token": token,
+        "cooldown": cooldown.map_or(0, retry_after_secs),
+        "proxy": state.config.amp_proxy.is_some(),
+    });
+    let response = Response::builder()
+        .status(if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE })
+        .header(CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(CACHE_CONTROL, "no-store")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    with_retry_after(response, cooldown)
+}
+
 /// amp-api 错误响应 `{"errors":[{"title","detail"}]}` 的首条说明，供请求日志输出
 fn api_error_summary(body: &[u8]) -> String {
     let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
@@ -1195,7 +1249,7 @@ mod tests {
         let url = format!("http://{}/v1/catalog/us/songs/1", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-        let amp = Amp::new(0);
+        let amp = Amp::new(0, None);
         *amp.token.current.write().unwrap() =
             Some(Token { value: "t".into(), refresh_at: Instant::now() + TOKEN_TTL, fetched_at: Instant::now() });
         for _ in 0..3 {
@@ -1206,6 +1260,40 @@ mod tests {
             assert!(api_error_summary(&up.body).contains("retry in"));
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_parse_proxy() {
+        for ok in ["http://127.0.0.1:8080", "https://p.example:443", "socks5://u:p@10.0.0.1:1080", "socks5h://p.example:1080"] {
+            assert_eq!(parse_proxy(ok).unwrap(), ok);
+        }
+        for bad in ["ftp://p.example:21", "p.example:8080", "socks4://p.example:1080", "direct", ""] {
+            assert!(parse_proxy(bad).is_err(), "{bad}");
+        }
+        // 报错与日志里不出现账号密码
+        assert_eq!(proxy_label("socks5://user:secret@10.0.0.1:1080"), "socks5://10.0.0.1:1080");
+        assert!(!parse_proxy("ftp://user:secret@p.example").unwrap_err().contains("secret"));
+    }
+
+    /// 请求确实经代理发出：假的 HTTP 代理收到绝对地址的请求
+    #[tokio::test]
+    async fn requests_go_through_proxy() {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = seen.clone();
+        let proxy = axum::Router::new().fallback(move |uri: Uri| {
+            log.lock().unwrap().push(uri.to_string());
+            async { "{}" }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, proxy).await.unwrap() });
+
+        let amp = Amp::new(0, Some(&proxy_url));
+        *amp.token.current.write().unwrap() =
+            Some(Token { value: "t".into(), refresh_at: Instant::now() + TOKEN_TTL, fetched_at: Instant::now() });
+        let up = amp.request("http://amp-api.invalid/v1/storefronts/us", CATALOG_TTL).await.unwrap();
+        assert_eq!(up.status, StatusCode::OK);
+        assert_eq!(*seen.lock().unwrap(), ["http://amp-api.invalid/v1/storefronts/us"]);
     }
 
     #[test]

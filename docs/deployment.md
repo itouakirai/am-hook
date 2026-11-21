@@ -37,6 +37,42 @@ Other differences from the binary:
 - No command-line options, request log or auto-update.
 - On Vercel, page paths are matched by the rewrite rules in `vercel.json`, which are looser than the binary: invalid paths under `/library/…`, `/new/…` and `/https://music.apple.com/<cc>/…` get the app shell instead of a 404.
 
+## amp Proxy Cluster
+
+Apple rate-limits amp-api (catalog, search, stations) by IP. To spread that load, run extra binaries on machines with other IPs as **amp-only nodes** and let the reverse proxy in front send `/amp/` and `/station/` to them; everything else (pages, assets, wrapper-lite relay) stays on the main am-hook.
+
+- `am-hook --amp-only` serves only `/amp/*`, `/station/*` and `/amp/health`; every other path is 404. It never loads or compresses the frontend assets, so it idles at roughly half the memory of a full instance (about 11 MB vs 24 MB on Windows). Lower `--amp-cache-mb` to save more.
+- Each node keeps its own developer token, response cache and 429 cooldown; while cooling down it answers 429 at once, so the reverse proxy can move the request to another node.
+- `GET /amp/health` is 200 while the node has a token and is not cooling down, 503 otherwise (body `{ok, token, cooldown, proxy}`), for load balancers with active health checks.
+- Station requests carry the visitor's media-user-token cookie; route by path on the same site so the cookie is sent, and serve nodes only from the reverse proxy (bind them to a private address or firewall them).
+- A node can itself go out through `--amp-proxy`, so one machine can provide several IPs.
+- Behind the reverse proxy, give the nodes `--client-ip-header X-Real-IP` if you use `--amp-client-rate` / `--amp-client-concurrency`.
+
+nginx example (the main am-hook on `127.0.0.1:8080`, two nodes):
+
+```nginx
+upstream am_hook { server 127.0.0.1:8080; }
+upstream amp_nodes {
+    server 10.0.0.2:8080;
+    server 10.0.0.3:8080;
+}
+server {
+    # ...listen / TLS...
+    location ~ ^/(amp|station)/ {
+        proxy_pass http://amp_nodes;
+        proxy_set_header X-Real-IP $remote_addr;
+        # a node that answers 429 (cooling down) or is down: try the next one (GET only, by default)
+        proxy_next_upstream error timeout http_429;
+    }
+    location / {
+        proxy_pass http://am_hook;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+Nodes are started with `am-hook --amp-only --listen 0.0.0.0:8080 --client-ip-header X-Real-IP` (add `--amp-proxy socks5h://…` to send through a proxy).
+
 ## Using a local wrapper-lite
 
 The "wrapper-lite" setting at the bottom of the navigation switches between two modes (saved in the browser):
