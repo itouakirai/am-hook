@@ -38,11 +38,16 @@ const localPage = /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/(song|music-video|a
       assert.match(href, localPage, `local link ${href}`);
     }
 
-    // Arrows page a shelf by its width
-    const wrap = page.locator('.ed-shelf-wrap').nth(2);
+    // Arrows page a shelf by its width (scroll snap lands on the nearest card), or to its end when less than a page remains.
+    // Which shelf is long depends on the editorial data of the day, so pick a scrollable one and compute the target
+    const wrap = page.locator('.ed-shelf-wrap.scrollable').first();
     await wrap.hover();
     await wrap.locator('.ed-arrow.next').click();
-    await page.waitForFunction((node) => node.scrollLeft > 300, await wrap.locator('.ed-shelf').elementHandle(), { timeout: 5000 });
+    await page.waitForFunction((node) => {
+      const target = Math.min(node.clientWidth / 2, node.scrollWidth - node.clientWidth);
+      return node.scrollLeft >= target - 2;
+    }, await wrap.locator('.ed-shelf').elementHandle(), { timeout: 5000 });
+    assert.ok(await wrap.locator('.ed-arrow.prev').isEnabled(), 'back arrow enabled after paging');
 
     // See All opens the room (grid) and Back returns to New
     const heading = page.locator('.ed-heading-link').nth(1);
