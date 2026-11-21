@@ -2,7 +2,8 @@
 // Live: needs a running am-hook with access to music.apple.com / amp-api (default http://127.0.0.1:8888).
 // In-page playback is checked too when wrapper-lite is online.
 // Covers the artist page: the three header styles (circular portrait, wide image, motion video), latest release,
-// top songs, shelves with See All, the about section, language refetch, playback, links from other pages and mobile.
+// top songs, shelves with See All, the about section, language refetch, playback, links from other pages and mobile;
+// the See All page (…/see-all?section=, 100 per page, Show More follows next) for albums, top songs and pasted links.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
@@ -58,19 +59,71 @@ const localPage = (kind) => new RegExp(`^/https://music\\.apple\\.com/[a-z]{2}/$
       for (const href of await frame.locator('#shelves .shelf-item').evaluateAll((items) => items.map((a) => a.getAttribute('href')))) {
         assert.match(href, /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/(album|music-video|playlist|artist)\//, `shelf link ${href}`);
       }
-      // See All pages through the view's next links and lays the shelf out as a grid
-      const albums = frame.locator('#shelves .shelf-section').filter({ has: frame.locator('.shelf-all') }).first();
-      const before = await albums.locator('.shelf-item').count();
-      await albums.locator('.shelf-all').click();
-      await albums.locator('.shelf.expanded').waitFor({ timeout: 30000 });
-      assert.ok(await albums.locator('.shelf-item').count() > before, 'See All loads more items');
-      assert.ok(await albums.locator('.shelf-all').isHidden());
+      // A shelf with more items has a heading link to its See All page, as on music.apple.com
+      const albums = frame.locator('#shelves .shelf-section').filter({ has: frame.locator('.shelf-heading-link') }).first();
+      const seeAll = await albums.locator('.shelf-heading-link').getAttribute('href');
+      assert.match(seeAll, /^\/https:\/\/music\.apple\.com\/cn\/artist\/[^/]+\/159260351\/see-all\?section=[a-z-]+$/, `See All link ${seeAll}`);
+      if (await frame.locator('#top-songs-title .shelf-heading-link').count()) {
+        assert.match(await frame.locator('#top-songs-title .shelf-heading-link').getAttribute('href'), /\/see-all\?section=top-songs$/);
+      }
       assert.ok(!(await frame.locator('#about').isHidden()), 'about section');
       const bio = await frame.locator('#bio-text').textContent();
       assert.ok(bio.length > 100, 'artist bio');
       assert.doesNotMatch(bio, /<\/?[a-z]+>/i, 'bio markup rendered as text');
       assert.ok(await frame.locator('#facts dt').count() >= 2, 'born / genre facts');
       if (shots) await page.screenshot({ path: path.join(shots, `artist-${scheme}.png`), fullPage: true });
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+
+    // See All page: heading link → grid with the artist name above the title; Show More follows next (100 per page);
+    // back returns to the artist page. Beethoven (cn) has several hundred albums
+    {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const frame = await openPage(page, base + '/https://music.apple.com/cn/artist/ludwig-van-beethoven/1130028');
+      await frame.waitForFunction(loaded, null, { timeout: 20000 });
+      const name = await frame.locator('#name').textContent();
+      const full = frame.locator('#shelves .shelf-heading-link[href$="section=full-albums"]');
+      await full.click();
+      await frame.waitForURL(/\/1130028\/see-all\?section=full-albums$/);
+      const items = frame.locator('#sections .ed-grid .shelf-item');
+      await items.first().waitFor({ timeout: 30000 });
+      assert.equal(await items.count(), 100, 'first page has 100 albums');
+      assert.equal(await frame.locator('#owner').textContent(), name, 'artist name above the title');
+      assert.match(await frame.locator('#owner').getAttribute('href'), /\/artist\/[^/]+\/1130028$/);
+      assert.ok((await frame.locator('#title').textContent()).trim().length > 0, 'section title from with=attributes');
+      // Own albums show the release year as subtitle
+      assert.match(await items.first().locator('.shelf-sub').textContent(), /^\d{4}$/);
+      const more = frame.locator('#more .browse-more-btn');
+      assert.ok(await more.isVisible(), 'Show More button');
+      // No automatic paging when scrolled to the bottom
+      await frame.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(1500);
+      assert.equal(await items.count(), 100, 'no infinite scroll');
+      await more.click();
+      await frame.waitForFunction(() => document.querySelectorAll('#sections .ed-grid .shelf-item').length > 100, null, { timeout: 30000 });
+      assert.equal(await items.count(), 200, 'Show More appends the next 100');
+      const hrefs = await items.evaluateAll((nodes) => nodes.map((a) => a.getAttribute('href')));
+      assert.equal(new Set(hrefs).size, hrefs.length, 'no duplicates across pages');
+      if (shots) await page.screenshot({ path: path.join(shots, 'artist-see-all.png') });
+      await page.goBack();
+      await frame.waitForFunction(loaded, null, { timeout: 20000 });
+      assert.equal(await frame.locator('#name').textContent(), name, 'back to the artist page');
+
+      // Top songs: list with album column and no rank column; playable rows
+      await openPage(page, base + '/https://music.apple.com/cn/artist/ludwig-van-beethoven/1130028/see-all?section=top-songs');
+      const rows = frame.locator('#sections .ed-chart-list .pl-track');
+      await rows.first().waitFor({ timeout: 30000 });
+      assert.ok(await rows.count() > 10, 'top songs listed');
+      assert.equal(await frame.locator('#sections .ed-chart-list .track-rank').count(), 0, 'no rank column');
+      assert.match(await rows.first().locator('.track-title').getAttribute('href'), localPage('song'));
+
+      // Official path form …/<section> and pasted links open the same page
+      await openPage(page, base + '/https://music.apple.com/cn/artist/ludwig-van-beethoven/1130028/singles');
+      await frame.locator('#sections .ed-grid .shelf-item').first().waitFor({ timeout: 30000 });
+      assert.match(await frame.locator('#apple-link').getAttribute('href'), /\/1130028\/see-all\?section=singles$/);
       assert.deepEqual(errors, []);
       await page.close();
     }

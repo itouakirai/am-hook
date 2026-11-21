@@ -6,6 +6,9 @@
 //   /https://music.apple.com/{cc}/multi-room/{id}            multi-room（multirooms/{id}：头图 + 区块）
 //   /https://music.apple.com/{cc}/curator/{slug}/{id}        策展人（有分组时与新发现相同的区块，否则为歌单网格）
 //   /https://music.apple.com/{cc}/room/{id}                  room（区块的「查看全部」：rooms/{id} 的全部内容，分页加载）
+//   /https://music.apple.com/{cc}/artist/{slug}/{id}/see-all?section=<区块>
+//                                                            艺人页区块的「查看全部」（artists/{id}/view/<区块>，每页 100 个，
+//                                                            点「显示更多」取 next 的下一页）
 //
 // 区块按 editorialElementKind 排版（官网 vV）：316 hero 大卡、326 / 327 / 345 / 387 货架（歌曲为四行曲目列，
 // 专辑 / 歌单为方形封面，电台为横向卡片，视频为 16:9）、385 砖块、391 / 405 链接、404 段落；其余跳过。
@@ -13,7 +16,7 @@
 import { createActions, setPlayButton, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
 import { tokenTail, personalStation, recentStations } from '/assets/station.mjs';
 import { amp, artUrl } from '../amp.mjs';
-import { CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
+import { ARTIST_SECTIONS, CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
 
 const { formatTime } = window.AmHook;
 const { AmDecrypt, AmI18n } = window;
@@ -111,6 +114,24 @@ const CHART_SEE_ALL_PARAMS = {
   extend: 'artistUrl',
 };
 
+/**
+ * 官网 ArtistDetailSeeAllPageIntent（Ede）：artists/{id}/view/<区块>，with=attributes 带回区块标题。
+ * 官网每页 20 个、滚到底部再取；这里每页取 amp-api 允许的最多 100 个，歌曲另带专辑（专辑列与「前往专辑」）
+ */
+const ARTIST_SEE_ALL_PARAMS = {
+  platform: 'web',
+  limit: '100',
+  with: 'attributes',
+  'include[songs]': 'artists,albums',
+  'include[albums]': 'artists',
+  'include[music-videos]': 'artists',
+  'omit[resource:artists]': 'autos',
+  'art[url]': 'c,f',
+  extend: 'artistUrl',
+};
+/** 艺人自己的作品：副标题为年份（与艺人页货架相同），其余为所属艺人 */
+const ARTIST_OWN_WORK = new Set(['featured-albums', 'full-albums', 'music-videos', 'singles', 'live-albums', 'compilation-albums']);
+
 /** 排行榜的类型列表（官网 EV：/v1/catalog/{cc}/genres），按地区与语言缓存 */
 const genreCache = new Map();
 function chartGenres(cc, l) {
@@ -151,6 +172,14 @@ function parsePage(url) {
     const genreId = url.searchParams.get('genreId') || '';
     const genre = GENRE_CHARTS.has(chart) && /^\d+$/.test(genreId) ? genreId : ALL_GENRES;
     return { kind: 'charts', cc: local ? AmI18n.storefront : link[1].toLowerCase(), id: '', follow: !!local, chart, genre };
+  }
+  // 艺人页区块的「查看全部」：…/see-all?section=<区块> 或 …/<区块>（官网把 top-music-videos 当作 music-videos）
+  const seeAll = path.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/artist\/([^/?#]+)\/(\d+)\/([a-z-]+)\/?$/i);
+  if (seeAll) {
+    const name = seeAll[4].toLowerCase();
+    const section = name === 'see-all' ? url.searchParams.get('section') || '' : name;
+    if (!ARTIST_SECTIONS.includes(section)) return null;
+    return { kind: 'artist', cc: seeAll[1].toLowerCase(), slug: seeAll[2], id: seeAll[3], follow: false, section: section === 'top-music-videos' ? 'music-videos' : section };
   }
   const m = path.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/(new|radio|room|multi-room|grouping|curator)(?:\/(?:[^/?#]+\/)?(\d+))?/i);
   if (!m) return null;
@@ -273,6 +302,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   /** 副标题（官网 Ooe）：歌单为作者，专辑 / 歌曲为艺人，其余取说明 */
   function subtitleOf(res) {
     const a = res.attributes || {};
+    if (model && model.grid && model.grid.ownWork && (res.type === 'albums' || res.type === 'music-videos')) return (a.releaseDate || '').slice(0, 4);
     switch (res.type) {
       case 'artists': return (a.genreNames || [])[0] || '';
       case 'stations': return shortNotes(a);
@@ -587,7 +617,10 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     return VIDEO_TYPES.has(res.type) ? videoLockup(res, rank) : squareLockup(res, rank);
   }
 
-  /** 排行榜歌曲（官网 playlistTrackList）：封面、名次、标题与艺人、专辑、时长、「更多」，沿用歌单页 .pl-track 的排版 */
+  /**
+   * 排行榜歌曲（官网 playlistTrackList）：封面、名次、标题与艺人、专辑、时长、「更多」，沿用歌单页 .pl-track 的排版；
+   * 艺人的歌曲排行没有名次（rank 为 0），不留名次列
+   */
   function chartRow(track, queue, rank) {
     const a = track.attributes;
     const canPlay = playable(track);
@@ -610,7 +643,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       : el('span', { className: 'track-album', textContent: a.albumName || '' });
     const more = actions.moreButton(targetOf(track, country, { albumHref, ...(canPlay ? { onPlay: () => playTrack(track, queue) } : {}) }));
     const row = el('div', { className: `track pl-track${canPlay ? '' : ' unavailable'}` }, cover,
-      el('span', { className: 'track-rank', textContent: rank.toLocaleString() }), main, albumCol,
+      rank ? el('span', { className: 'track-rank', textContent: rank.toLocaleString() }) : null, main, albumCol,
       el('span', { className: 'track-time', textContent: a.durationInMillis ? formatTime(a.durationInMillis / 1000) : '' }), more);
     if (canPlay) row.addEventListener('dblclick', (e) => { if (!e.target.closest('a, button')) playTrack(track, queue); });
     if (!rows.has(track.id)) rows.set(track.id, []);
@@ -627,7 +660,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   function renderGrid() {
     const { items, layout } = model.grid;
     gridSongs = items.filter((res) => res.type === 'songs');
-    gridNode = el('div', { className: layout === 'L' ? 'tracklist chart ed-chart-list' : `ed-grid grid-${layout}` },
+    gridNode = el('div', { className: layout === 'L' ? `tracklist${model.grid.ranked ? ' chart' : ''} ed-chart-list` : `ed-grid grid-${layout}` },
       ...items.map((res, i) => gridItem(res, layout, gridSongs, gridRank(i))));
     return section('ed-grid-section', gridNode);
   }
@@ -642,36 +675,50 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   /** 翻页请求的参数：与首页相同的封面占位与语言（next 地址只带 offset） */
   const pageParams = (l) => ({ l, 'art[url]': 'c,f', extend: 'editorialArtwork,plainEditorialNotes', 'omit[resource:artists]': 'autos' });
 
-  /** 网格滚到底部附近时取下一页（amp-api 的 next 地址，加上 /amp 前缀） */
+  /** 取网格的下一页（amp-api 的 next 地址，加上 /amp 前缀），追加到网格末尾；失败时自动翻页的网格停止翻页，按钮翻页的可再点一次重试 */
+  let moreBusy = false;
+  async function loadMore(button = null) {
+    if (moreBusy || !model.grid.next) return;
+    moreBusy = true;
+    const token = loadToken;
+    const sentinel = $('more');
+    if (button) { button.disabled = true; button.textContent = t('browse.loadMore'); }
+    try {
+      const l = await AmI18n.catalogLang(country);
+      const data = await amp(model.grid.next, { ...pageParams(l), ...(model.grid.pageParams || {}) });
+      if (token !== loadToken || signal.aborted) return;
+      // 排行榜的下一页仍是 charts 响应：results.<榜单>[0] 里的 data 与 next
+      const page = model.grid.chart ? ((data.results && data.results[model.grid.chart]) || [])[0] || {} : data;
+      const items = withAttrs(page.data || []);
+      model.grid.items.push(...items);
+      model.grid.next = page.next || '';
+      appendGrid(items);
+      sentinel.hidden = !model.grid.next;
+    } catch (err) {
+      if (token !== loadToken || signal.aborted) return;
+      toast(t('browse.failed', { msg: err.message }));
+      if (!button) { model.grid.next = ''; sentinel.hidden = true; }
+    } finally {
+      moreBusy = false;
+      if (button) { button.disabled = false; button.textContent = t('browse.showMore'); }
+    }
+  }
+
+  /** 有下一页时：manual 的网格显示「显示更多」按钮，其余滚到底部附近时自动取 */
   function watchMore() {
     moreObserver?.disconnect();
     const sentinel = $('more');
     sentinel.hidden = !(model && model.grid && model.grid.next);
     if (sentinel.hidden) return;
+    if (model.grid.manual) {
+      const button = el('button', { className: 'btn browse-more-btn', type: 'button', textContent: t('browse.showMore') });
+      button.addEventListener('click', () => loadMore(button));
+      sentinel.replaceChildren(button);
+      return;
+    }
     sentinel.textContent = t('browse.loadMore');
-    let busy = false;
-    moreObserver = new IntersectionObserver(async (entries) => {
-      if (busy || !entries.some((entry) => entry.isIntersecting) || !model.grid.next) return;
-      busy = true;
-      const token = loadToken;
-      try {
-        const l = await AmI18n.catalogLang(country);
-        const data = await amp(model.grid.next, { ...pageParams(l), ...(model.grid.pageParams || {}) });
-        if (token !== loadToken || signal.aborted) return;
-        // 排行榜的下一页仍是 charts 响应：results.<榜单>[0] 里的 data 与 next
-        const page = model.grid.chart ? ((data.results && data.results[model.grid.chart]) || [])[0] || {} : data;
-        const items = withAttrs(page.data || []);
-        model.grid.items.push(...items);
-        model.grid.next = page.next || '';
-        appendGrid(items);
-        sentinel.hidden = !model.grid.next;
-      } catch (err) {
-        if (token === loadToken) toast(t('browse.failed', { msg: err.message }));
-        model.grid.next = '';
-        sentinel.hidden = true;
-      } finally {
-        busy = false;
-      }
+    moreObserver = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore();
     }, { rootMargin: '600px 0px' });
     moreObserver.observe(sentinel);
   }
@@ -681,7 +728,10 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     const title = model ? model.title : '';
     $('title').classList.toggle('skeleton', !model);
     $('title').textContent = title || ' ';
-    document.title = title ? `${title} · am-hook` : 'am-hook';
+    const owner = model && model.owner;
+    $('owner').hidden = !owner;
+    if (owner) { $('owner').textContent = owner.name; $('owner').href = owner.href; }
+    document.title = title ? `${owner ? `${owner.name} · ` : ''}${title} · am-hook` : 'am-hook';
     $('notes').hidden = !(model && model.notes);
     $('notes').textContent = (model && model.notes) || '';
     const banner = $('banner');
@@ -751,6 +801,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const slug = page.chart ? `/${CHART_SLUGS[page.chart]}` : '';
       return `https://music.apple.com/${country}/new/top-charts${slug}${page.genre !== ALL_GENRES ? `?genreId=${page.genre}` : ''}`;
     }
+    if (page.kind === 'artist') return `https://music.apple.com/${country}/artist/${page.slug}/${page.id}/see-all?section=${page.section}`;
     return `https://music.apple.com/${country}/${page.kind}/${page.id}`;
   }
 
@@ -782,6 +833,21 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
         const title = genre ? t(`charts.genreTitle.${key}`, { genre: genre.attributes.name }) : chart.name || '';
         const layout = key === 'songs' ? 'L' : key === 'music-videos' ? 'C' : 'G';
         return { title, genres, grid: { items, next: chart.next || '', layout, chart: key, ranked: RANKED_CHARTS.has(key), pageParams: { 'include[songs]': 'artists', 'relate[songs]': 'albums' } } };
+      }
+      case 'artist': {
+        // 官网的标题是「艺人名 + 区块」：区块标题取 with=attributes 返回的 attributes.title，艺人名与链接另取（官网 kde 同样补取 name、url）
+        const [data, owner] = await Promise.all([
+          amp(`/v1/catalog/${cc}/artists/${page.id}/view/${page.section}`, { ...ARTIST_SEE_ALL_PARAMS, l }),
+          amp(`/v1/catalog/${cc}/artists/${page.id}`, { 'fields[artists]': 'name,url', 'omit[resource]': 'autos', l }).catch(() => null),
+        ]);
+        const artist = owner && owner.data && owner.data[0];
+        const items = withAttrs(data.data || []);
+        const layout = page.section === 'top-songs' ? 'L' : items.length ? gridLayout(items) : 'G';
+        return {
+          title: (data.attributes && data.attributes.title) || '',
+          owner: artist && artist.attributes && artist.attributes.name ? { name: artist.attributes.name, href: pagePath(artist, cc) } : null,
+          grid: { items, next: data.next || '', layout, manual: true, ownWork: ARTIST_OWN_WORK.has(page.section), pageParams: ARTIST_SEE_ALL_PARAMS },
+        };
       }
       case 'new': {
         const data = await amp(`/v1/editorial/${cc}/groupings`, { ...GROUPING_PARAMS, name: 'music', l });

@@ -1460,14 +1460,11 @@ body.artist-themed :is(.page, .navigation), body.detail-themed:not(.joe-light) :
 .ts-item .track-title { font-size: 13px; font-weight: 400; line-height: 1.23; }
 .ts-item .track-artist { margin-top: 1px; font-size: 12px; line-height: 1.25; }
 
-/* 货架「显示全部」：取回全部分页后改为网格 */
-.shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.shelf-all { padding: 4px 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
-.artist-themed .shelf-all { color: var(--muted); }
-.shelf-all:disabled { opacity: .5; }
-.shelf-all[hidden] { display: none; }
-.shelf.expanded { grid-auto-flow: row; grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 24px; overflow-x: visible; }
-.shelf.expanded:has(.shelf-item.mv) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* 区块标题进入「查看全部」页（官网 titleLink：标题后带灰色箭头） */
+.shelf-heading-link { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; }
+.shelf-heading-link:hover span { text-decoration: underline; }
+.shelf-chevron { width: 12px; height: 12px; flex: 0 0 auto; color: var(--faint); }
+.artist-themed .shelf-chevron { color: var(--muted); }
 
 /* 关于：简介（6 行折叠）与家乡 / 出生 / 流派 */
 .artist-about { scroll-margin-top: 24px; }
@@ -1487,8 +1484,6 @@ body.artist-themed :is(.page, .navigation), body.detail-themed:not(.joe-light) :
   .artist-featured.has-latest { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .artist-featured.has-latest .top-songs { grid-auto-columns: 100%; }
   .top-songs { grid-auto-columns: calc((100% - 20px) / 2); }
-  .shelf.expanded { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .shelf.expanded:has(.shelf-item.mv) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .artist-page .shelf-section { margin-top: 32px; }
@@ -1512,8 +1507,6 @@ body.artist-themed :is(.page, .navigation), body.detail-themed:not(.joe-light) :
   .top-songs::-webkit-scrollbar { display: none; }
   .ts-item .track-play { opacity: 0; }
   .ts-item.paused .track-play { opacity: 1; }
-  .shelf.expanded { margin-inline: 0; padding: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; }
-  .shelf.expanded:has(.shelf-item.mv) { grid-template-columns: minmax(0, 1fr); }
   .artist-about-body { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
 

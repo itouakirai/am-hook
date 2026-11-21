@@ -36,6 +36,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
     info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.75" r=".6" fill="currentColor"/></svg>',
+    chevron: '<svg class="shelf-chevron" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true"><path d="M19.817 61.863c1.48 0 2.672-.515 3.702-1.546l24.243-23.63c1.352-1.385 1.996-2.737 2.028-4.443 0-1.674-.644-3.09-2.028-4.443L23.519 4.138c-1.03-.998-2.253-1.513-3.702-1.513-2.994 0-5.409 2.382-5.409 5.344 0 1.481.612 2.833 1.739 3.96l20.99 20.347-20.99 20.283c-1.127 1.126-1.739 2.478-1.739 3.96 0 2.93 2.415 5.344 5.409 5.344Z"/></svg>',
   };
 
   function el(tag, props = {}, ...children) {
@@ -259,7 +260,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     }
 
     const topView = view('top-songs');
-    $('top-songs-title').textContent = (topView && topView.attributes && topView.attributes.title) || '';
+    setHeading($('top-songs-title'), 'top-songs', topView);
     rows = new Map();
     $('top-songs').replaceChildren(...topSongs.map((track) => {
       const a = track.attributes;
@@ -311,6 +312,20 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       cover, title, person ? null : el('span', { className: 'shelf-sub', textContent: sub || '' })), targetOf(res, country));
   }
 
+  /**
+   * 区块标题（官网 fr / woe）：区块有下一页（next）或超过 25 个时，标题是进入「查看全部」页的链接（带灰色箭头），
+   * 地址与官网相同：<艺人页>/see-all?section=<区块>，页面见 browse.mjs（每页 100 个，点「显示更多」翻页）
+   */
+  function setHeading(heading, key, v) {
+    const title = (v && v.attributes && v.attributes.title) || (v ? key : '');
+    const count = ((v && v.data) || []).length;
+    if (!v || !(v.next || count > 25)) { heading.textContent = title; return; }
+    const link = el('a', { className: 'shelf-heading-link', href: `${pagePath(artist)}/see-all?section=${key}` }, el('span', { textContent: title }));
+    link.insertAdjacentHTML('beforeend', ICON.chevron);
+    link.setAttribute('aria-label', t('artist.seeAll', { name: title }));
+    heading.replaceChildren(link);
+  }
+
   function renderShelves() {
     const sections = [];
     for (const key of SHELVES) {
@@ -318,35 +333,11 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       const items = ((v && v.data) || []).filter((res) => res.attributes && SHELF_TYPES.has(res.type));
       if (!items.length) continue;
       const shelf = el('div', { className: 'shelf' }, ...items.map((res) => shelfItem(key, res)));
-      const head = el('div', { className: 'shelf-head' }, el('h2', { className: 'shelf-heading', textContent: (v.attributes && v.attributes.title) || key }));
-      // 有 next 时可展开全部（官网的「查看全部」页），分页经 /amp 取回后改为网格排列
-      if (v.next) {
-        const all = el('button', { className: 'shelf-all', type: 'button', textContent: t('artist.seeAll') });
-        all.addEventListener('click', () => expandShelf(key, v.next, shelf, all));
-        head.append(all);
-      }
-      sections.push(el('section', { className: 'shelf-section' }, head, shelf));
+      const heading = el('h2', { className: 'shelf-heading' });
+      setHeading(heading, key, v);
+      sections.push(el('section', { className: 'shelf-section' }, heading, shelf));
     }
     $('shelves').replaceChildren(...sections);
-  }
-
-  async function expandShelf(key, next, shelf, button) {
-    button.disabled = true;
-    const token = loadToken;
-    try {
-      for (let more = next, pages = 0; more && pages < 30; pages++) {
-        const page = await amp(more);
-        if (token !== loadToken || signal.aborted) return;
-        shelf.append(...(page.data || []).filter((res) => res.attributes && SHELF_TYPES.has(res.type)).map((res) => shelfItem(key, res)));
-        more = page.next;
-      }
-      shelf.classList.add('expanded');
-      button.hidden = true;
-    } catch (err) {
-      toast(t('artist.failed', { msg: err.message }));
-    } finally {
-      button.disabled = false;
-    }
   }
 
   /* ---------- 关于：artistBio 与家乡 / 出生 / 流派（官网 artist-bio） ---------- */

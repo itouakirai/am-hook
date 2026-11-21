@@ -30,6 +30,8 @@ const PAGES = [
   ['post', /^https:\/\/music\.apple\.com\/[a-z]{2}\/post\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
   ['album', /^https:\/\/music\.apple\.com\/[a-z]{2}\/album\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
   ['playlist', /^https:\/\/music\.apple\.com\/[a-z]{2}\/playlist\/(?:[^/?#]+\/)?pl\.[0-9A-Za-z_-]+(?:[/?#]|$)/],
+  // 艺人页区块的「查看全部」（官网 ArtistDetailSeeAllPageIntent：…/{id}/see-all?section=<区块>，或 …/{id}/<区块>），排在艺人页之前
+  ['artist-see-all', /^https:\/\/music\.apple\.com\/[a-z]{2}\/artist\/[^/?#]+\/[0-9]+\/(?:see-all|top-songs|featured-albums|full-albums|singles|live-albums|compilation-albums|appears-on-albums|featured-on-albums|playlists|music-videos|top-music-videos|more-to-see|similar-artists)\/?$/],
   ['artist', /^https:\/\/music\.apple\.com\/[a-z]{2}\/artist\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
   // 编辑页（与 src/links.rs 的 is_editorial_link 相同）：新发现（官网 /{cc}/new）、room、multi-room、grouping 与 curator
   ['new', /^https:\/\/music\.apple\.com\/[a-z]{2}\/new\/?$/],
@@ -43,7 +45,7 @@ const PAGES = [
 ];
 
 /** 页面名 → 视图文件（/assets/views/<file>.html / .mjs）：新发现与各编辑页共用 browse 视图，其余同名 */
-const VIEW_FILES = { new: 'browse', charts: 'browse', editorial: 'browse', radio: 'browse', post: 'mv' };
+const VIEW_FILES = { new: 'browse', charts: 'browse', editorial: 'browse', radio: 'browse', 'artist-see-all': 'browse', post: 'mv' };
 /**
  * 视图文件 → [页面内容地址, 加载页面脚本]。地址逐个写全，不用模板拼接：服务端与 build-static 会把
  * 资源地址换成带内容哈希的地址（见 src/assets.rs），只能替换完整的字面量。

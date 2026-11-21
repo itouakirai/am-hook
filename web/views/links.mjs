@@ -4,6 +4,13 @@
 /** 与 app.mjs 的路由相同：本站能打开的 Apple Music 页面（规整后的地址） */
 export const LOCAL_PAGE = /^https:\/\/music\.apple\.com\/[a-z]{2}\/(?:(?:song|music-video)\/[^/?#]+\/\d+|post\/(?:[^/?#]+\/)?\d+|(?:album|artist)\/(?:[^/?#]+\/)?\d+|playlist\/(?:[^/?#]+\/)?pl\.[\w-]+|(?:room|multi-room|grouping)\/\d+|curator\/(?:[^/?#]+\/)?\d+|station\/(?:[^/?#]+\/)?ra\.[\w.-]+|new\/?|radio\/?)$/;
 
+/**
+ * 艺人页能「查看全部」的区块（官网 MD 接受的 section，去掉本站不展示的演唱会、广播节目与 more-to-hear），
+ * 与 app.mjs 的 artist-see-all 路由相同
+ */
+export const ARTIST_SECTIONS = ['top-songs', 'featured-albums', 'full-albums', 'singles', 'live-albums', 'compilation-albums', 'appears-on-albums',
+  'featured-on-albums', 'playlists', 'music-videos', 'top-music-videos', 'more-to-see', 'similar-artists'];
+
 /** 排行榜：地址中的榜单名（官网 kH）→ charts 接口 results 的键，按官网排行榜首页的顺序 */
 export const CHART_KEYS = {
   songs: 'songs', 'city-charts': 'cityCharts', 'daily-global-top-charts': 'dailyGlobalTopCharts',
@@ -36,6 +43,10 @@ export function parseAppleLink(raw) {
   // 歌单链接打开歌单页（ID 形如 pl.xxx / pl.u-xxx，slug 可省略）
   const playlistPage = url.pathname.match(/^\/[a-z]{2}\/playlist\/(?:([^/]+)\/)?(pl\.[\w-]+)\/?$/i);
   if (playlistPage) return `https://music.apple.com/${cc}/playlist/${playlistPage[1] || '_'}/${playlistPage[2]}`;
+  // 艺人页区块的「查看全部」：…/see-all?section=<区块> 与 …/<区块> 两种写法都规整为前者
+  const seeAll = url.pathname.match(/^\/[a-z]{2}\/artist\/([^/]+)\/(\d+)\/([a-z-]+)\/?$/i);
+  const section = seeAll && (seeAll[3].toLowerCase() === 'see-all' ? url.searchParams.get('section') || '' : seeAll[3].toLowerCase());
+  if (seeAll && ARTIST_SECTIONS.includes(section)) return `https://music.apple.com/${cc}/artist/${seeAll[1]}/${seeAll[2]}/see-all?section=${section}`;
   // 艺人链接打开艺人页（slug 可省略）
   const artistPage = url.pathname.match(/^\/[a-z]{2}\/artist\/(?:([^/]+)\/)?(\d+)\/?$/i);
   if (artistPage) return `https://music.apple.com/${cc}/artist/${artistPage[1] || '_'}/${artistPage[2]}`;
