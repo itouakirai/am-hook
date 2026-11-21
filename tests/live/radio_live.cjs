@@ -1,6 +1,7 @@
 // Opt-in browser integration test for Radio and the station pages. Requires a running am-hook, a media-user-token and Apple CDN access.
 // node tests/run.mjs live radio   (or: node tests/live/radio_live.cjs <playwright-package-path> [base] [token-file])
-//   base defaults to AM_HOOK_URL or http://127.0.0.1:8888; the token comes from token-file, AM_HOOK_MEDIA_USER_TOKEN or target/my-media-user-token.txt.
+//   base defaults to AM_HOOK_URL or http://127.0.0.1:8888; the token comes from token-file, AM_HOOK_MEDIA_USER_TOKEN,
+//   target/my-media-user-token.txt or target/test-media-user-token.txt.
 // Covers: Radio with "Your Stations"; a genre station (batches of next tracks, the endless queue; playback when wrapper-lite is online);
 // the personal station; an episode taken from the account's recently played radio (Widevine license through /station/license,
 // MSE playback, seeking, M4A download decoded by the size of its mdat); and live radio simulated by serving a sliding window over the
@@ -11,8 +12,9 @@ const path = require('node:path');
 const { chromium } = require(process.argv[2] || 'playwright');
 
 const base = (process.argv[3] || process.env.AM_HOOK_URL || 'http://127.0.0.1:8888').replace(/\/$/, '');
-const tokenFile = process.argv[4] || path.join(__dirname, '../../target/my-media-user-token.txt');
-const token = (process.env.AM_HOOK_MEDIA_USER_TOKEN || (fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, 'utf8') : '')).trim();
+const tokenFile = process.argv[4] || ['my-media-user-token.txt', 'test-media-user-token.txt']
+  .map((name) => path.join(__dirname, '../../target', name)).find((file) => fs.existsSync(file));
+const token = (process.env.AM_HOOK_MEDIA_USER_TOKEN || (tokenFile && fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, 'utf8') : '')).trim();
 if (!token) { console.log('No media-user-token: skipped'); process.exit(0); }
 
 async function json(pathAndQuery, init = {}) {
@@ -31,10 +33,12 @@ async function json(pathAndQuery, init = {}) {
     await context.addInitScript(([tok, cc]) => {
       if (sessionStorage.getItem('am-test')) return;
       sessionStorage.setItem('am-test', '1');
-      localStorage.setItem('am-hook:media-user-token', tok);
+      // token 本身在 HttpOnly cookie 里（下面的 addCookies，同 POST /station/token），页面只记末尾 6 位
+      localStorage.setItem('am-hook:station-token', tok.slice(-6));
       localStorage.setItem('am-hook:storefront', cc);
       localStorage.setItem('am-hook:lang', 'en');
     }, [token, sf]);
+    await context.addCookies([{ name: 'am-mut', value: token, url: base, httpOnly: true, sameSite: 'Strict' }]);
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
