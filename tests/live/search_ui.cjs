@@ -20,9 +20,13 @@ const shots = process.env.SEARCH_UI_SHOTS;
     await page.addInitScript(() => localStorage.setItem('am-hook:lang', 'en'));
     frame = await openPage(page, base + '/');
 
-    // Browse Categories (/amp/v1/recommendations/{sf}?name=search-landing): 16:9 bricks with a title, links open local pages
-    const bricks = frame.locator('#brick-grid a.brick');
+    // Browse Categories (/amp/v1/recommendations/{sf}?name=search-landing): 16:9 bricks with a title, links open local pages.
+    // The site's own For You brick (/home) comes first; `bricks` are the editorial ones, `allBricks` include it
+    const allBricks = frame.locator('#brick-grid a.brick');
+    const bricks = frame.locator('#brick-grid a.brick:not(.brick-for-you)');
     await bricks.first().waitFor({ timeout: 20000 });
+    assert.equal(await allBricks.first().getAttribute('href'), '/home', 'For You brick first');
+    assert.equal((await allBricks.first().locator('.brick-title').textContent()).trim(), 'For You');
     assert.ok(await bricks.count() >= 10, 'category bricks shown');
     assert.ok((await frame.locator('#categories-title').textContent()).trim(), 'categories title');
     const brickBox = await bricks.first().boundingBox();
@@ -30,22 +34,22 @@ const shots = process.env.SEARCH_UI_SHOTS;
     const hrefs = await bricks.evaluateAll((list) => list.map((a) => a.getAttribute('href')));
     assert.ok(hrefs.some((href) => /^\/https:\/\/music\.apple\.com\/[a-z]{2}\/curator\/[^/]+\/\d+$/.test(href)), 'curator bricks open the curator page');
     for (const href of hrefs) assert.ok(href.startsWith('/') || /^https:\/\//.test(href), `brick link ${href}`);
-    assert.ok(await frame.locator('#brick-grid a.brick[href^="/"]:not([target])').count() === hrefs.filter((h) => h.startsWith('/')).length, 'local bricks stay in the tab');
+    assert.ok(await frame.locator('#brick-grid a.brick:not(.brick-for-you)[href^="/"]:not([target])').count() === hrefs.filter((h) => h.startsWith('/')).length, 'local bricks stay in the tab');
     await bricks.first().locator('img').evaluate((img) => img.decode());
 
     // Collapsed by default: only the first row shows, the toggle expands the rest and is remembered
     const toggle = frame.locator('#categories-toggle');
-    const rowOf = () => bricks.evaluateAll((list) => list.filter((a) => !a.hidden).map((a) => a.getBoundingClientRect().top));
+    const rowOf = () => allBricks.evaluateAll((list) => list.filter((a) => !a.hidden).map((a) => a.getBoundingClientRect().top));
     const columns = await frame.evaluate(() => getComputedStyle(document.querySelector('#brick-grid')).gridTemplateColumns.split(' ').length);
     let tops = await rowOf();
     assert.equal(tops.length, columns, 'collapsed grid shows one row');
     assert.ok(tops.every((top) => Math.abs(top - tops[0]) < 1), 'visible bricks share a row');
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
-    assert.match(await toggle.textContent(), new RegExp(`Show all ${await bricks.count()} categories`));
+    assert.match(await toggle.textContent(), new RegExp(`Show all ${await allBricks.count()} categories`));
     if (shots) await page.screenshot({ path: path.join(shots, 'home-categories.png') });
     await toggle.click();
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
-    assert.equal((await rowOf()).length, await bricks.count(), 'expanded grid shows every brick');
+    assert.equal((await rowOf()).length, await allBricks.count(), 'expanded grid shows every brick');
     assert.equal(await frame.evaluate(() => localStorage.getItem('am-hook:categories-expanded')), '1');
     if (shots) await page.screenshot({ path: path.join(shots, 'home-expanded.png'), fullPage: true });
 
@@ -66,7 +70,7 @@ const shots = process.env.SEARCH_UI_SHOTS;
     assert.ok((await page.locator('#title').textContent()).includes(curatorName), `curator page title contains ${curatorName}`);
     await page.goBack();
     frame = await pageFrame(page);
-    await frame.locator('#brick-grid a.brick').first().waitFor({ timeout: 10000 });
+    await frame.locator('#brick-grid a.brick:not(.brick-for-you)').first().waitFor({ timeout: 10000 });
 
     // Links still go straight to the song page; keywords switch the button to "Search"
     const input = frame.locator('#input');
@@ -148,12 +152,12 @@ const shots = process.env.SEARCH_UI_SHOTS;
     assert.ok(await frame.locator('#landing').isVisible(), 'categories back after closing the results');
 
     // Switching the storefront reloads the categories for that region (titles come back in its language)
-    const firstBefore = await frame.locator('#brick-grid a.brick').first().getAttribute('href');
+    const firstBefore = await frame.locator('#brick-grid a.brick:not(.brick-for-you)').first().getAttribute('href');
     const sf = await frame.evaluate(() => window.AmI18n.storefront);
     const other = sf === 'us' ? 'jp' : 'us';
     await frame.evaluate((cc) => window.AmI18n.setStorefront(cc), other);
     await frame.waitForFunction(([cc, before]) => {
-      const a = document.querySelector('#brick-grid a.brick');
+      const a = document.querySelector('#brick-grid a.brick:not(.brick-for-you)');
       return a && a.getAttribute('href') !== before && [...document.querySelectorAll('#brick-grid a.brick[href*="/curator/"]')].every((b) => b.getAttribute('href').includes(`/${cc}/`));
     }, [other, firstBefore], { timeout: 20000 });
     await frame.evaluate((cc) => window.AmI18n.setStorefront(cc), sf);
@@ -167,7 +171,7 @@ const shots = process.env.SEARCH_UI_SHOTS;
     assert.ok(await mobileFrame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal scroll on mobile');
     // Mobile landing: two brick columns, still no horizontal scroll (the example chips scroll inside their own row)
     await mobileFrame.locator('#close-results').click();
-    await mobileFrame.locator('#brick-grid a.brick').nth(1).waitFor({ timeout: 20000 });
+    await mobileFrame.locator('#brick-grid a.brick:not(.brick-for-you)').nth(1).waitFor({ timeout: 20000 });
     // Collapsed on a fresh profile: two columns × two rows
     assert.equal(await mobileFrame.locator('#brick-grid a.brick:not([hidden])').count(), 4, 'mobile collapsed grid shows two rows');
     const [b0, b1] = await Promise.all([0, 1].map((i) => mobileFrame.locator('#brick-grid a.brick').nth(i).boundingBox()));

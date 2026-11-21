@@ -34,7 +34,7 @@ By default **decryption happens entirely in the browser**. The server only talks
 - **Every quality**: lossless ALAC (up to 24-bit / 192 kHz), Dolby Atmos, AAC, HE-AAC, binaural and downmix, plus music videos up to 4K Dolby Vision with Atmos audio.
 - **Decrypted in the browser**: WebAssembly in Web Workers; media never passes through the server.
 - **Plays anywhere**: built-in gapless player with a shared queue and AutoMix transitions planned from Apple Music's audio analysis, ALAC-to-FLAC and EC-3-to-PCM fallbacks, system media controls, and optional Dolby Atmos object rendering (JOC) to stereo speakers or binaural headphones right in the browser.
-- **Feels like music.apple.com**: search, New, Top Charts, Radio, album / playlist / artist / editorial pages, and synced lyrics rendered by [AMLL](https://github.com/amll-dev/applemusic-like-lyrics).
+- **Feels like music.apple.com**: search, For You (your account's Home page), New, Top Charts, Radio, album / playlist / artist / editorial pages, and synced lyrics rendered by [AMLL](https://github.com/amll-dev/applemusic-like-lyrics).
 - **Downloads done properly**: per-track or whole albums / playlists, iTunes tags, cover art and lyrics, ZIP / folder / file output with name templates. Motion artwork can be saved with albums / playlists, and any cover can be saved on its own by right-click or long-press (still or motion, with a choice of quality).
 - **ALAC check**: without requesting `/key`, finds the ALAC escape frames whose end was overwritten across a whole album, with the packaging date and the real bit depth and bandwidth of the first 15 seconds.
 - **Your library, locally**: library, playlists, favorites and folders kept in the browser's IndexedDB, with import / export.

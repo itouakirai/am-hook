@@ -13,7 +13,7 @@ import vercel from '../../api/handler.mjs';
 import worker from '../../serverless/cloudflare.mjs';
 import {
   extractScriptPath, extractToken, handle, isAppleHttps, isPagePath, refreshDelay, resetTokenCache, SECURITY_HEADERS, validCatalogPath,
-  validLicenseUrl, validStationId, VERSION, withSecurityHeaders, wrapperConfig,
+  validLicenseUrl, validRecommendationId, validStationId, VERSION, withSecurityHeaders, wrapperConfig,
 } from '../../serverless/core.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -85,17 +85,20 @@ test('path checks match src/amp.rs, src/state.rs and src/links.rs', () => {
     '/https://music.apple.com/cn/new', '/https://music.apple.com/cn/new/top-charts/songs', '/https://music.apple.com/us/multi-room/1532467784',
     '/https://music.apple.com/us/curator/1019400049', '/https:/music.apple.com/us/album/lover/1468058165',
     '/radio', '/https://music.apple.com/cn/radio', '/https://music.apple.com/us/station/apple-music-1/ra.978194965',
-    '/https://music.apple.com/cn/station/ra.686227433',
+    '/https://music.apple.com/cn/station/ra.686227433', '/home', '/home/', '/home/see-all/7-2Tqlz47h9yro', '/https://music.apple.com/cn/home',
   ]) assert(isPagePath(page), page);
   for (const other of [
     '/new/other', '/new/top-charts/x', '/top-charts', '/settings/x', '/library/other', '/library/playlist/pl.123', '/library/artists/a/b',
     '/https://music.apple.com/us/album/name/abc', '/https://music.apple.com/us/music-video/123', '/https://music.apple.com/us/room/abc',
     '/https://music.apple.com/cn/new/top-charts/stations', '/http://music.apple.com/us/song/name/123', '/https://example.com/us/song/name/123',
     '/assets/missing.js', '/favicon.ico', '/radio/x', '/https://music.apple.com/us/station/apple-music-1',
+    '/home/x', '/home/see-all/', '/https://music.apple.com/cn/home/x',
   ]) assert(!isPagePath(other), other);
 
   for (const ok of ['ra.978194965', 'ra.u-5e1a0b_x']) assert(validStationId(ok), ok);
   for (const bad of ['ra.', 'pl.123', 'ra.1/../x']) assert(!validStationId(bad), bad);
+  for (const ok of ['7-2Tqlz47h9yro', '19-5PhiYeah6j7F6y52tWymLI']) assert(validRecommendationId(ok), ok);
+  for (const bad of ['', '7-2/../x', 'a b']) assert(!validRecommendationId(bad), bad);
   assert(validLicenseUrl('https://play.itunes.apple.com/WebObjects/MZPlay.woa/web/radio/versions/1/license'));
   for (const bad of ['https://example.com/v1/radio/streaming-key-delivery', 'http://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense',
     'https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/other']) assert(!validLicenseUrl(bad), bad);
@@ -130,6 +133,11 @@ test('station endpoints relay the media-user-token without caching', async () =>
   assert.equal((await send('/station/catalog/us/a..b')).status, 400);
   assert.equal((await send('/station/recent?limit=30')).status, 200);
   assert.equal(calls.at(-1).url, 'https://amp-api.music.apple.com/v1/me/recent/radio-stations?limit=30');
+  assert.equal((await send('/station/recommendations?name=listen-now&platform=web')).status, 200);
+  assert.equal(calls.at(-1).url, 'https://amp-api.music.apple.com/v1/me/recommendations?name=listen-now&platform=web');
+  assert.equal((await send('/station/recommendations/7-2Tqlz47h9yro/see-all?platform=web')).status, 200);
+  assert.equal(calls.at(-1).url, 'https://amp-api.music.apple.com/v1/me/recommendations/7-2Tqlz47h9yro/view/see-all?platform=web');
+  assert.equal((await send('/station/recommendations/a%20b/see-all')).status, 400);
 
   const licenseUrl = 'https://play.itunes.apple.com/WebObjects/MZPlay.woa/web/radio/versions/1/license';
   const body = { adamId: 'ra.978194965', challenge: 'AAAA', uri: 'data:;base64,AA==', 'key-system': 'com.widevine.alpha' };

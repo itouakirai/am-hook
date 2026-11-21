@@ -41,11 +41,13 @@ const PAGES = [
   ['editorial', /^https:\/\/music\.apple\.com\/[a-z]{2}\/curator\/(?:[^/?#]+\/)?[0-9]+(?:[/?#]|$)/],
   // 广播（官网 /{cc}/radio）与电台（编辑 / 直播电台 ra.<数字>，个人电台 ra.u-<…>）
   ['radio', /^https:\/\/music\.apple\.com\/[a-z]{2}\/radio\/?(?:[?#]|$)/],
+  // 为你推荐（官网 /{cc}/home，内容随 media-user-token 的账号而定）
+  ['for-you', /^https:\/\/music\.apple\.com\/[a-z]{2}\/home\/?(?:[?#]|$)/],
   ['station', /^https:\/\/music\.apple\.com\/[a-z]{2}\/station\/(?:[^/?#]+\/)?ra\.[0-9A-Za-z._-]+?\/?(?:[?#]|$)/],
 ];
 
 /** 页面名 → 视图文件（/assets/views/<file>.html / .mjs）：新发现与各编辑页共用 browse 视图，其余同名 */
-const VIEW_FILES = { new: 'browse', charts: 'browse', editorial: 'browse', radio: 'browse', 'artist-see-all': 'browse', post: 'mv' };
+const VIEW_FILES = { new: 'browse', charts: 'browse', editorial: 'browse', radio: 'browse', 'for-you': 'browse', 'artist-see-all': 'browse', post: 'mv' };
 /**
  * 视图文件 → [页面内容地址, 加载页面脚本]。地址逐个写全，不用模板拼接：服务端与 build-static 会把
  * 资源地址换成带内容哈希的地址（见 src/assets.rs），只能替换完整的字面量。
@@ -65,6 +67,8 @@ const VIEWS = {
 };
 /** 跟随主地区的排行榜路径（与 src/links.rs 的 is_charts_path 相同） */
 const CHARTS_PATH = /^\/new\/top-charts(?:\/(?:songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?\/?$/;
+/** 为你推荐与区块的「查看全部」（与 src/links.rs 的 is_for_you_path 相同） */
+const FOR_YOU_PATH = /^\/home(?:\/see-all\/[0-9A-Za-z._-]{1,128})?\/?$/;
 /** 资料库（与 src/links.rs 的 is_library_path 相同）：各分类与本地歌单，数据只在浏览器中 */
 const LIBRARY_PATH = /^\/library(?:\/(?:recently-added|albums|songs|music-videos|all-playlists|artists(?:\/[^/?#]+)?|playlist-folder\/f\.[0-9A-Za-z_-]+))?\/?$/;
 /** 本地歌单与「喜爱的歌曲」 */
@@ -78,6 +82,7 @@ function route(url) {
   if (url.pathname === '/new') return 'new';
   // 广播（跟随主地区，与 src/links.rs 的 is_radio_path 相同）
   if (/^\/radio\/?$/.test(url.pathname)) return 'radio';
+  if (FOR_YOU_PATH.test(url.pathname)) return 'for-you';
   // 设置中心（与 src/links.rs 的 is_settings_path 相同）
   if (/^\/settings\/?$/.test(url.pathname)) return 'settings';
   if (CHARTS_PATH.test(url.pathname)) return 'charts';

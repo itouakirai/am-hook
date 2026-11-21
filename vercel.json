@@ -30,6 +30,8 @@
     { "source": "/new/top-charts/:kind", "destination": "/index.html" },
     { "source": "/settings", "destination": "/index.html" },
     { "source": "/radio", "destination": "/index.html" },
+    { "source": "/home", "destination": "/index.html" },
+    { "source": "/home/see-all/:__id", "destination": "/index.html" },
     { "source": "/library", "destination": "/index.html" },
     { "source": "/library/:section", "destination": "/index.html" },
     { "source": "/library/:section/:__id", "destination": "/index.html" }

@@ -91,7 +91,8 @@ These serve `web/` through `tests/support/web.cjs` (the same `/assets/<path>` = 
 | `app_ui.cjs` | Single-page app: playback across navigation, queue, Back / Forward, lyrics |
 | `download_ui.cjs` | Batch downloads: settings, album ZIP tags / cover / lyrics, folder mode, playlists and .m3u8, music videos, cancel / retry; needs wrapper-lite with the cn region |
 | `csp_live.cjs` | The only live test that keeps the page's CSP in force (the others run with `bypassCSP` through `tests/support/playwright-bypass-csp.cjs`, because Playwright's `waitForFunction` evaluates strings): no violations on the main pages, the lyrics view, ALAC and E-AC-3 playback (Workers + WASM); security headers and compression; the manifest; the media-user-token cookie round trip |
-| `radio_live.cjs` | Stations: needs a media-user-token from its third argument, `AM_HOOK_MEDIA_USER_TOKEN` or `target/my-media-user-token.txt`; genre and personal stations, Widevine license / playback / seeking / M4A download of an episode, and live radio simulated over its segments |
+| `for_you_live.cjs` | For You: needs a media-user-token (third argument, `AM_HOOK_MEDIA_USER_TOKEN`, `target/test-media-user-token.txt` or `target/my-media-user-token.txt`); the brick first in Browse Categories, the prompt and dialog without a token, the HttpOnly cookie, poster and cover shelves with local links, See All and Back, a pasted listen-now link, the phone layout, clearing the token |
+| `radio_live.cjs` | Stations: needs a media-user-token from its third argument, `AM_HOOK_MEDIA_USER_TOKEN`, `target/my-media-user-token.txt` or `target/test-media-user-token.txt`; genre and personal stations, Widevine license / playback / seeking / M4A download of an episode, and live radio simulated over its segments |
 
 </details>
 

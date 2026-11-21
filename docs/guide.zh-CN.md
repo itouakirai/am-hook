@@ -8,7 +8,7 @@
 - 导航底部的设置，保存在 localStorage，不会过期：
   - 主地区：用于搜索（以及之后的功能）。wrapper-lite 账号所在地区排在最前（最佳体验），其次是收藏的地区（默认收藏 US / CN / JP）；其他地区收在「更多地区」里，展开后可筛选，每个地区右侧的星标可收藏 / 取消收藏。默认为 wrapper-lite 的第一个地区。
   - 曲库语言（amp-api 的 `l`，与界面语言相互独立）：默认为各地区的默认语言，可选项只有 `/amp/v1/storefronts` 中该地区的 `supportedLanguageTags`。按地区分别记住，歌词也使用它。
-- 首页与 music.apple.com/{cc}/search 的布局相同：顶部是搜索框，下方是最近搜索的关键词（点击可再次搜索，也可逐条删除）与**类别浏览**——与官网搜索页相同的类别砖块（风格、心情与活动、排行榜、音乐视频、专题等；amp-api `recommendations/{cc}?name=search-landing`），使用主地区，标题旁的按钮可切换地区。类别默认只显示第一行（手机上两行），点下方的「展开全部」查看其余类别，展开或收起会被记住。砖块在站内打开策展人、分组、multi-room 与排行榜页，本站无法打开的链接到 Apple Music。搜索时这块换成搜索结果，关闭结果后恢复。页面底部显示当前 am-hook 版本（点击查看该版本的发布说明），以及 GitHub、Telegram 群组（https://t.me/apple_music_alac）、反馈问题的链接和对所用开源项目的致谢。
+- 首页与 music.apple.com/{cc}/search 的布局相同：顶部是搜索框，下方是最近搜索的关键词（点击可再次搜索，也可逐条删除）与**类别浏览**——与官网搜索页相同的类别砖块（风格、心情与活动、排行榜、音乐视频、专题等；amp-api `recommendations/{cc}?name=search-landing`），使用主地区，标题旁的按钮可切换地区。类别默认只显示第一行（手机上两行），点下方的「展开全部」查看其余类别，展开或收起会被记住。第一个砖块是本站加的**为你推荐**入口（见下文），其余在站内打开策展人、分组、multi-room 与排行榜页，本站无法打开的链接到 Apple Music。搜索时这块换成搜索结果，关闭结果后恢复。页面底部显示当前 am-hook 版本（点击查看该版本的发布说明），以及 GitHub、Telegram 群组（https://t.me/apple_music_alac）、反馈问题的链接和对所用开源项目的致谢。
 - 搜索：首页输入框既能粘贴链接，也能按关键词搜索（与 music.apple.com 相同的 amp-api 请求）。输入时显示补全词与直达结果；结果按最佳结果、艺人、专辑、歌曲、歌单、MV 分组，可「加载更多」。搜索使用主地区，也可在结果旁的按钮里修改。按 `/` 聚焦输入框；搜索词记在地址栏 `?q=` 中，可前进 / 后退与分享。搜索只在首页；其他页面顶部是「返回」按钮，回到上一页（直接打开链接进入时回到首页）。
 - 可以安装为应用（Chrome / Edge：地址栏或浏览器菜单中的安装按钮；Android：添加到主屏幕），在独立窗口中打开；使用 `web/manifest.webmanifest`。
 - 地址栏、页面标题和浏览器前进 / 后退跟随当前页面，链接可以直接分享，刷新后仍停留在当前页。
@@ -43,6 +43,7 @@
 | `/new` | 新发现（侧边栏的「新发现」）：与 music.apple.com/{cc}/new 相同的编辑区块（amp-api `editorial/{cc}/groupings?name=music`），使用主地区，切换后重新加载——hero 大卡、四行曲目货架、专辑 / 歌单 / 电台 / 视频货架（列数与官网 shelf-grid 相同）与「探索更多」链接；`/https://music.apple.com/<cc>/new` 为固定地区 |
 | `/new/top-charts[/<kind>]` | 排行榜（新发现「探索更多」中的链接，与 music.apple.com/{cc}/new/top-charts 相同，amp-api `catalog/{cc}/charts`，使用主地区）：带名次的热门歌曲（三行）、城市排行榜、每周热门 100 首，以及带名次的热门歌单 / 专辑 / 视频。各榜单的「查看全部」（`songs`、`playlists`、`albums`、`music-videos`，另有 `city-charts`、`daily-global-top-charts`）列出整个榜单并滚动分页，歌曲与歌单页的榜单行相同；歌曲、专辑、视频榜可按类型筛选（`?genreId=`，类型来自 `catalog/{cc}/genres`）；`/https://music.apple.com/<cc>/new/top-charts[/<kind>]` 为固定地区 |
 | `/https://music.apple.com/<cc>/room/<id>`、`.../multi-room/<id>`、`.../grouping/<id>`、`.../curator/<slug>/<id>` | 编辑页，路由与 music.apple.com 相同：room 为区块的「查看全部」（全部内容的网格，滚动时分页加载）；multi-room（`editorial/{cc}/multirooms`，头图 + 区块）、grouping（`editorial/{cc}/groupings/{id}`，如「音乐视频」与各风格页）与 curator（`catalog/{cc}?ids[apple-curators]=`：其分组的区块，或全部歌单）沿用新发现的排版。编辑数据中的旧式链接（`collection/...?fcId=`、`viewGrouping?id=`、`viewFeature?id=`）在站内打开这些页面；电台打开本站的电台页，其他本站无法打开的内容链接到 Apple Music。在首页粘贴这些链接同样可以打开 |
+| `/home` | 为你推荐：media-user-token 所属账号的个性化主页，即 music.apple.com/{cc}/home（见[为你推荐](#为你推荐)）；`/home/see-all/<id>` 为区块的「查看全部」，`/https://music.apple.com/<cc>/home`（粘贴 `…/listen-now`、`…/for-you` 等链接也可以）打开同一页面 |
 | `/radio` | 广播（侧边栏的「广播」）：与 music.apple.com/{cc}/radio 相同的编辑区块，使用主地区，填过 media-user-token 时另有「你的电台」；`/https://music.apple.com/<cc>/radio` 为固定地区 |
 | `/https://music.apple.com/<cc>/station/<slug>/ra.<id>` | 电台页：个人 / 编辑电台为接下来几首的曲目列表，直播电台与广播单集为 MV 页布局的播放与下载（见[广播与电台](#广播与电台)） |
 | `/library[/<分类>]`、`/library/artists/<名称>`、`/library/playlist/p.<id>`、`/library/favorite-songs`、`/library/playlist-folder/f.<id>` | 资料库页面（分类 `recently-added`、`artists`、`albums`、`songs`、`music-videos`、`all-playlists`）、本地歌单、喜爱的歌曲与歌单文件夹。资料库数据保存在浏览器的 IndexedDB 中（`web/library.mjs`），见[资料库与歌单](#资料库与歌单) |
@@ -79,10 +80,16 @@
 - 完成后自动触发保存，也可点击「保存 MP4」；取消或失败会清理临时文件。离开 MV 页面会停止播放、取消进行中的下载，并尝试清理已完成文件。标签页关闭或崩溃留下的文件会在下次打开 MV 页面时删除（浏览器不支持 Web Locks 时，文件超过 24 小时才会删除）。
 - 艺人上传的视频（官网 `post` 页，amp-api 的 `uploaded-videos`，新发现与编辑页中的链接会打开它）使用同一页面。与官网相同，不需要 wrapper-lite 也不需要解密：`assetTokens` 中的每一项都是未加密的标准 MP4（H.264 + AAC，`moov` 在前），由 `<video>` 直接播放。页面按分辨率列出，并显示大小与码率（来自 `HEAD` 请求）；没有单独的音频轨道。下载时把文件原样流式写入 OPFS（不支持 OPFS 时使用内存 Blob）。
 
+## 为你推荐
+
+- **为你推荐**（`/home`，首页类别浏览的第一个砖块）就是 music.apple.com 的个性化「主页」（以前叫「现在就听」）：与官网相同的 amp-api 请求 `GET /v1/me/recommendations?name=listen-now`（带本地时区），经 `/station/recommendations` 带上你的 media-user-token 转发（见[广播与电台](#广播与电台)）。内容、地区与曲库语言都按 token 所属的账号，不跟随主地区。
+- 区块按 `display.kind` 排版：「专属精选推荐」等 notes hero 区块为 3:4 的竖版大卡（`editorialArtwork.superHeroTall`，没有时以封面主色打底），每张卡上方是推荐理由（「专属推荐」「最新发行」等）；封面货架（最近播放、最新发行、各风格推荐、专属电台、喜爱的艺人等）为常规的方形 / 圆形卡片；全是歌曲的区块为四行曲目货架。资料库歌单、社交与演唱会区块不请求。内容较多的区块标题可点击，进入**查看全部**网格（`/home/see-all/<id>`，`/v1/me/recommendations/<id>/view/see-all`，最多 100 项）。专辑、歌单（含「音乐新发现」「音乐回忆」等个人歌单）、歌曲、电台与艺人都在站内打开。
+- 没有 token 时页面说明需要什么并直接打开填写对话框（与电台页相同）；token 被 Apple 拒绝时再次提示。首页砖块上会显示是否已填写。推荐数据在同一页面会话里保留 5 分钟，来回进出不重复请求。
+
 ## 广播与电台
 
 - **广播**（`/radio`，侧边栏与手机菜单中「排行榜」与「设置」之间）：与 music.apple.com/{cc}/radio 相同的编辑区块（amp-api `editorial/{cc}/groupings?name=radio`），使用主地区；直播电台货架显示品牌图标、「直播」标记与正在播出的节目。填过 media-user-token 时最上面另有「你的电台」：个人电台（`stations?filter[identity]=personal`）与最近播放的电台（`me/recent/radio-stations`）。新发现、编辑页与广播中的电台链接都在站内打开电台页。
-- **media-user-token**：wrapper-lite 还没有电台接口，电台用你 Apple Music 账号的 media-user-token 直接请求 Apple。第一次打开电台页时会请你填写（登录 music.apple.com 后在开发者工具 → Application → Cookies 里复制 `media-user-token`，粘贴整段 Cookie 也可以），经 `POST /station/token` 存进本站的 HttpOnly cookie（页面脚本读不到），再经 `/v1/me/storefront` 检验，检验不通过时清除。之后浏览器在电台请求中自动带上 cookie，服务端只把 token 转发给 Apple，不保存、不缓存、不记录。页面本身只记下「已填写」与 token 的末尾 6 位。被 Apple 拒绝时会再次提示；设置中心可以修改或清除。
+- **media-user-token**：wrapper-lite 还没有电台接口，电台与[为你推荐](#为你推荐)用你 Apple Music 账号的 media-user-token 直接请求 Apple。第一次打开电台页时会请你填写（登录 music.apple.com 后在开发者工具 → Application → Cookies 里复制 `media-user-token`，粘贴整段 Cookie 也可以），经 `POST /station/token` 存进本站的 HttpOnly cookie（页面脚本读不到），再经 `/v1/me/storefront` 检验，检验不通过时清除。之后浏览器在电台请求中自动带上 cookie，服务端只把 token 转发给 Apple，不保存、不缓存、不记录。页面本身只记下「已填写」与 token 的末尾 6 位。被 Apple 拒绝时会再次提示；设置中心可以修改或清除。
 - **电台页**（`/https://music.apple.com/<cc>/station/<slug>/ra.<id>`）按电台的 `playParams` 分三类（与 MusicKit 的判断相同）：
   - 个人电台与编辑电台（`format: tracks`，如风格电台、个人电台 `ra.u-…`）：与歌单页相同的头部与曲目列表，内容是电台「接下来的几首」（`POST /v1/me/stations/next-tracks/<id>`，每次 10 首），可以换一批或加载更多；播放到队尾前自动续取下一批，像电台一样一直播下去。曲目的「更多」菜单与歌曲相同（含下载），头部的「更多」可以下载列出的歌曲。
   - 广播单集（`format: stream`，`streamingRadioSubType: Episode`，音频或视频）：与 MV 页相同的布局，列出 HLS 的各码率与轨道，可以播放、跳转和下载（音频为 `.m4a`，视频为 `.mp4`，带标题、节目、播出日期与封面标签）。

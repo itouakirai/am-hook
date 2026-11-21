@@ -14,11 +14,12 @@
 //!   上游请求在独立任务中执行，浏览器中断后仍会完成并写入缓存，紧接着的相同请求直接命中。
 //! - 响应头 `Server-Timing` 标明缓存命中情况与上游耗时，可在浏览器开发者工具中查看。
 //!
-//! 电台（station）还需要用户的 media-user-token（wrapper-lite 没有这些接口），由页面经 `X-Media-User-Token` 请求头带来，
-//! 服务端只转发、不保存、不缓存（[`station_assets_handler`] 等）：
+//! 电台（station）与「为你推荐」还需要用户的 media-user-token（wrapper-lite 没有这些接口），由页面存进 HttpOnly cookie
+//! （脚本、测试也可以用 `X-Media-User-Token` 请求头），服务端只转发、不保存、不缓存（[`station_assets_handler`] 等）：
 //! - 个人 / 编辑电台（`playParams.format = tracks`）的接下来几首：`POST amp-api.music.apple.com/v1/me/stations/next-tracks/<id>`；
 //! - 直播电台与广播单集（`format = stream`）的 HLS 地址与 license 服务器：`GET amp-api.music.apple.com/v1/play/assets`；
-//! - 它们的 Widevine / PlayReady license：页面按 MusicKit 的格式构造请求体，由服务端带上两个 token 发往 Apple 的 license 服务器。
+//! - 它们的 Widevine / PlayReady license：页面按 MusicKit 的格式构造请求体，由服务端带上两个 token 发往 Apple 的 license 服务器；
+//! - 「为你推荐」（官网 /{cc}/home）：`GET amp-api.music.apple.com/v1/me/recommendations` 与各区块的 `…/<id>/view/see-all`。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -723,6 +724,43 @@ pub async fn station_recent_handler(State(state): State<Arc<AppState>>, headers:
     forward_user(&state, reqwest::Method::GET, url, token, None, None).await
 }
 
+/// 「为你推荐」的推荐 ID（`personal-recommendation` 资源，形如 `7-2Tqlz47h9yro`）
+pub fn valid_recommendation_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+/// `GET /station/recommendations?<query>` → `amp-api.music.apple.com/v1/me/recommendations`：
+/// 「为你推荐」（官网 /{cc}/home 的 ListenNowPageIntent，`name=listen-now`），内容随账号而定
+pub async fn station_recommendations_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, uri: Uri) -> Response<Body> {
+    let Some(token) = user_token(&headers) else { return missing_user_token() };
+    let query = uri.query().unwrap_or_default();
+    if query.len() > MAX_QUERY_LEN {
+        return error(StatusCode::BAD_REQUEST, "Query too long");
+    }
+    let url = api_url_at(USER_API_ORIGIN, "/v1/me/recommendations", query);
+    forward_user(&state, reqwest::Method::GET, url, token, None, None).await
+}
+
+/// `GET /station/recommendations/<id>/see-all?<query>` → `amp-api.music.apple.com/v1/me/recommendations/<id>/view/see-all`：
+/// 「为你推荐」区块的「查看全部」（官网 ListenNowSeeAllPageIntent）
+pub async fn station_recommendation_see_all_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response<Body> {
+    let Some(token) = user_token(&headers) else { return missing_user_token() };
+    if !valid_recommendation_id(&id) {
+        return error(StatusCode::BAD_REQUEST, "Invalid recommendation id");
+    }
+    let query = uri.query().unwrap_or_default();
+    if query.len() > MAX_QUERY_LEN {
+        return error(StatusCode::BAD_REQUEST, "Query too long");
+    }
+    let url = api_url_at(USER_API_ORIGIN, &format!("/v1/me/recommendations/{id}/view/see-all"), query);
+    forward_user(&state, reqwest::Method::GET, url, token, None, None).await
+}
+
 /// `GET /station/storefront` → `amp-api.music.apple.com/v1/me/storefront`：页面据此检验填入的 media-user-token，并显示账号地区
 pub async fn station_storefront_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response<Body> {
     let Some(token) = user_token(&headers) else { return missing_user_token() };
@@ -917,6 +955,11 @@ mod tests {
         assert!(!valid_station_id("ra."));
         assert!(!valid_station_id("pl.123"));
         assert!(!valid_station_id("ra.1/../x"));
+        assert!(valid_recommendation_id("7-2Tqlz47h9yro"));
+        assert!(valid_recommendation_id("19-5PhiYeah6j7F6y52tWymLI"));
+        assert!(!valid_recommendation_id(""));
+        assert!(!valid_recommendation_id("7-2/../x"));
+        assert!(!valid_recommendation_id("a b"));
         assert!(valid_license_url("https://play.itunes.apple.com/WebObjects/MZPlay.woa/web/radio/versions/1/license"));
         assert!(valid_license_url("https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense"));
         assert!(valid_license_url("https://play.music.apple.com/v1/radio/streaming-key-delivery"));

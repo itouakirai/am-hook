@@ -16,6 +16,18 @@
 
     <div class="alert info" id="alert" hidden aria-live="polite"></div>
 
+    <!-- 为你推荐：没有 media-user-token 或 token 被拒绝时提示填写（browse.mjs 的 needToken） -->
+    <section class="browse-token" id="token-box" hidden>
+      <span class="browse-token-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5a7 7 0 0 1 14 0"/></svg>
+      </span>
+      <div class="browse-token-text">
+        <h2 data-i18n="forYou.tokenTitle"></h2>
+        <p id="token-text"></p>
+      </div>
+      <button class="btn btn-primary" id="token-edit" type="button" data-i18n="station.tokenSet"></button>
+    </section>
+
     <!-- 区块（官网 editorial-elements：hero、货架、链接列表等），room 与策展人歌单页为网格 -->
     <div class="browse-sections" id="sections"></div>
     <div class="browse-more" id="more" hidden></div>

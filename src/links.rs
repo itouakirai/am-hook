@@ -44,15 +44,19 @@ static ARTIST_LINK_RE: LazyLock<Regex> =
 static STATION_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://music\.apple\.com/[a-z]{2}/station/(?:[^/?#]+/)?(ra\.[0-9A-Za-z._-]+?)/?(?:[?#]|$)").unwrap()
 });
-/// 编辑页（与 music.apple.com 的路由相同）：新发现 `/new`、排行榜 `/new/top-charts[/<kind>]`、广播 `/radio`、room、multi-room、grouping 与 curator（slug 可省略）
+/// 编辑页（与 music.apple.com 的路由相同）：新发现 `/new`、排行榜 `/new/top-charts[/<kind>]`、广播 `/radio`、为你推荐 `/home`、
+/// room、multi-room、grouping 与 curator（slug 可省略）
 static EDITORIAL_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"^https://music\.apple\.com/[a-z]{2}/(?:",
         new_section!(),
-        r"/?(?:[?#]|$)|radio/?(?:[?#]|$)|(?:room|multi-room|grouping)/[0-9]+(?:[/?#]|$)|curator/(?:[^/?#]+/)?[0-9]+(?:[/?#]|$))"
+        r"/?(?:[?#]|$)|(?:radio|home)/?(?:[?#]|$)|(?:room|multi-room|grouping)/[0-9]+(?:[/?#]|$)|curator/(?:[^/?#]+/)?[0-9]+(?:[/?#]|$))"
     ))
     .unwrap()
 });
+/// 「为你推荐」（官网 /{cc}/home，内容随账号而定，不含开头的 `/`）：`home` 与区块的「查看全部」`home/see-all/<推荐 ID>`
+static FOR_YOU_PATH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^home(?:/see-all/[0-9A-Za-z._-]{1,128})?/?$").unwrap());
 /// 跟随主地区的排行榜（`/new/top-charts[/<kind>]`，不含开头的 `/`）
 static CHARTS_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(r"^new/top-charts(?:/(?:", chart_kinds!(), r"))?/?$")).unwrap()
@@ -130,6 +134,11 @@ pub fn is_library_path(path: &str) -> bool {
 /// 是否为跟随主地区的广播页（`radio`，官网 /{cc}/radio，不含开头的 `/`），同样返回单页应用
 pub fn is_radio_path(path: &str) -> bool {
     path == "radio" || path == "radio/"
+}
+
+/// 是否为「为你推荐」（`home`、`home/see-all/<id>`，不含开头的 `/`），同样返回单页应用
+pub fn is_for_you_path(path: &str) -> bool {
+    FOR_YOU_PATH_RE.is_match(path)
 }
 
 /// 是否为设置中心（`settings`，不含开头的 `/`；设置只保存在浏览器中），同样返回单页应用
@@ -221,6 +230,15 @@ mod tests {
         assert!(!is_editorial_link("https://music.apple.com/us/radio/ra.978194965"));
         assert!(is_radio_path("radio"));
         assert!(!is_radio_path("radio/x"));
+        assert!(is_editorial_link("https://music.apple.com/cn/home"));
+        assert!(is_editorial_link("https://music.apple.com/us/home/?l=en"));
+        assert!(!is_editorial_link("https://music.apple.com/us/home/x"));
+        assert!(is_for_you_path("home"));
+        assert!(is_for_you_path("home/"));
+        assert!(is_for_you_path("home/see-all/7-2Tqlz47h9yro"));
+        assert!(!is_for_you_path("home/see-all/"));
+        assert!(!is_for_you_path("home/x"));
+        assert!(!is_for_you_path("homes"));
     }
 
     #[test]

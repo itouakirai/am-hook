@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use crate::{assets, log};
 use crate::links::{
-    is_charts_path, is_editorial_link, is_library_path, is_radio_path, is_settings_path, parse_album_link, parse_artist_link, parse_mv_link,
+    is_charts_path, is_editorial_link, is_for_you_path, is_library_path, is_radio_path, is_settings_path, parse_album_link, parse_artist_link, parse_mv_link,
     parse_playlist_link, parse_post_link, parse_song_link, parse_station_link,
 };
 use crate::state::AppState;
@@ -36,6 +36,7 @@ pub async fn fallback_handler(uri: Uri, headers: HeaderMap) -> Response<Body> {
         || is_charts_path(path)
         || is_library_path(path)
         || is_radio_path(path)
+        || is_for_you_path(path)
         || is_settings_path(path)
     {
         return app_handler(headers).await;
@@ -437,7 +438,14 @@ mod tests {
             assert_eq!(response.headers()[axum::http::header::CACHE_CONTROL], "no-store", "{path}");
         }
         // 页面地址仍返回外壳
-        for path in ["/library/songs", "/radio", "/https://music.apple.com/us/station/apple-music-1/ra.978194965"] {
+        for path in [
+            "/library/songs",
+            "/radio",
+            "/home",
+            "/home/see-all/7-2Tqlz47h9yro",
+            "/https://music.apple.com/cn/home",
+            "/https://music.apple.com/us/station/apple-music-1/ra.978194965",
+        ] {
             let page = fallback_handler(path.parse().unwrap(), HeaderMap::new()).await;
             assert_eq!(page.status(), StatusCode::OK, "{path}");
         }

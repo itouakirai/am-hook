@@ -57,7 +57,7 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 
 ### 电台流
 
-- 电台资源照常经 `/amp` 获取。需要账号的请求由服务端带上 developer token 与页面传来的 media-user-token 发往 `amp-api.music.apple.com`（不走 edge、不缓存）：`/station/next-tracks/<id>`、`/station/assets`（`/v1/play/assets?<playParams>&keyFormat=web`，返回 HLS 地址与 license 服务器）、`/station/catalog/...`、`/station/recent`、`/station/storefront`。
+- 电台资源照常经 `/amp` 获取。需要账号的请求由服务端带上 developer token 与页面传来的 media-user-token 发往 `amp-api.music.apple.com`（不走 edge、不缓存）：`/station/next-tracks/<id>`、`/station/assets`（`/v1/play/assets?<playParams>&keyFormat=web`，返回 HLS 地址与 license 服务器）、`/station/catalog/...`、`/station/recent`、`/station/storefront`。为你推荐走同一条路：`/station/recommendations`（`/v1/me/recommendations`）与 `/station/recommendations/<id>/see-all`（`…/<id>/view/see-all`）。
 - 直播电台与广播单集的 HLS（`itsliveradio.apple.com`，允许跨源）由浏览器直接获取，fMP4 分片同时列出 FairPlay、PlayReady 与 Widevine 的 `EXT-X-KEY`。与 MV、AAC-LC 歌曲共用媒体 Worker：先用 Widevine（失败再用 PlayReady）生成 license 请求，按 license 服务器地址选择 MusicKit 的请求格式（如 `linear.tv.apple.com/v1/radio/streaming-key-delivery` 为 `{ adamId, challenge, uri, key-system, … }`），由 `/station/license` 带上两个 token（Widevine 另带 `X-Apple-Renewal`）发给 Apple——wrapper-lite 的 `/license` 不支持电台。取得内容密钥后在 Worker 中解密，交给 MediaSource 播放。
 - 直播没有 `#EXT-X-ENDLIST`：从窗口末尾往前 3 个分片开始，按 `TARGETDURATION` 刷新列表并按序号追加，落到窗口之外时跳到最新的位置。下载只用于点播，与 MV 相同：分片写入 OPFS 后整理为标准 MP4（只有音频时保留原来的轨道）。
 
@@ -74,6 +74,7 @@ box 处理：FairPlay 元数据 box（`sinf`、`senc`、`saiz`、`saio`、`pssh`
 | 全景声对象渲染（JOC） | `joc/`（Worker、AudioWorklet、声场界面、HRTF）、`player/player.js` 的 `JocEngine` / `JocLiveEngine` | `crates/joc-core`、`crates/joc-wasm` |
 | AutoMix 与交叉淡化 | `player/automix.js`（规划）、`player/player.js` 的 `Mixer` / `Voice` | — |
 | MV | `mv/`（播放列表、引擎、字幕）、`views/mv.mjs`、`media/` | `src/handlers.rs`（`/parse/mv*`、`/mv/*`）、`crates/am-media`（PlayReady、CENC/CBCS、合并、defrag、字幕） |
+| 为你推荐（主页） | `views/browse.mjs`（`for-you` 页面、`renderReco`、`posterCard`）、`station.mjs`（`recommendations`）、入口砖块 `views/categories.mjs`（`forYouBrick`） | `src/amp.rs`（`station_recommendation*`）、`serverless/core.mjs` |
 | 广播与电台 | `station.mjs`（token、许可证）、`mv/radio.mjs`（HLS）、`views/station.mjs`、`views/browse.mjs`（广播页） | `src/amp.rs`（`station_*`）、`serverless/core.mjs` |
 | 曲库页面与搜索 | `views/*.mjs`、`views/actions.mjs`（封面按钮、「更多」菜单）、`amp.mjs`（`/amp` 请求、封面地址）、`views/links.mjs`（链接 → 本站页面）、`i18n.js`（地区、语言） | `src/amp.rs`（token、HTTP/2、缓存）、`serverless/core.mjs` |
 | 首页：搜索与类别浏览 | `views/home.mjs`（输入框、建议、最近搜索）、`views/search-results.mjs`（结果区）、`views/categories.mjs`（类别砖块） | `src/amp.rs`（`/amp/v1/catalog`、`recommendations_handler`）、`serverless/core.mjs` |
@@ -113,7 +114,7 @@ web/                   浏览器应用：内嵌进二进制，地址为 /assets/
   host.js              部署环境标志；由二进制 / 函数生成，此文件是缺省值
   wrapper.js           wrapper-lite 客户端：服务端转发或浏览器直连本地 wrapper-lite、解析 master、429 退避（AmWrapper）
   library.mjs          资料库与歌单存储（IndexedDB、跨标签页同步、导入导出格式与校验）
-  station.mjs          需要 media-user-token 的电台接口；许可证请求格式
+  station.mjs          需要 media-user-token 的接口（电台、为你推荐）；许可证请求格式
   amp.mjs              /amp 代理的公共请求（amp()：去掉不支持的 l、5xx 重试）与封面地址模板（artUrl）
   motion-art.mjs       专辑、歌单与艺人页的动态封面（editorialVideo 的 HLS，MSE 播放）
   alac-check.mjs       ALAC 检测：原样帧末尾缺陷、打包日期、实际位深与频宽

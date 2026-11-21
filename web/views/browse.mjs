@@ -2,6 +2,9 @@
 //   /new 与 /https://music.apple.com/{cc}/new                新发现（groupings?name=music；/new 跟随主地区）
 //   /radio 与 /https://music.apple.com/{cc}/radio            广播（groupings?name=radio；/radio 跟随主地区）。填过 media-user-token 时
 //                                                            另有「你的电台」：个人电台与最近播放的电台（官网 recently-played-radio-shelf）
+//   /home 与 /https://music.apple.com/{cc}/home              为你推荐（官网「主页」，/v1/me/recommendations?name=listen-now）：内容随
+//                                                            media-user-token 的账号而定，地区与曲库语言按账号地区；没有 token 时提示填写
+//   /home/see-all/{推荐 ID}                                   为你推荐区块的「查看全部」（官网 ListenNowSeeAllPageIntent，没有官网地址）
 //   /https://music.apple.com/{cc}/grouping/{id}              分组页（groupings/{id}，如「音乐视频」、各风格页）
 //   /https://music.apple.com/{cc}/multi-room/{id}            multi-room（multirooms/{id}：头图 + 区块）
 //   /https://music.apple.com/{cc}/curator/{slug}/{id}        策展人（有分组时与新发现相同的区块，否则为歌单网格）
@@ -14,7 +17,9 @@
 // 专辑 / 歌单为方形封面，电台为横向卡片，视频为 16:9）、385 砖块、391 / 405 链接、404 段落；其余跳过。
 // 货架的列数与官网 shelf-grid 的 grid-type 相同（见 app.css .ed-shelf）。
 import { createActions, setPlayButton, targetOf, pagePath, songEntry, playable, artistLinks } from './actions.mjs';
-import { tokenTail, personalStation, recentStations } from '/assets/station.mjs';
+import {
+  tokenTail, personalStation, recentStations, accountStorefront, recommendations, recommendationSeeAll, askToken, onTokenChange,
+} from '/assets/station.mjs';
 import { amp, artUrl } from '../amp.mjs';
 import { ARTIST_SECTIONS, CHART_KEYS, CHARTS_LINK, resolveLink as resolveEditorialLink } from './links.mjs';
 
@@ -158,10 +163,32 @@ const ALL_GENRES = '34';
 const RANKED_CHARTS = new Set(['songs', 'playlists', 'albums', 'music-videos']);
 const CHARTS_PATH = /^\/new\/top-charts(?:\/([a-z-]+))?\/?$/;
 
+/**
+ * 为你推荐的数据：同一页面会话里来回进出（如打开专辑再返回）时不重复请求（响应约 300 KB，服务端不缓存因人而异的数据）。
+ * token 末尾几位:语言 → { at, promise }
+ */
+const forYouCache = new Map();
+const FOR_YOU_CACHE_MS = 5 * 60 * 1000;
+
+function cachedRecommendations(l) {
+  const key = `${tokenTail()}:${l || ''}`;
+  const hit = forYouCache.get(key);
+  if (hit && Date.now() - hit.at < FOR_YOU_CACHE_MS) return hit.promise;
+  // 不传页面的 signal：离开页面时请求照常完成并留在缓存里
+  const promise = recommendations({ l });
+  forYouCache.set(key, { at: Date.now(), promise });
+  promise.catch(() => forYouCache.delete(key));
+  return promise;
+}
+
 /** 地址 → 页面：{ kind, cc, id, follow, chart, genre }；follow 为 true 时地区跟随主地区（/new、/new/top-charts） */
 function parsePage(url) {
   if (url.pathname === '/new') return { kind: 'new', cc: AmI18n.storefront, id: '', follow: true };
   if (/^\/radio\/?$/.test(url.pathname)) return { kind: 'radio', cc: AmI18n.storefront, id: '', follow: true };
+  // 为你推荐：地区在加载时换成 token 所属账号的地区（官网地址里的地区不影响内容）
+  const forYou = url.pathname.match(/^\/home(?:\/see-all\/([0-9A-Za-z._-]{1,128}))?\/?$/);
+  if (forYou) return { kind: 'for-you', cc: AmI18n.storefront, id: forYou[1] || '', follow: false };
+  if (/^\/https:\/\/music\.apple\.com\/[a-z]{2}\/home\/?$/i.test(url.pathname)) return { kind: 'for-you', cc: AmI18n.storefront, id: '', follow: false };
   const path = decodeURIComponent(url.pathname.slice(1));
   const local = url.pathname.match(CHARTS_PATH);
   const link = !local && path.match(CHARTS_LINK);
@@ -551,6 +578,84 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     return section('', headWith(t('radio.mine'), ''), shelf('G', 1, stations.map((res) => squareLockup(res))));
   }
 
+  /* ---------- 为你推荐：personal-recommendation 区块，按 display.kind 排版（官网 ListenNow 的各 shelf） ---------- */
+  const recoTitle = (rec) => ((rec.attributes || {}).title || {}).stringForDisplay || '';
+
+  /**
+   * 竖版大卡（官网 MusicNotesHeroShelf，如「专属精选推荐」）：上方是推荐理由（meta.reason），卡片为 3:4 的 superHeroTall，
+   * 底部压着标题与简介；没有竖版图时以封面主色打底、方形封面居上
+   */
+  function posterCard(res) {
+    const a = res.attributes;
+    const meta = res.meta || {};
+    const reason = (meta.reason && meta.reason.stringForDisplay) || '';
+    const tall = a.editorialArtwork && a.editorialArtwork.superHeroTall;
+    const art = tall || a.artwork;
+    const link = linkFor(res);
+    const notes = shortNotes(a) || (meta.subtitle && meta.subtitle.stringForDisplay) || subtitleOf(res);
+    const media = tall ? img(artUrl(tall, 600, 800, 'sr'), a.name || '')
+      : el('span', { className: 'fy-poster-square' }, img(artUrl(a.artwork, 480, 480, res.type === 'artists' ? 'cc' : 'sr'), a.name || ''));
+    const cardNode = el(link ? 'a' : 'div', { className: `fy-poster${tall ? '' : ' square'}`, ...linkProps(link), style: art && art.bgColor ? `--art-bg:#${art.bgColor}` : '' },
+      media,
+      el('span', { className: 'fy-poster-text' },
+        el('span', { className: 'fy-poster-title', textContent: a.name || '' }),
+        notes && notes !== a.name ? el('span', { className: 'fy-poster-notes', textContent: notes }) : null));
+    // 悬停按钮叠在卡片上（不盖住上方的推荐理由）
+    const box = el('div', { className: 'fy-poster-box' }, cardNode);
+    if (LOCAL_KINDS.has(res.type)) box.append(actions.coverActions(targetOf(res, country)));
+    return el('div', { className: 'card-wrap fy-poster-wrap' }, el('p', { className: 'fy-reason', textContent: reason || ' ' }), box);
+  }
+
+  /** 一个区块；标题在有「查看全部」时进入 /home/see-all/{id}。不认识的排版按封面货架显示 */
+  function renderReco(rec) {
+    const a = rec.attributes || {};
+    const items = withAttrs(rel(rec, 'contents'));
+    if (!items.length) return null;
+    const head = headWith(recoTitle(rec), a.hasSeeAll ? `/home/see-all/${encodeURIComponent(rec.id)}` : '');
+    const kind = (a.display && a.display.kind) || '';
+    const lockup = (res) => (VIDEO_TYPES.has(res.type) ? videoLockup(res) : squareLockup(res));
+    if (kind === 'MusicNotesHeroShelf') return section('fy-poster-section', head, shelf('P', 1, items.map(posterCard)));
+    if (kind === 'MusicSuperHeroShelf') {
+      const cards = items.map((res) => {
+        const e = res.attributes.editorialArtwork || {};
+        const artwork = e.subscriptionHero || e.superHeroWide;
+        if (!artwork) return posterCard(res);
+        const subtitle = subtitleOf(res);
+        return heroCard({ badge: ((res.meta || {}).reason || {}).stringForDisplay, title: res.attributes.name, subtitle, artwork, link: linkFor(res), res });
+      });
+      return section('ed-hero-section', head, shelf('A', 1, cards));
+    }
+    const songs = items.filter((res) => res.type === 'songs');
+    if (songs.length === items.length) return section('ed-tracks-section', head, shelf('T', 4, songs.map((track) => trackLockup(track, songs))));
+    if (kind === 'MusicCircleCoverShelf' || items.every((res) => res.type === 'artists')) return section('', head, shelf('H', 1, items.map((res) => squareLockup(res))));
+    if (items.every((res) => VIDEO_TYPES.has(res.type))) return section('', head, shelf('C', 1, items.map(lockup)));
+    return section('', head, shelf('G', kind === 'MusicCoverGrid' ? 2 : 1, items.map(lockup)));
+  }
+
+  /* ---------- 为你推荐的 media-user-token：没有或被拒绝时在页面上提示填写 ---------- */
+  let tokenAsked = false;
+  function needToken(reason = '') {
+    model = null;
+    $('sections').replaceChildren();
+    showAlert('', '');
+    $('title').classList.remove('skeleton');
+    $('title').textContent = t('forYou.title');
+    document.title = `${t('forYou.title')} · am-hook`;
+    $('token-text').textContent = reason || t('forYou.tokenNeeded');
+    $('token-box').hidden = false;
+    // 第一次进入时直接打开填写对话框（与电台页相同），取消后留下页面上的提示与按钮
+    if (!tokenAsked) {
+      tokenAsked = true;
+      fillToken(reason);
+    }
+  }
+  async function fillToken(reason = '') {
+    if (await askToken({ reason }) && !signal.aborted) load();
+  }
+  $('token-edit').addEventListener('click', () => fillToken());
+  // token 被清除（填写对话框里的「清除」，或填入的 token 检验失败）：回到提示
+  signal.addEventListener('abort', onTokenChange((tail) => { if (!tail && page && page.kind === 'for-you') needToken(); }), { once: true });
+
   /** 385 砖块：386（contents[0]）与 394（自带 artwork 与链接），排成 B 型货架的宽幅卡片 */
   function brickShelf(element) {
     const cards = withAttrs(rel(element, 'children')).map((child) => {
@@ -786,7 +891,8 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   function renderBody() {
     rows = new Map();
     const sections = model.grid ? [renderGrid()] : model.charts ? renderCharts(model.charts)
-      : [model.mine && model.mine.length ? myStations(model.mine) : null, ...model.elements.map(renderElement)].filter(Boolean);
+      : model.recos ? model.recos.map(renderReco).filter(Boolean)
+        : [model.mine && model.mine.length ? myStations(model.mine) : null, ...model.elements.map(renderElement)].filter(Boolean);
     $('sections').replaceChildren(...sections);
     if (!sections.length) showAlert('info', () => t('browse.empty'));
     syncRows(player.current, !player.transport().paused);
@@ -797,6 +903,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     if (!page) return 'https://music.apple.com/';
     if (page.kind === 'new') return `https://music.apple.com/${country}/new`;
     if (page.kind === 'radio') return `https://music.apple.com/${country}/radio`;
+    if (page.kind === 'for-you') return `https://music.apple.com/${country}/home`;
     if (page.kind === 'charts') {
       const slug = page.chart ? `/${CHART_SLUGS[page.chart]}` : '';
       return `https://music.apple.com/${country}/new/top-charts${slug}${page.genre !== ALL_GENRES ? `?genreId=${page.genre}` : ''}`;
@@ -867,6 +974,15 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
         const stations = [personal, ...recent.filter((r) => !personal || r.id !== personal.id)].filter(Boolean);
         return { title: t('nav.radio'), elements: groupingElements(grouping), mine: stations };
       }
+      case 'for-you': {
+        if (page.id) {
+          // 「查看全部」：一个区块的全部内容（最多 100 项）排成网格
+          const rec = await recommendationSeeAll(page.id, { l, signal });
+          const items = withAttrs(rel(rec, 'contents'));
+          return { title: recoTitle(rec), grid: { items, next: '', layout: items.length ? gridLayout(items) : 'G' } };
+        }
+        return { title: t('forYou.title'), recos: await cachedRecommendations(l) };
+      }
       case 'grouping': {
         const data = await amp(`/v1/editorial/${cc}/groupings/${page.id}`, { ...GROUPING_PARAMS, 'include[groupings]': 'curator', l });
         const grouping = (data.data || [])[0];
@@ -911,6 +1027,14 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     if (!model) showAlert('info', () => t('browse.loading'));
     $('apple-link').href = appleUrl();
     try {
+      if (page.kind === 'for-you') {
+        // 为你推荐：没有 token 时不请求，提示填写；有 token 时地区与曲库语言按 token 所属账号的地区
+        if (!tokenTail()) { needToken(); return; }
+        $('token-box').hidden = true;
+        if (!model) showAlert('info', () => t('browse.loading'));
+        country = await accountStorefront({ signal });
+        $('apple-link').href = appleUrl();
+      }
       const l = await AmI18n.catalogLang(country);
       const next = await fetchModel(l);
       if (token !== loadToken || signal.aborted) return;
@@ -920,6 +1044,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
       renderBody();
     } catch (err) {
       if (token !== loadToken || signal.aborted) return;
+      if (err.name === 'TokenError') { needToken(t('station.tokenInvalid', { msg: err.message })); return; }
       showAlert('error', () => t('browse.failed', { msg: err.message }));
       if (!model) { $('title').classList.remove('skeleton'); $('title').textContent = ' '; }
     }
@@ -946,7 +1071,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
   player.onChange(syncRows);
 
   /** 新发现与排行榜没有 ID，其余编辑页需要 */
-  const validPage = !!page && (page.kind === 'new' || page.kind === 'radio' || page.kind === 'charts' || !!page.id);
+  const validPage = !!page && (page.kind === 'new' || page.kind === 'radio' || page.kind === 'charts' || page.kind === 'for-you' || !!page.id);
 
   // 切换界面语言或曲库语言：标题、区块名由 amp-api 按语言返回，重新获取
   onLangChange(() => {
@@ -955,6 +1080,7 @@ export function mount({ root, url, signal, player, navigate, onLangChange, toast
     if (model && !model.grid) {
       if (page.kind === 'new') model.title = t('nav.new');
       if (page.kind === 'radio') model.title = t('nav.radio');
+      if (page.kind === 'for-you' && !page.id) model.title = t('forYou.title');
       if (page.kind === 'charts') model.title = t('charts.title');
       renderHeader();
     }

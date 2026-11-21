@@ -34,6 +34,7 @@ Apple Music 网页播放器与下载器：Rust 小服务端（或一个 serverle
 | AutoMix / 交叉淡化 | 规划 `web/player/automix.js`（纯函数，`tests/unit/automix.cjs`），执行 `player.js` 的 `Mixer`/`Voice` |
 | MV 播放 / 下载 / 字幕 | `web/mv/engine.mjs`、`mv/hls.mjs`、`mv/captions.mjs`；Worker `media/`；Rust `crates/am-media`；服务端 `/parse/mv*` |
 | 电台 / 广播 | `web/station.mjs`（token、license 格式）、`mv/radio.mjs`（HLS）、`views/station.mjs`；服务端 `amp.rs` 的 `station_*` |
+| 为你推荐（`/home`，官网主页）空白 / 一直提示 token | `web/views/browse.mjs` 的 `for-you`（`renderReco`、`posterCard`、`needToken`）、`station.mjs` 的 `recommendations`；入口砖块 `views/categories.mjs` 的 `forYouBrick`；服务端 `amp.rs::station_recommendations_handler` |
 | 曲库页面空白、搜索无结果 | `amp.rs`（developer token 抓取、缓存）或 `serverless/core.mjs`；页面 `web/views/<页面>.mjs`；公共请求 `web/amp.mjs` |
 | 首页类别浏览空白 / 砖块链接不对 | `web/views/categories.mjs`（`recommendations/{cc}?name=search-landing`）、`views/links.mjs` 的 `resolveLink`；服务端 `amp.rs::recommendations_handler` |
 | 歌词 | `web/lyrics/panel.mjs`（接播放器）、`ttml.mjs`、`fonts.mjs`；服务端 `handlers.rs::lyrics_handler` |

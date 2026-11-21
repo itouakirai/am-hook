@@ -1,4 +1,4 @@
-// 电台（官网 /{cc}/station/{slug}/ra.{id}）用到的、需要用户 media-user-token 的接口。wrapper-lite 没有这些接口，
+// 电台（官网 /{cc}/station/{slug}/ra.{id}）与「为你推荐」（官网 /{cc}/home）用到的、需要用户 media-user-token 的接口。wrapper-lite 没有这些接口，
 // 由服务端（src/amp.rs 的 station_*_handler，serverless/core.mjs 的同名路由）带上 developer token 转发给 Apple，
 // media-user-token 保存在本站的 HttpOnly cookie 里（POST /station/token 设置），页面脚本读不到，电台请求由浏览器自动带上；
 // 服务端只转发，不保存。页面只在 localStorage 里记下「已填写」与末尾几位（设置中心显示用）。
@@ -15,6 +15,8 @@ const { t } = AmI18n;
 
 /** 已填写 token 的标记：token 末尾 6 位（不是 token 本身） */
 const MARK_KEY = 'am-hook:station-token';
+/** token 所属账号的地区（/v1/me/storefront 的 id，「为你推荐」按它选曲库语言与链接地区） */
+const STOREFRONT_KEY = 'am-hook:station-storefront';
 const listeners = new Set();
 // 旧版本把 token 本身存在 localStorage 里：删掉
 try { localStorage.removeItem('am-hook:media-user-token'); } catch {}
@@ -27,6 +29,7 @@ export function tokenTail() {
 function mark(tail) {
   try {
     if (tail) localStorage.setItem(MARK_KEY, tail); else localStorage.removeItem(MARK_KEY);
+    localStorage.removeItem(STOREFRONT_KEY);
   } catch {}
   for (const fn of listeners) fn(tail);
 }
@@ -83,12 +86,22 @@ async function call(path, { method = 'GET', body, signal } = {}) {
   return data;
 }
 
-/** 检验已保存的 token：返回账号所在地区 { id, name } */
+/** 检验已保存的 token：返回账号所在地区 { id, name }，并记下地区 id（见 accountStorefront） */
 export async function tokenStorefront(signal) {
   const data = await call('/station/storefront', { signal });
   const sf = (data.data || [])[0];
   if (!sf) throw new Error('empty response');
+  try { if (/^[a-z]{2}$/.test(sf.id)) localStorage.setItem(STOREFRONT_KEY, sf.id); } catch {}
   return { id: sf.id, name: (sf.attributes && sf.attributes.name) || sf.id };
+}
+
+/** token 所属账号的地区 id（如 cn）：记下过的直接返回，否则请求一次 /station/storefront */
+export async function accountStorefront({ signal } = {}) {
+  try {
+    const saved = localStorage.getItem(STOREFRONT_KEY);
+    if (saved) return saved;
+  } catch {}
+  return (await tokenStorefront(signal)).id;
 }
 
 let asking = null;
@@ -182,6 +195,67 @@ export async function recentStations({ l, limit = 30, signal } = {}) {
   if (l) query.set('l', l);
   const data = await call(`/station/recent?${query}`, { signal });
   return (data.data || []).filter((r) => r && r.type === 'stations' && r.attributes);
+}
+
+/* ---------- 为你推荐（官网 /{cc}/home） ---------- */
+
+/** 本站能显示的内容类型（官网另有资料库歌单、社交、演唱会、电视节目等，这里不请求） */
+const FOR_YOU_TYPES = 'activities,albums,apple-curators,artists,curators,editorial-items,music-movies,music-videos,playlists,songs,stations,uploaded-videos';
+
+/** 与官网 ListenNowPageIntent（未开通 Glide 的账号）相同的参数，去掉本站不显示的区块与类型；art[url]=c,f 由前端选裁切与格式 */
+const FOR_YOU_PARAMS = {
+  name: 'listen-now',
+  platform: 'web',
+  'art[url]': 'c,f',
+  extend: 'editorialArtwork,plainEditorialNotes',
+  'extend[playlists]': 'artistNames',
+  'extend[stations]': 'airTime',
+  'include[albums]': 'artists',
+  'include[stations]': 'radio-show',
+  'fields[artists]': 'name,url',
+  'omit[resource]': 'autos',
+  'displayFilter[kind]': 'MusicCircleCoverShelf,MusicCoverGrid,MusicCoverShelf,MusicNotesHeroShelf,MusicSuperHeroShelf',
+  types: FOR_YOU_TYPES,
+};
+
+/** 官网 ListenNowSeeAllPageIntent 的参数 */
+const SEE_ALL_PARAMS = {
+  name: 'listen-now',
+  platform: 'web',
+  action: 'refresh',
+  'art[url]': 'c,f',
+  extend: 'artistUrl,editorialArtwork,plainEditorialNotes',
+  'include[personal-recommendation]': 'contents',
+  'limit[contents]': '100',
+  'omit[resource]': 'autos',
+  types: FOR_YOU_TYPES,
+};
+
+/** 本地时区与 UTC 的差（官网的 timezone 参数，形如 +08:00），推荐按它划分「今天」等 */
+export function timezoneOffset(date = new Date()) {
+  const minutes = -date.getTimezoneOffset();
+  const abs = Math.abs(minutes);
+  return `${minutes < 0 ? '-' : '+'}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+}
+
+function query(params, l) {
+  const search = new URLSearchParams({ ...params, timezone: timezoneOffset() });
+  if (l) search.set('l', l);
+  return search;
+}
+
+/** 「为你推荐」的区块：personal-recommendation 资源（attributes.display.kind 为排版，relationships.contents 为内容） */
+export async function recommendations({ l, signal } = {}) {
+  const data = await call(`/station/recommendations?${query(FOR_YOU_PARAMS, l)}`, { signal });
+  return (data.data || []).filter((r) => r && r.type === 'personal-recommendation' && r.attributes);
+}
+
+/** 一个区块的「查看全部」（最多 100 项）：personal-recommendation 资源 */
+export async function recommendationSeeAll(id, { l, signal } = {}) {
+  const data = await call(`/station/recommendations/${encodeURIComponent(id)}/see-all?${query(SEE_ALL_PARAMS, l)}`, { signal });
+  const rec = (data.data || [])[0];
+  if (!rec) throw new Error('empty response');
+  return rec;
 }
 
 /** 直播电台与广播单集的播放资源：{ url, keyServerUrl, widevineKeyCertificateUrl, … }（/v1/play/assets，参数为 playParams 加 keyFormat=web） */

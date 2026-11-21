@@ -194,6 +194,9 @@ fn describe(path: &str, query: &str) -> Entry {
         "/station/license" => return Entry::new("station", "license"),
         "/station/storefront" => return Entry::new("station", "storefront"),
         "/station/recent" => return Entry::new("station", "recent"),
+        "/station/recommendations" => return Entry::new("station", "recommendations"),
+        // 为你推荐（官网 /{cc}/home）
+        "/home" | "/home/" => return Entry::new("page", "for-you"),
         "/status" => return Entry::new("status", "wrapper-lite").quiet(),
         "/key" => return Entry::new("key", format!("adamId {}", query_param(query, "adamId").unwrap_or_default())),
         "/mv/license" => return Entry::new("mv", "license"),
@@ -214,6 +217,12 @@ fn describe(path: &str, query: &str) -> Entry {
     }
     if let Some(id) = path.strip_prefix("/station/next-tracks/") {
         return Entry::new("station", format!("next-tracks {id}"));
+    }
+    if let Some(rest) = path.strip_prefix("/station/recommendations/") {
+        return Entry::new("station", format!("recommendations {}", rest.trim_end_matches("/see-all")));
+    }
+    if let Some(id) = path.strip_prefix("/home/see-all/") {
+        return Entry::new("page", format!("for-you see-all {}", id.trim_end_matches('/')));
     }
     if let Some(id) = path.strip_prefix("/lyrics/") {
         return Entry::new("lyrics", id);
@@ -317,7 +326,7 @@ pub fn print_banner(listen: SocketAddr, config: &Config) {
         secs => format!("keep-alive {secs}s"),
     };
     lines.push(format!("  amp-api       warm connection, {keepalive}, response cache {} MB", config.amp_cache_mb));
-    lines.push("  Pages         home & search · new · top charts · radio · song · album · playlist · artist".into());
+    lines.push("  Pages         home & search · for you · new · top charts · radio · song · album · playlist · artist".into());
     lines.push("                music video · post · station · room · multi-room · grouping · curator".into());
     lines.push("  Features      lyrics · motion artwork · ALAC / FLAC / Dolby Atmos (EC-3) · MV PlayReady".into());
     lines.push("  Verbose log   RUST_LOG=am_hook=debug (assets, status, suggestions)".into());
@@ -490,6 +499,10 @@ mod tests {
         assert_eq!(describe("/library", "").detail, "library");
         assert_eq!(describe("/settings", "").detail, "settings");
         assert_eq!(describe("/radio", "").detail, "radio");
+        assert_eq!(describe("/home", "").detail, "for-you");
+        assert_eq!(describe("/home/see-all/7-2Tqlz47h9yro", "").detail, "for-you see-all 7-2Tqlz47h9yro");
+        assert_eq!(describe("/station/recommendations", "name=listen-now").detail, "recommendations");
+        assert_eq!(describe("/station/recommendations/7-2Tqlz47h9yro/see-all", "").detail, "recommendations 7-2Tqlz47h9yro");
         assert_eq!(describe("/https://music.apple.com/us/station/apple-music-1/ra.978194965", "").detail, "station US ra.978194965");
         assert_eq!(describe("/station/next-tracks/ra.686227433", "limit=10").detail, "next-tracks ra.686227433");
         assert_eq!(describe("/station/assets", "id=ra.978194965&kind=radioStation").detail, "assets ra.978194965");

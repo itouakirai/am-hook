@@ -5,7 +5,7 @@ import { createActions } from './actions.mjs';
 import { amp, artUrl } from '../amp.mjs';
 import { parseAppleLink } from './links.mjs';
 import { createResults, toItem, el, artNode, explicitBadge, KIND_LABELS } from './search-results.mjs';
-import { loadCategories, brickNode, brickSkeletons } from './categories.mjs';
+import { loadCategories, brickNode, brickSkeletons, forYouBrick } from './categories.mjs';
 
 const { AmI18n } = window;
 const { t } = AmI18n;
@@ -16,7 +16,7 @@ export const bodyClass = 'home-page';
 const DETECT_LABELS = {
   song: 'home.detectSong', 'music-video': 'home.detectMv', post: 'home.detectPost', album: 'home.detectAlbum', playlist: 'home.detectPlaylist', artist: 'home.detectArtist',
   room: 'home.detectRoom', 'multi-room': 'home.detectRoom', grouping: 'home.detectGrouping', curator: 'home.detectCurator', new: 'home.detectNew',
-  'new/top-charts': 'charts.title',
+  'new/top-charts': 'charts.title', home: 'forYou.title',
 };
 
 export function mount({ root, signal, player, navigate, onLangChange, toast, loadStatus }) {
@@ -72,7 +72,7 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
     submitLabel.textContent = t(submitLabel.dataset.i18n);
     detectEl.hidden = !link;
     if (!link) return;
-    const [, cc, kind] = link.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/(song|music-video|post|album|playlist|artist|room|multi-room|grouping|curator|new\/top-charts|new)\b/);
+    const [, cc, kind] = link.match(/^https:\/\/music\.apple\.com\/([a-z]{2})\/(song|music-video|post|album|playlist|artist|room|multi-room|grouping|curator|new\/top-charts|new|home)\b/);
     detectEl.textContent = `${t(DETECT_LABELS[kind])} · ${cc.toUpperCase()}`;
   }
 
@@ -308,6 +308,8 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
   const categoriesEl = $('categories');
   const toggle = $('categories-toggle');
   let categoriesToken = 0;
+  // 本站的「为你推荐」入口固定在第一位：类别加载中、失败或为空时也显示
+  const forYou = forYouBrick({ signal });
 
   // 默认折叠：只显示第一行（手机两列时两行），按钮展开全部；展开状态按浏览器记住
   const EXPANDED_KEY = 'am-hook:categories-expanded';
@@ -359,8 +361,9 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
     categoriesEl.hidden = false;
     categoriesEl.setAttribute('aria-busy', 'true');
     // 已有砖块（切换语言 / 地区）时保留到新数据返回，避免整块闪烁
-    if (!grid.querySelector('a.brick')) {
-      grid.replaceChildren(...brickSkeletons());
+    forYou.refresh();
+    if (!grid.querySelector('a.brick:not(.brick-for-you)')) {
+      grid.replaceChildren(forYou, ...brickSkeletons(11));
       applyCollapse();
     }
     $('categories-error').hidden = true;
@@ -370,12 +373,11 @@ export function mount({ root, signal, player, navigate, onLangChange, toast, loa
       const { title, bricks } = await loadCategories(cc, await catalogLang());
       if (token !== categoriesToken || signal.aborted) return;
       $('categories-title').textContent = title || t('home.categories');
-      if (!bricks.length) { categoriesEl.hidden = true; return; }
-      grid.replaceChildren(...bricks.map(brickNode));
+      grid.replaceChildren(forYou, ...bricks.map(brickNode));
       applyCollapse();
     } catch (error) {
       if (token !== categoriesToken || signal.aborted) return;
-      grid.replaceChildren();
+      grid.replaceChildren(forYou);
       toggle.hidden = true;
       const failed = $('categories-error');
       failed.hidden = false;

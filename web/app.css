@@ -490,6 +490,24 @@ body.home-page {
   .brick:hover img { transform: scale(1.04); }
 }
 .brick.skeleton { border-radius: 12px; }
+/* 第一个砖块：本站的「为你推荐」入口（categories.mjs 的 forYouBrick）。没有官方封面：品牌红到紫的渐变，右侧淡化的星芒图标，
+   左上角提示是否已填写 media-user-token */
+.brick.brick-for-you {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgb(255 120 150 / .55), transparent 55%),
+    linear-gradient(135deg, #fa2d48 0%, #d0206e 52%, #7a2fe0 100%);
+}
+.brick-for-you-art {
+  position: absolute; top: 50%; right: 4%; height: 112%; aspect-ratio: 1; color: #fff; opacity: .26;
+  transform: translateY(-50%); transition: transform .4s ease, opacity .4s ease;
+}
+.brick-hint {
+  position: absolute; z-index: 1; top: 11px; left: 14px; right: 14px; overflow: hidden; font-size: 12px; font-weight: 650;
+  text-overflow: ellipsis; white-space: nowrap; opacity: .92;
+}
+@media (hover: hover) {
+  .brick.brick-for-you:hover .brick-for-you-art { opacity: .34; transform: translateY(-50%) rotate(8deg) scale(1.04); }
+}
 .categories-error { margin: 0; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
 .categories-error[hidden] { display: none; }
 /* 折叠时多出的砖块带 hidden；展开时新露出的砖块依次淡入（--i 为序号） */
@@ -1172,6 +1190,7 @@ html[dir="rtl"] .volume-pop { transform-origin: left center; }
   .brick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .brick, .brick.skeleton { border-radius: 10px; }
   .brick-title { inset: auto 10px 8px; font-size: 14px; }
+  .brick-hint { top: 8px; left: 10px; right: 10px; font-size: 11px; }
   .brick-external { top: 7px; right: 7px; width: 14px; height: 14px; }
   .song-grid { grid-template-columns: 1fr; }
   .mv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; }

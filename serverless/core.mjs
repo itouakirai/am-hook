@@ -40,10 +40,10 @@ const SITE_PAGE_RE = new RegExp(
   '^https:/{1,2}music\\.apple\\.com/[a-z]{2}/(?:'
     + 'song/[^/]+/[0-9]+|music-video/[^/]+/[0-9]+|(?:post|album|artist|curator)/(?:[^/]+/)?[0-9]+'
     + '|playlist/(?:[^/]+/)?pl\\.[0-9A-Za-z_-]+|(?:room|multi-room|grouping)/[0-9]+|station/(?:[^/]+/)?ra\\.[0-9A-Za-z._-]+)(?:/|$)'
-    + `|^https:/{1,2}music\\.apple\\.com/[a-z]{2}/(?:new(?:/top-charts(?:/(?:${CHART_KINDS}))?)?|radio)/?$`,
+    + `|^https:/{1,2}music\\.apple\\.com/[a-z]{2}/(?:new(?:/top-charts(?:/(?:${CHART_KINDS}))?)?|radio|home)/?$`,
 );
 const LOCAL_PAGE_RE = new RegExp(
-  `^(?:settings|radio|new(?:/top-charts(?:/(?:${CHART_KINDS}))?)?`
+  `^(?:settings|radio|home(?:/see-all/[0-9A-Za-z._-]{1,128})?|new(?:/top-charts(?:/(?:${CHART_KINDS}))?)?`
     + '|library(?:/(?:recently-added|albums|songs|music-videos|all-playlists|favorite-songs|artists(?:/[^/]+)?'
     + '|playlist/p\\.[0-9A-Za-z_-]+|playlist-folder/f\\.[0-9A-Za-z_-]+))?)/?$',
 );
@@ -293,6 +293,11 @@ export function validStationId(id) {
   return id.length > 3 && id.length <= 128 && /^ra\.[0-9A-Za-z._-]+$/.test(id);
 }
 
+/** 「为你推荐」的推荐 ID（personal-recommendation，形如 7-2Tqlz47h9yro；同 src/amp.rs 的 valid_recommendation_id） */
+export function validRecommendationId(id) {
+  return id.length > 0 && id.length <= 128 && /^[0-9A-Za-z._-]+$/.test(id);
+}
+
 /** MusicKit 认识的几种 license 接口 */
 const LICENSE_PATHS = [
   '/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense',
@@ -367,6 +372,15 @@ function stationRoute(method, path, url, request, platform) {
   } else if (method === 'GET' && path === '/station/recent') {
     if (query.length > MAX_QUERY_LEN) return fail(400, 'Query too long');
     handler = (user) => userRequest(platform, `${USER_API_ORIGIN}/v1/me/recent/radio-stations${query ? `?${query}` : ''}`, user);
+  } else if (method === 'GET' && path === '/station/recommendations') {
+    // 「为你推荐」（官网 /{cc}/home）
+    if (query.length > MAX_QUERY_LEN) return fail(400, 'Query too long');
+    handler = (user) => userRequest(platform, `${USER_API_ORIGIN}/v1/me/recommendations${query ? `?${query}` : ''}`, user);
+  } else if (method === 'GET' && (match = /^\/station\/recommendations\/([^/]+)\/see-all$/.exec(path))) {
+    const id = decode(match[1]);
+    if (id === null || !validRecommendationId(id)) return fail(400, 'Invalid recommendation id');
+    if (query.length > MAX_QUERY_LEN) return fail(400, 'Query too long');
+    handler = (user) => userRequest(platform, `${USER_API_ORIGIN}/v1/me/recommendations/${id}/view/see-all${query ? `?${query}` : ''}`, user);
   } else if (method === 'GET' && (match = /^\/station\/catalog\/(.+)$/.exec(path))) {
     const rest = decode(match[1]);
     if (rest === null || !validCatalogPath(rest)) return fail(400, 'Invalid catalog path');

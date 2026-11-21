@@ -2,7 +2,7 @@
 // 本站页面地址就是 / 加上规整后的 Apple Music 链接（见 app.mjs 的路由与 src/links.rs）。
 
 /** 与 app.mjs 的路由相同：本站能打开的 Apple Music 页面（规整后的地址） */
-export const LOCAL_PAGE = /^https:\/\/music\.apple\.com\/[a-z]{2}\/(?:(?:song|music-video)\/[^/?#]+\/\d+|post\/(?:[^/?#]+\/)?\d+|(?:album|artist)\/(?:[^/?#]+\/)?\d+|playlist\/(?:[^/?#]+\/)?pl\.[\w-]+|(?:room|multi-room|grouping)\/\d+|curator\/(?:[^/?#]+\/)?\d+|station\/(?:[^/?#]+\/)?ra\.[\w.-]+|new\/?|radio\/?)$/;
+export const LOCAL_PAGE = /^https:\/\/music\.apple\.com\/[a-z]{2}\/(?:(?:song|music-video)\/[^/?#]+\/\d+|post\/(?:[^/?#]+\/)?\d+|(?:album|artist)\/(?:[^/?#]+\/)?\d+|playlist\/(?:[^/?#]+\/)?pl\.[\w-]+|(?:room|multi-room|grouping)\/\d+|curator\/(?:[^/?#]+\/)?\d+|station\/(?:[^/?#]+\/)?ra\.[\w.-]+|new\/?|radio\/?|home\/?)$/;
 
 /**
  * 艺人页能「查看全部」的区块（官网 MD 接受的 section，去掉本站不展示的演唱会、广播节目与 more-to-hear），
@@ -52,6 +52,8 @@ export function parseAppleLink(raw) {
   if (artistPage) return `https://music.apple.com/${cc}/artist/${artistPage[1] || '_'}/${artistPage[2]}`;
   // 编辑页：新发现、room、multi-room、grouping 与 curator（见 browse.mjs）
   if (/^\/[a-z]{2}\/new\/?$/i.test(url.pathname)) return `https://music.apple.com/${cc}/new`;
+  // 为你推荐（官网 /{cc}/home；旧地址 listen-now、for-you 等与官网一样也认）
+  if (/^\/(?:[a-z]{2}\/)?(?:home|listen-?now|for[-_]?you)\/?$/i.test(url.pathname)) return `https://music.apple.com/${cc}/home`;
   // 排行榜与各榜单的「查看全部」（?genreId= 为类型）
   const charts = url.pathname.match(/^\/[a-z]{2}\/new\/top-charts(?:\/(songs|playlists|albums|music-videos|city-charts|daily-global-top-charts))?\/?$/i);
   const genreId = url.searchParams.get('genreId');

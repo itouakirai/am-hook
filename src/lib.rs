@@ -57,6 +57,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/station/storefront", get(amp::station_storefront_handler))
         .route("/station/catalog/*path", get(amp::station_catalog_handler))
         .route("/station/recent", get(amp::station_recent_handler))
+        // 「为你推荐」（官网 /{cc}/home）与区块的「查看全部」
+        .route("/station/recommendations", get(amp::station_recommendations_handler))
+        .route("/station/recommendations/:id/see-all", get(amp::station_recommendation_see_all_handler))
         .route("/station/license", post(amp::station_license_handler))
         .fallback(handlers::fallback_handler)
         // CSP、nosniff 等安全响应头（见 security.rs），所有响应都带

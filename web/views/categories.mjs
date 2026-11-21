@@ -3,8 +3,10 @@
 // 内容是 apple-curators（风格、心情、活动）、editorial-items（排行榜、音乐视频、专题 multi-room 等）与 activities，
 // 官网把它们合成一个网格，标题取第一个推荐的 title。砖块封面为 editorialArtwork.subscriptionHero，
 // 按官网 category-brick 的 16:9、裁切码 sr 取图；标题文字（策展人 shortName 等）由页面叠在封面上。
+// 第一个砖块是本站加的「为你推荐」入口（forYouBrick，需要 media-user-token 的个性化页面）。
 import { amp, artUrl } from '../amp.mjs';
 import { resolveLink } from './links.mjs';
+import { tokenTail, onTokenChange } from '/assets/station.mjs';
 
 const { AmI18n } = window;
 const { t } = AmI18n;
@@ -109,6 +111,34 @@ export function brickNode({ title, artwork, link }) {
   label.textContent = title;
   node.append(img, label);
   if (!link.local) node.insertAdjacentHTML('beforeend', EXTERNAL_ICON);
+  return node;
+}
+
+const FOR_YOU_ICON = '<svg class="brick-for-you-art" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true"><path d="M32 4c1.6 13.3 6.7 18.4 20 20-13.3 1.6-18.4 6.7-20 20-1.6-13.3-6.7-18.4-20-20 13.3-1.6 18.4-6.7 20-20Z"/><path d="M50 38c.8 6.6 3.4 9.2 10 10-6.6.8-9.2 3.4-10 10-.8-6.6-3.4-9.2-10-10 6.6-.8 9.2-3.4 10-10Z" opacity=".7"/></svg>';
+
+/**
+ * 本站自己的砖块：「为你推荐」（官网「主页」，/home，见 browse.mjs）的入口，排在类别浏览第一位。
+ * 没有官方封面，用渐变底色与图标；左上角提示是否已填写 media-user-token（变化时随之更新，signal 中止时停止监听）
+ */
+export function forYouBrick({ signal } = {}) {
+  const node = document.createElement('a');
+  node.className = 'brick brick-for-you loaded';
+  node.href = '/home';
+  const hint = document.createElement('span');
+  hint.className = 'brick-hint';
+  const label = document.createElement('span');
+  label.className = 'brick-title';
+  // 切换界面语言后由页面再调用一次 node.refresh()
+  const sync = () => {
+    label.textContent = t('forYou.title');
+    hint.textContent = t(tokenTail() ? 'forYou.brickHint' : 'forYou.brickNeedsToken');
+  };
+  node.refresh = sync;
+  sync();
+  node.insertAdjacentHTML('afterbegin', FOR_YOU_ICON);
+  node.append(hint, label);
+  const off = onTokenChange(sync);
+  signal?.addEventListener('abort', off, { once: true });
   return node;
 }
 
