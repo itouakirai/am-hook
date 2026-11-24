@@ -13,6 +13,7 @@
  */
 const { AmI18n } = window;
 const { t } = AmI18n;
+import { BUDS_SERVICES, GalaxyBudsTracker } from './galaxy-buds.mjs';
 
 /** 渲染器 mid 档：ADM 半径 1 对应的距离（crates/joc-core 的 DISTANCE_M[1]） */
 const MIX_RADIUS = 2.19327927;
@@ -44,6 +45,35 @@ const TAU = Math.PI * 2;
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif';
 
 let current = null;
+const trackingSessions = new WeakMap();
+
+/** 连接归播放器所有，不随声场窗口关闭；隐藏时仍合并传感器更新并送入双耳引擎。 */
+function trackingSession(player) {
+  if (trackingSessions.has(player)) return trackingSessions.get(player);
+  const session = { connected: false, busy: false, error: '', view: null, timer: null, pending: null };
+  session.tracker = new GalaxyBudsTracker({
+    onPose: (pose) => {
+      if (session.view) { session.view.pose(pose); return; }
+      session.pending = pose;
+      if (session.timer != null) return;
+      session.timer = setTimeout(() => {
+        session.timer = null;
+        const latest = session.pending;
+        session.pending = null;
+        if (session.view) session.view.pose(latest);
+        else player.setSpatial(latest);
+      }, 16);
+    },
+    onStatus: (status) => {
+      session.connected = status === 'connected';
+      if (status === 'connected') session.error = '';
+      if (status.startsWith('error:')) session.error = status.slice(7);
+      if (session.view) session.view.renderToggles();
+    },
+  });
+  trackingSessions.set(player, session);
+  return session;
+}
 
 /** 打开声场界面；已经打开时把焦点移回去 */
 export function open(player) {
@@ -77,16 +107,20 @@ function floorCircle(radius) {
   return Array.from({ length: 73 }, (_, k) => [Math.cos((k / 72) * TAU) * radius, Math.sin((k / 72) * TAU) * radius, FLOOR]);
 }
 
-/** 头部朝向（左转 yaw、抬头 pitch）的面向与右手方向 */
-function headAxes(yaw, pitch) {
+/** 头部朝向（左转 yaw、抬头 pitch、右耳向下 roll）的局部坐标轴 */
+function headAxes(yaw, pitch, roll = 0) {
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
+  const cr = Math.cos(roll);
+  const sr = Math.sin(roll);
+  const right0 = [cy, sy, 0];
+  const up0 = [sy * sp, -cy * sp, cp];
   return {
     face: [-sy * cp, cy * cp, sp],
-    right: [cy, sy, 0],
-    up: [sy * sp, -cy * sp, cp],
+    right: right0.map((value, k) => value * cr - up0[k] * sr),
+    up: up0.map((value, k) => value * cr + right0[k] * sr),
   };
 }
 
@@ -112,6 +146,8 @@ function capsule(ctx, a, b, ra, rb) {
 class SpatialScene {
   constructor(player) {
     this.player = player;
+    this.tracking = trackingSession(player);
+    this.tracking.view = this;
     this.engine = null;
     this.state = player.spatial;
     this.view = 'orbit';
@@ -251,11 +287,20 @@ class SpatialScene {
       this.gyroButton = this.toggleButton(t('scene.gyro'), t('scene.gyroTip'), () => this.toggleGyro());
       toggles.push(this.gyroButton);
     }
+    if ('serial' in navigator) {
+      this.budsTracker = this.tracking.tracker;
+      this.budsButton = button('joc-scene-action', t('scene.trackersConnect'));
+      this.budsButton.addEventListener('click', () => this.toggleBuds());
+      this.budsStatus = el('span', 'joc-tracker-error');
+      this.budsStatus.setAttribute('role', 'alert');
+      toggles.push(this.budsButton, this.budsStatus);
+    }
 
     this.focusSlider = this.slider(t('scene.focus'), t('scene.focusTip'), 0, 1, 0.05, (value) => this.update({ focus: value }));
     this.heightSlider = this.slider(t('scene.height'), t('scene.heightTip'), 1, 3, 0.1, (value) => this.update({ height: value }));
 
     const reset = button('joc-scene-action', t('scene.reset'));
+    this.resetButton = reset;
     reset.addEventListener('click', () => this.resetPose());
     const restore = button('joc-scene-action', t('scene.restore'));
     restore.addEventListener('click', () => this.update({ solo: [], mute: [] }));
@@ -278,6 +323,9 @@ class SpatialScene {
     node.addEventListener('click', onClick);
     return node;
   }
+
+  get trackerConnected() { return this.tracking.connected; }
+  get trackerBusy() { return this.tracking.busy; }
 
   slider(label, title, min, max, step, onInput) {
     const input = Object.assign(document.createElement('input'), { type: 'range', min, max, step });
@@ -326,7 +374,17 @@ class SpatialScene {
     if (this.lookButton) this.lookButton.setAttribute('aria-pressed', String(this.look));
     if (this.stickButton) this.stickButton.setAttribute('aria-pressed', String(this.stickOn));
     this.root.classList.toggle('is-look', this.look);
-    if (this.gyroButton) this.gyroButton.setAttribute('aria-pressed', String(Boolean(this.gyro)));
+    if (this.gyroButton) {
+      this.gyroButton.setAttribute('aria-pressed', String(Boolean(this.gyro)));
+      this.gyroButton.disabled = Boolean(this.trackerConnected || this.trackerBusy);
+    }
+    if (this.budsButton) {
+      this.budsButton.disabled = Boolean(this.trackerBusy);
+      this.budsButton.textContent = t(this.trackerConnected ? 'scene.trackersDisconnect' : 'scene.trackersConnect');
+      this.budsButton.setAttribute('aria-pressed', String(Boolean(this.trackerConnected)));
+      this.budsStatus.textContent = this.tracking.error ? `${t('scene.budsError')}: ${this.tracking.error}` : '';
+    }
+    if (this.resetButton) this.resetButton.textContent = t(this.trackerConnected ? 'scene.recenter' : 'scene.reset');
   }
 
   /** 独奏 / 静音的编号（0 为 LFE）算成 16 路增益 */
@@ -369,6 +427,7 @@ class SpatialScene {
 
   resetPose() {
     this.tour = false;
+    if (this.trackerConnected) this.budsTracker.recenter();
     if (this.gyro) this.gyro.base = null;
     this.renderToggles();
     this.update({ yaw: 0, pitch: 0, roll: 0, x: 0, y: 0, z: 0 });
@@ -416,6 +475,7 @@ class SpatialScene {
       this.renderToggles();
       return;
     }
+    if (this.trackerBusy || (this.budsTracker && this.budsTracker.port)) return;
     try {
       // iOS 要在点击里请求权限
       if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') return;
@@ -435,6 +495,77 @@ class SpatialScene {
     window.addEventListener('deviceorientation', gyro.listener);
     this.gyro = gyro;
     this.renderToggles();
+  }
+
+  async toggleBuds(service) {
+    if (this.trackerBusy) return;
+    if (!this.trackerConnected && !service) { this.chooseTracker(); return; }
+    this.tracking.busy = true;
+    this.tracking.error = '';
+    try {
+      if (this.trackerConnected) {
+        await this.budsTracker.disconnect();
+      } else {
+        if (this.gyro) {
+          window.removeEventListener('deviceorientation', this.gyro.listener);
+          this.gyro = null;
+        }
+        this.tour = false;
+        this.look = false;
+        this.unlock();
+        // requestPort 必须直接在选项的点击事件里调用，不能先等异步操作。
+        await this.budsTracker.connect(service);
+      }
+    } catch (error) {
+      if (error.name !== 'NotFoundError') this.tracking.error = error.message || String(error);
+    } finally {
+      this.tracking.busy = false;
+      if (this.tracking.view) this.tracking.view.renderToggles();
+    }
+  }
+
+  /** 先选跟踪器类型，再用单个服务 UUID 打开浏览器设备选择器，避免重复设备。 */
+  chooseTracker() {
+    if (this.trackerDialog) { this.trackerDialog.focus(); return; }
+    this.unlock();
+    const dialog = document.createElement('dialog');
+    dialog.className = 'joc-tracker-dialog';
+    dialog.setAttribute('aria-labelledby', 'joc-tracker-title');
+    const title = el('h3', '', t('scene.trackersConnect'));
+    title.id = 'joc-tracker-title';
+    const list = el('div', 'joc-tracker-list');
+    const choices = [
+      { name: 'Samsung Galaxy Buds Pro', icon: new URL('./tracker-icons/buds-pro.png', import.meta.url).href, service: BUDS_SERVICES[1] },
+      { name: t('scene.trackersBuds2Plus'), icon: new URL('./tracker-icons/buds2-pro.png', import.meta.url).href, service: BUDS_SERVICES[0] },
+      { name: t('scene.trackersGoogle'), icon: new URL('./tracker-icons/google-g.png', import.meta.url).href },
+    ];
+    for (const choice of choices) {
+      const image = document.createElement('img');
+      image.src = choice.icon;
+      image.alt = '';
+      const item = button('joc-tracker-option', '');
+      item.append(image, el('span', '', choice.name));
+      item.disabled = !choice.service;
+      if (item.disabled) item.append(el('small', '', t('scene.trackersUnsupported')));
+      item.addEventListener('click', () => {
+        dialog.close();
+        this.toggleBuds(choice.service);
+      });
+      list.append(item);
+    }
+    const cancel = button('joc-scene-action', t('scene.close'));
+    cancel.addEventListener('click', () => dialog.close());
+    dialog.append(title, list, cancel);
+    dialog.addEventListener('keydown', (event) => event.stopPropagation());
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      this.trackerDialog = null;
+      if (!this.closed) this.budsButton.focus();
+    }, { once: true });
+    this.root.append(dialog);
+    this.trackerDialog = dialog;
+    dialog.showModal();
   }
 
   bindPointer() {
@@ -601,8 +732,11 @@ class SpatialScene {
   }
 
   close() {
+    this.closed = true;
+    if (this.trackerDialog) this.trackerDialog.close();
     cancelAnimationFrame(this.frame);
     if (this.gyro) window.removeEventListener('deviceorientation', this.gyro.listener);
+    this.tracking.view = null;
     this.unlock();
     document.removeEventListener('pointerlockchange', this.onLockChange);
     this.resize.disconnect();
@@ -774,11 +908,15 @@ class SpatialScene {
   setupCamera() {
     let eye;
     let face;
+    let viewRight;
+    let viewUp;
     let fov;
     if (this.view === 'first') {
-      const axes = headAxes(this.state.yaw || 0, this.state.pitch || 0);
+      const axes = headAxes(this.state.yaw || 0, this.state.pitch || 0, this.state.roll || 0);
       eye = this.listener();
       face = axes.face;
+      viewRight = axes.right;
+      viewUp = axes.up;
       fov = 1.25 * this.camera.fov;
     } else {
       const { yaw, pitch, distance } = this.camera;
@@ -788,8 +926,8 @@ class SpatialScene {
       fov = 0.9;
     }
     const length = Math.hypot(face[1], face[0]) || 1e-9;
-    const right = [face[1] / length, -face[0] / length, 0];
-    const up = [right[1] * face[2] - right[2] * face[1], right[2] * face[0] - right[0] * face[2], right[0] * face[1] - right[1] * face[0]];
+    const right = viewRight || [face[1] / length, -face[0] / length, 0];
+    const up = viewUp || [right[1] * face[2] - right[2] * face[1], right[2] * face[0] - right[0] * face[2], right[0] * face[1] - right[1] * face[0]];
     const focal = (Math.min(this.width, this.height) / 2) / Math.tan(fov / 2);
     this.cam = { eye, face, right, up, focal, cx: this.width / 2, cy: this.height * (this.view === 'first' ? 0.45 : 0.42) };
   }
@@ -1051,10 +1189,13 @@ class SpatialScene {
   drawHead() {
     const ctx = this.ctx;
     const origin = this.listener();
-    const axes = headAxes(this.state.yaw || 0, this.state.pitch || 0);
+    const axes = headAxes(this.state.yaw || 0, this.state.pitch || 0, this.state.roll || 0);
     const center = this.project(origin);
     if (!center) return;
     const radius = HEAD_RADIUS * center.scale;
+    const upTip = this.project(headPoint(axes, origin, [0, 0, HEAD_RADIUS]));
+    // 用局部 up 轴旋转耳朵与发旋来表现 roll，头部轮廓保持圆形。
+    const headAngle = upTip ? Math.atan2(upTip.y - center.y, upTip.x - center.x) - Math.PI / 2 : 0;
     // 面朝方向的光束（聚焦越强越亮）与视线
     const focus = this.state.focus || 0;
     const reach = 1.8 + focus * 1.5;
@@ -1081,11 +1222,11 @@ class SpatialScene {
       { local: [-HEAD_RADIUS * 1.02, 0, 0], kind: 'ear', color: '#5ad1ff', label: 'L' },
       { local: [HEAD_RADIUS * 1.02, 0, 0], kind: 'ear', color: '#ff5a73', label: 'R' },
       { local: [0, HEAD_RADIUS * 1.08, -0.02], kind: 'nose' },
-    ].map((part) => ({ ...part, p: this.project(headPoint(axes, origin, part.local)) })).filter((part) => part.p);
+    ].map((part) => ({ ...part, p: this.project(headPoint(axes, origin, part.local)), angle: headAngle })).filter((part) => part.p);
     const drawPart = (part) => {
       if (part.kind === 'ear') {
         ctx.beginPath();
-        ctx.ellipse(part.p.x, part.p.y, radius * 0.22, radius * 0.34, 0, 0, TAU);
+        ctx.ellipse(part.p.x, part.p.y, radius * 0.22, radius * 0.34, part.angle, 0, TAU);
         ctx.fillStyle = part.color;
         ctx.fill();
         ctx.font = `700 ${Math.max(9, radius * 0.28)}px ${FONT}`;
